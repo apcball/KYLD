@@ -22,7 +22,6 @@
               <div class="page">
                
                     <style>
-                       
                         @page {
                             margin-top: 0mm;
                             margin-bottom: 10mm;
@@ -35,17 +34,22 @@
                             bottom: 0;
                             width: 100%;
                         }
-                        
+
                         body, .page, .row {
                             margin-top: 0 !important;
                             padding-top: 0 !important;
                         }
-                        
+
                         html, body, page, table, th, td, div, p, span, h1, h2, h3, h4, h5, h6 {
-                            font-family: 'Sarabun', sans-serif !important;
-                            font-size: 20px;
+                            font-family: 'Sarabun', 'TH SarabunPSK', Tahoma, Arial, sans-serif !important;
+                            font-size: 18px !important;
                         }
-                        
+
+                        body {
+                            font-family: 'Sarabun', 'TH SarabunPSK', Tahoma, Arial, sans-serif !important;
+                            font-size: 18px !important;
+                        }
+
                         .table {
                             border-collapse: collapse !important;
                             width: 100%;
@@ -90,7 +94,7 @@
                           }
 
                         .vendor-info, .delivery-info {
-                            font-size: 14px;
+                            font-size: 10px;
                         }
 
                        
@@ -103,7 +107,7 @@
                         }
                         
                         body {
-                          font-family: 'TH SarabunPSK', Tahoma, sans-serif;
+                          font-family: 'Sarabun', 'TH SarabunPSK', Tahoma, Arial, sans-serif;
                           font-size: 18px;
                           padding: 40px;
                         }
@@ -263,7 +267,8 @@
                         <th style="width: 20%; padding: 8px; text-align: center; vertical-align: middle; border: 1px solid black; font-size: 20px; background-color: #f8f9fa; font-weight: bold;">
                           ข้อมูลสินค้า
                         </th>
-                      </tr>
+                      </tr># ตัวอย่างสำหรับ Ubuntu/Debian
+sudo apt-get install fonts-thai-tlwg
                     </thead>
                     <tbody>
                         <t t-set="page_number" t-value="page_number or 1"/>

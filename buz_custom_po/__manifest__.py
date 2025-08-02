@@ -20,7 +20,10 @@
         'reports/purchase_request.xml',
         'reports/purchase_order_test.xml',
         'reports/purchase_agreements_report.xml',
-        'reports/_purchase_order_id.xml',
+        'reports/purchase_order_aidol.xml',
+        'reports/purchase_order_khaoyal.xml',
+        'reports/purchase_order_forest.xml',
+        'reports/purchase_order_smart.xml',
         'views/report_menu.xml',
     ],
     'assets': {

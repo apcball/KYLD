@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <!-- Define Paper Format -->
-    <record id="paperformat_purchase_order_id" model="report.paperformat">
-        <field name="name">Purchase Order Id A4</field>
+    <record id="paperformat_purchase_order_forest" model="report.paperformat">
+        <field name="name">Purchase Order Forest A4</field>
         <field name="default" eval="True"/>
         <field name="format">A4</field>
         <field name="orientation">Portrait</field>
-        <field name="margin_top">10</field>
-        <field name="margin_bottom">10</field>
+        <field name="margin_top">6</field>
+        <field name="margin_bottom">6</field>
         <field name="margin_left">4</field>
         <field name="margin_right">4</field>
         <field name="header_line" eval="False"/>
@@ -17,8 +17,8 @@
 
 
      <!-- Report Template -->
-     <template id="report_purchase_order_id_document_custom">
-        <t t-name="buz_custom_po.report_purchase_order_id_document_custom">
+     <template id="report_purchase_order_forest_document_custom">
+        <t t-name="buz_custom_po.report_purchase_order_forest_document_custom">
             <t t-call="web.html_container">
                 <t t-foreach="docs" t-as="o">
                     <t t-call="web.external_layout">
@@ -134,11 +134,13 @@
                 <!-- ส่วนหัว (Header) -->
                 <div class="row mb-2">
                     <div class="col-12 text-center">
-                        <div style="font-size: 24px;">
-                            <strong>บริษัท ไอดอล ซิมเท่ม จำกัด (สำนักงานใหญ่)   เลขที่ 45 หมู่14 ตำบลบึงคำพร้อย อำเภอลำลูกกา จังหวัดปทุมธานี 12150 โทร: (02) 105-4600</strong>
+                       <div style="font-size: 20px; line-height: 1.6;">
+                            <strong style="font-size: 24px;">บริษัท เดอะ ฟอเรส เเลนด์ จำกัด</strong><br/>
+                            <strong>45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
+                            <strong>โทร. 02 105 4605 เลขประจำตัวผู้เสียภาษีอากร 0105559127166 สำนักงานใหญ่</strong>
                         </div>
                     </div>
-                </div>  
+                </div> 
 
                <!-- Document Title -->
                <div class="row mb-2">
@@ -166,7 +168,6 @@
                       <table style="width: 100%;">
                         <tr>
                           <td style="width: 50%; border: none;"><strong>โทร:</strong> <span t-field="o.partner_id.phone"/></td>
-                          <td style="width: 50%; border: none;"><strong>แฟ็กซ์:</strong> <span t-field="o.partner_id.fax"/></td>
                         </tr>
                       </table>
                     </div>
@@ -360,15 +361,15 @@
     </template>
 
        <!-- Report Action -->
-       <record id="action_report_purchase_order_id_custom" model="ir.actions.report">
-        <field name="name">Purchase</field>
+       <record id="action_report_purchase_order_forest_custom" model="ir.actions.report">
+        <field name="name">Purchase Forest</field>
         <field name="model">purchase.order</field>
         <field name="report_type">qweb-pdf</field>
-        <field name="report_name">buz_custom_po.report_purchase_order_id_document_custom</field>
-        <field name="report_file">buz_custom_po.report_purchase_order_id_document_custom</field>
+        <field name="report_name">buz_custom_po.report_purchase_order_forest_document_custom</field>
+        <field name="report_file">buz_custom_po.report_purchase_order_forest_document_custom</field>
         <field name="print_report_name">'Purchase Order - %s' % object.name</field>
         <field name="binding_model_id" ref="purchase.model_purchase_order"/>
         <field name="binding_type">report</field>
-        <field name="paperformat_id" ref="paperformat_purchase_order_id"/>
+        <field name="paperformat_id" ref="paperformat_purchase_order_forest"/>
     </record>
 </odoo>
