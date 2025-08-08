@@ -205,7 +205,7 @@
                         <div style="width: 50%; padding: 1; box-sizing: border-box; min-height: 46px;">
                             <table style="width: 100%; border-collapse: collapse; margin: 0; height: 100%;">
                                 <tbody>
-                                    <!--  บรรทัดที่ 1: สถานที่ส่ง + ผู้ขายยืนยัน + วันที่ (ลบเส้นบน, ชิดกรอบ) -->
+                                    <!--  บรรทัดที่ 1: สถานที่ส่ง + ผู้ขายยืนยัน + วันที่  -->
                                     <tr style="height: 28px;">
                                         <!-- สถานที่ส่ง -->
                                         <td style="width: 40%; border-bottom: 1px solid #000; padding: 0px 3px 0px 3px; line-height: 1.1;" colspan="2">

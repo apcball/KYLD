@@ -34,12 +34,19 @@ class PurchaseRequisition(models.Model):
     purpose = fields.Text(string="วัตถุประสงค์")
     purpose = fields.Char(string="Purpose")
     note = fields.Text(string="หมายเหตุ")
-   
+    dept_id = fields.Many2one('hr.department', related='employee_id.department_id', string='Department')
+    date_order = fields.Date(string="Order Date", default=fields.Date.context_today)
+    date_planned = fields.Date(string='Planned Date') 
+    requisition_id = fields.Many2one('employee.purchase.requisition', string="Requisition Reference", ondelete='cascade')
     employee_id = fields.Many2one(
         comodel_name='hr.employee',
         string='Employee',
         required=True,
         help='Select an employee'
+    )
+    project_id = fields.Many2one(
+        comodel_name='project.project',
+        string='Project'
     )
     expense_code_id = fields.Many2one(
         'account.analytic.account',  # or your actual expense code model
@@ -186,6 +193,21 @@ class PurchaseRequisition(models.Model):
         ('received', 'Received'),
         ('cancelled', 'Cancelled')
     ], default='new', copy=False, tracking=True)
+
+    order_line = fields.One2many(
+        'requisition.order',
+        'requisition_product_id',
+        string='Order Lines'
+    )
+    notes = fields.Text(string='หมายเหตุ')
+
+    department_id = fields.Many2one(
+        'hr.department',
+        string='Department',
+        related='employee_id.department_id',
+        store=True,
+        readonly=True,
+    )
 
     user_is_head = fields.Boolean(
         string="Is Department Head",
@@ -370,17 +392,10 @@ class RequisitionOrder(models.Model):
     _description = 'Requisition Order Line'
 
     requisition_product_id = fields.Many2one('employee.purchase.requisition', string="Requisition")
-    product_id = fields.Many2one('product.product', string="Product")
-    quantity = fields.Float(string="จำนวนขอซื้อ", required=True)
-    product_uom_id = fields.Many2one('uom.uom', string="หน่วย")
-    price_unit = fields.Float(string="ราคา/หน่วย", default=0.0)
-    requisition_order_ids = fields.One2many('requisition.order', 'requisition_id', string="รายการสินค้า")
-    need_date = fields.Date(string='วันที่ต้องการสินค้า')
-    need_date = fields.Date(string="วันที่ต้องการ")
-    partner_id = fields.Many2one('res.partner', string="ผู้จัดจำหน่าย")
-    delivery_location_id = fields.Many2one('stock.location', string="สถานที่ส่ง/คลัง")
-
-    def format_date(self, date_obj):
-        if date_obj and hasattr(date_obj, 'strftime') and callable(date_obj.strftime):
-            return date_obj.strftime('%d/%m/%Y')
-        return ''
+    product_id = fields.Many2one('product.product', string='Product')
+    quantity = fields.Float(string='Quantity')
+    product_uom = fields.Many2one('uom.uom', string='Unit of Measure')
+    name = fields.Char(string='Description')
+    unit_price = fields.Float(string='Unit Price')
+    partner_id = fields.Many2one('res.partner', string='Vendor')
+    analytic_distribution = fields.Json(string='Analytic Distribution')
