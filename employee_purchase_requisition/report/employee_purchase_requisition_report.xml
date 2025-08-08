@@ -128,7 +128,7 @@
                         <!-- ส่วนหัว (Header) -->
                   <div class="row mb-2">
     <div class="col-12 text-center">
-        <t t-if="o.company_id.name == 'บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด1'">
+        <t t-if="o.company_id.name == 'บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
                 <strong style="font-size: 24px;">บริษัท สมาร์ท เควาย เเมนเนจเม้นท์ จำกัด</strong><br/>
                 <strong>เลขที่ 99 หมู่ที่ 8 เเขวงฉิมพลี เขตตลิ่งชัน กรุงเทพมหานคร 10170</strong><br/>
