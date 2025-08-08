@@ -15,12 +15,7 @@
     'data': [
         'data/mail_template.xml',
         'views/purchase_view.xml',
-        'reports/purchase_order_report.xml',
-        'reports/purchase_order_report_eng.xml',
-        'reports/purchase_request.xml',
-        'reports/purchase_agreements_report.xml',
         'reports/purchase_order.xml',
-        'views/report_menu.xml',
     ],
     'assets': {
         'web.assets_backend': [

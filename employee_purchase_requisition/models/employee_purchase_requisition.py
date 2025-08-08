@@ -164,25 +164,11 @@ class PurchaseRequisition(models.Model):
         string="Destination Location",
         help='Destination location of requisition.'
     )
-    delivery_type_id = fields.Many2one(
-        comodel_name='stock.picking.type',
-        string='Delivery To',
-        help='Type of delivery.'
-    )
-    internal_picking_id = fields.Many2one(
-        comodel_name='stock.picking.type',
-        string="Internal Picking"
-    )
     requisition_description = fields.Text(string="Reason For Requisition")
     purchase_count = fields.Integer(
         string='Purchase Count',
         help='Purchase count',
         compute='_compute_purchase_count'
-    )
-    internal_transfer_count = fields.Integer(
-        string='Internal Transfer count',
-        help='Internal transfer count',
-        compute='_compute_internal_transfer_count'
     )
     state = fields.Selection([
         ('new', 'New'),
@@ -263,10 +249,6 @@ class PurchaseRequisition(models.Model):
                 self.employee_id.employee_location_id.id) if (
                 self.employee_id.employee_location_id) else (
                 self.env.ref('stock.stock_location_stock').id)
-        self.delivery_type_id = (
-            self.source_location_id.warehouse_id.in_type_id.id)
-        self.internal_picking_id = (
-            self.source_location_id.warehouse_id.int_type_id.id)
         self.write({'state': 'waiting_head_approval'})
         self.confirm_id = self.env.uid
         self.confirmed_date = fields.Date.today()
@@ -328,9 +310,6 @@ class PurchaseRequisition(models.Model):
         # สร้าง Purchase Orders
         for vendor_id, lines in purchase_orders.items():
             order_lines = [(0, 0, line) for line in lines]
-            picking_type_id = False
-            if self.destination_location_id and self.destination_location_id.warehouse_id:
-                picking_type_id = self.destination_location_id.warehouse_id.in_type_id.id
             self.env['purchase.order'].create({
                 'partner_id': vendor_id,
                 'requisition_order': self.name,
@@ -340,17 +319,10 @@ class PurchaseRequisition(models.Model):
                 'date_order': fields.Date.today(),
                 'order_line': order_lines,
                 'destination_location_id': self.destination_location_id.id,
-                'picking_type_id': picking_type_id,
             })
 
         if purchase_orders:
             self.write({'state': 'purchase_order_created'})
-
-    def _compute_internal_transfer_count(self):
-        """Function to compute the transfer count"""
-        for rec in self:
-            rec.internal_transfer_count = self.env['stock.picking'].search_count([
-                ('requisition_order', '=', rec.name)])
 
     def _compute_purchase_count(self):
         """Function to compute the purchase count"""
@@ -373,17 +345,6 @@ class PurchaseRequisition(models.Model):
             'name': 'Purchase Order',
             'view_mode': 'tree,form',
             'res_model': 'purchase.order',
-            'domain': [('requisition_order', '=', self.name)],
-        }
-
-    def get_internal_transfer(self):
-        """Internal transfer smart tab view"""
-        self.ensure_one()
-        return {
-            'type': 'ir.actions.act_window',
-            'name': 'Internal Transfers',
-            'view_mode': 'tree,form',
-            'res_model': 'stock.picking',
             'domain': [('requisition_order', '=', self.name)],
         }
 

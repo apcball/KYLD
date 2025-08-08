@@ -93,15 +93,6 @@
                                    name="purchase_count" 
                                    widget="statinfo"/>
                         </button>
-                        <button class="oe_stat_button" 
-                                type="object"
-                                name="get_internal_transfer"
-                                icon="fa-truck"
-                                invisible="not internal_transfer_count">
-                            <field string="Internal Transfer"
-                                   name="internal_transfer_count"
-                                   widget="statinfo"/>
-                        </button>
                     </div>
                     <div class="oe_title">
                         <h1>

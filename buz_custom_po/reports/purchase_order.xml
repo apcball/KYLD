@@ -383,7 +383,7 @@
 
        <!-- Report Action -->
        <record id="action_report_purchase_order_document_custom" model="ir.actions.report">
-        <field name="name">Purchase test</field>
+        <field name="name">Purchase Order</field>
         <field name="model">purchase.order</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">buz_custom_po.report_purchase_order_document_custom</field>
