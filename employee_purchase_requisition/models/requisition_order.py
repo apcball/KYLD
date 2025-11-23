@@ -39,6 +39,10 @@ class RequisitionOrder(models.Model):
         string="Unit Price",
         help="Enter the custom unit price for this product"
     )
+    remark = fields.Text(
+        string="Remark",
+        help="Add any additional remarks or notes for this requisition line"
+    )
 
     @api.onchange('product_id')
     def _onchange_product_id(self):

@@ -348,15 +348,3 @@ class PurchaseRequisition(models.Model):
             'domain': [('requisition_order', '=', self.name)],
         }
 
-class RequisitionOrder(models.Model):
-    _name = 'requisition.order'
-    _description = 'Requisition Order Line'
-
-    requisition_product_id = fields.Many2one('employee.purchase.requisition', string="Requisition")
-    product_id = fields.Many2one('product.product', string='Product')
-    quantity = fields.Float(string='Quantity')
-    product_uom = fields.Many2one('uom.uom', string='Unit of Measure')
-    name = fields.Char(string='Description')
-    unit_price = fields.Float(string='Unit Price')
-    partner_id = fields.Many2one('res.partner', string='Vendor')
-    analytic_distribution = fields.Json(string='Analytic Distribution')

@@ -14,9 +14,43 @@
                 <field name="unit_price" string="Unit Price"/>       
                 <field name="quantity"/>
                 <field name="uom"/>
+                <field name="remark"/>
                 <field name="partner_id" 
                        groups="employee_purchase_requisition.employee_requisition_head,employee_purchase_requisition.employee_requisition_manager"/>
             </tree>
+        </field>
+    </record>
+
+    <record id="requisition_order_view_form" model="ir.ui.view">
+        <field name="name">requisition.order.view.form</field>
+        <field name="model">requisition.order</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="product_id"/>
+                            <field name="quantity"/>
+                            <field name="uom"/>
+                            <field name="unit_price" string="Unit Price"/>
+                        </group>
+                        <group>
+                            <field name="partner_id" 
+                                   groups="employee_purchase_requisition.employee_requisition_head,employee_purchase_requisition.employee_requisition_manager"/>
+                            <field name="analytic_distribution" 
+                                   widget="analytic_distribution" 
+                                   groups="analytic.group_analytic_accounting"
+                                   options="{'product_field': 'product_id'}"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                    </group>
+                    <group>
+                        <field name="remark" placeholder="Add any additional remarks or notes for this requisition line"/>
+                    </group>
+                </sheet>
+            </form>
         </field>
     </record>
 </odoo>
