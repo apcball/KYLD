@@ -11,10 +11,14 @@ class AccountPaymentRegister(models.TransientModel):
     wht_tax_id = fields.Many2one(
         comodel_name="account.withholding.tax",
         string="Withholding Tax",
+        check_company=True,
         help="Optional hidden field to keep wht_tax. Useful for case 1 tax only",
     )
     wht_amount_base = fields.Monetary(
         string="Withholding Base",
+        compute="_compute_wht_amount",
+        store=True,
+        readonly=False,
         help="Based amount for the tax amount",
     )
 
@@ -22,21 +26,26 @@ class AccountPaymentRegister(models.TransientModel):
     def _compute_payment_difference_handling(self):
         res = super()._compute_payment_difference_handling()
         for wizard in self:
-            if wizard.wht_amount_base and wizard.wht_tax_id:
+            if (
+                wizard.wht_amount_base
+                and wizard.wht_tax_id
+                and wizard.payment_difference
+            ):
                 wizard.payment_difference_handling = "reconcile"
         return res
 
-    @api.onchange("wht_tax_id", "wht_amount_base")
-    def _onchange_wht_tax_id(self):
-        if self.wht_tax_id and self.wht_amount_base:
-            if self.wht_tax_id.is_pit:
-                self._onchange_pit()
-            else:
-                self._onchange_wht()
+    @api.depends("wht_tax_id", "wht_amount_base")
+    def _compute_wht_amount(self):
+        for rec in self:
+            if rec.wht_tax_id and rec.wht_amount_base:
+                if rec.wht_tax_id.is_pit:
+                    rec._onchange_pit()
+                else:
+                    rec._onchange_wht()
 
     def _onchange_wht(self):
         """Onchange set for normal withholding tax"""
-        amount_wht = self.wht_tax_id.amount / 100 * self.wht_amount_base
+        amount_wht = (self.wht_tax_id.amount / 100) * self.wht_amount_base
         amount_currency = self.company_id.currency_id._convert(
             self.source_amount,
             self.currency_id,
@@ -78,16 +87,17 @@ class AccountPaymentRegister(models.TransientModel):
         self.writeoff_account_id = self.wht_tax_id.account_id
         self.writeoff_label = self.wht_tax_id.display_name
 
-    def _create_payment_vals_from_batch(self, batch_result):
-        payment_vals = super()._create_payment_vals_from_batch(batch_result)
+    def _create_payment_vals_from_wizard(self, batch_result):
+        payment_vals = super()._create_payment_vals_from_wizard(batch_result)
         # Check case auto and manual withholding tax
         if self.payment_difference_handling == "reconcile" and self.wht_tax_id:
             payment_vals["write_off_line_vals"] = self._prepare_writeoff_move_line(
-                payment_vals.get("write_off_line_vals", False)
+                payment_vals.get("write_off_line_vals", [])
             )
         return payment_vals
 
     @api.depends(
+        "can_edit_wizard",
         "source_amount",
         "source_amount_currency",
         "source_currency_id",
@@ -101,10 +111,10 @@ class AccountPaymentRegister(models.TransientModel):
         # Get the sum withholding tax amount from invoice line
         skip_wht_deduct = self.env.context.get("skip_wht_deduct")
         active_model = self.env.context.get("active_model")
-        if not skip_wht_deduct and active_model == "account.move":
+        if not skip_wht_deduct and active_model == "account.move.line":
             active_ids = self.env.context.get("active_ids", [])
-            invoices = self.env["account.move"].browse(active_ids)
-            wht_move_lines = invoices.mapped("line_ids").filtered("wht_tax_id")
+            inv_lines = self.env["account.move.line"].browse(active_ids)
+            wht_move_lines = inv_lines.filtered("wht_tax_id")
             if not wht_move_lines:
                 return res
             # Case WHT only, ensure only 1 wizard
@@ -113,7 +123,7 @@ class AccountPaymentRegister(models.TransientModel):
                 self.payment_date, self.currency_id
             )
             # Support only case single WHT line in this module
-            # Use l10n_th_account_tax_mult if there are mixed lines
+            # Use `l10n_th_account_tax_multi` if there are mixed lines
             amount_base = 0
             amount_wht = 0
             if len(deduction_list) == 1:
@@ -138,9 +148,11 @@ class AccountPaymentRegister(models.TransientModel):
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-        if self.env.context.get("active_model") == "account.move":
+        if self.env.context.get("active_model") == "account.move.line":
             active_ids = self.env.context.get("active_ids", False)
-            move_ids = self.env["account.move"].browse(active_ids)
+            move_ids = (
+                self.env["account.move.line"].browse(active_ids).mapped("move_id")
+            )
             partner_ids = move_ids.mapped("partner_id")
             wht_tax_line = move_ids.line_ids.filtered("wht_tax_id")
             if len(partner_ids) > 1 and wht_tax_line:
@@ -153,6 +165,25 @@ class AccountPaymentRegister(models.TransientModel):
             res["group_payment"] = True
         return res
 
+    @api.onchange("currency_id")
+    def _onchange_currency_id(self):
+        """Change currency in wizard, Withholding Base should be updated"""
+        # In some Odoo versions the parent does not implement this onchange.
+        # Call it only if available to avoid AttributeError.
+        parent_onchange = getattr(super(AccountPaymentRegister, self), "_onchange_currency_id", None)
+        res = None
+        if parent_onchange:
+            try:
+                res = parent_onchange()
+            except Exception:
+                # If the parent's onchange fails for any reason, continue with our logic
+                res = None
+        # Some Odoo versions may not have `custom_user_amount` or `payment_difference`
+        if getattr(self, "custom_user_amount", False):
+            amt = getattr(self, "amount", 0) + getattr(self, "payment_difference", 0)
+            self.wht_amount_base = amt
+        return res
+
     def _create_payments(self):
         self.ensure_one()
         if self.wht_tax_id and not self.group_payment:
@@ -162,19 +193,9 @@ class AccountPaymentRegister(models.TransientModel):
                     "with multiple invoices that has withholding tax."
                 )
             )
-        # For case calculate tax invoice partial payment
-        if self.payment_difference_handling == "open":
-            self = self.with_context(partial_payment=True)
-        elif self.payment_difference_handling == "reconcile":
-            self = self.with_context(skip_account_move_synchronization=True)
-        # Add context reverse_tax_invoice for case reversal
-        active_ids = self.env.context.get("active_ids", False)
-        move_ids = self.env["account.move"].browse(active_ids)
-        if any(move.move_type in ["in_refund", "out_refund"] for move in move_ids):
-            self = self.with_context(reverse_tax_invoice=True)
         return super()._create_payments()
 
-    def _prepare_writeoff_move_line(self, write_off_line_vals=None):
+    def _prepare_writeoff_move_line(self, write_off_line_vals):
         """Prepare value withholding tax move of payment"""
         conversion_rate = self.env["res.currency"]._get_conversion_rate(
             self.currency_id,
@@ -185,31 +206,24 @@ class AccountPaymentRegister(models.TransientModel):
         wht_amount_base_company = self.company_id.currency_id.round(
             self.wht_amount_base * conversion_rate
         )
-        if write_off_line_vals:
-            for write_off in write_off_line_vals:
-                write_off["wht_tax_id"] = self.wht_tax_id.id
-                write_off["tax_base_amount"] = wht_amount_base_company
-            return write_off_line_vals
+        for write_off in write_off_line_vals:
+            write_off["wht_tax_id"] = self.wht_tax_id.id
+            write_off["tax_base_amount"] = wht_amount_base_company
+        return write_off_line_vals
 
-        write_off_amount_currency = (
-            self.payment_difference
-            if self.payment_type == "inbound"
-            else -self.payment_difference
-        )
-        write_off_balance = self.company_id.currency_id.round(
-            write_off_amount_currency * conversion_rate
-        )
-        return [
-            {
-                "name": self.writeoff_label,
-                "account_id": self.writeoff_account_id.id,
-                "partner_id": self.partner_id.id,
-                "currency_id": self.currency_id.id,
-                "amount_currency": write_off_amount_currency,
-                "balance": write_off_balance,
-                "wht_tax_id": self.wht_tax_id.id,
-                "tax_base_amount": wht_amount_base_company,
-            }
-        ]
-
-
+    def action_create_payments(self):
+        # For case calculate tax invoice partial payment
+        if self.payment_difference_handling == "open":
+            self = self.with_context(partial_payment=True)
+        elif self.payment_difference_handling == "reconcile":
+            self = self.with_context(skip_account_move_synchronization=True)
+        # Find original moves
+        model = self.env.context.get("active_model")
+        active_ids = self.env.context.get("active_ids", False)
+        moves = self.env[model].browse(active_ids)
+        if model == "account.move.line":
+            moves = moves.mapped("move_id")
+        # Add context reverse_tax_invoice for case reversal
+        if any(move.move_type in ["in_refund", "out_refund"] for move in moves):
+            self = self.with_context(reverse_tax_invoice=True)
+        return super().action_create_payments()

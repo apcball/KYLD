@@ -1,6 +1,6 @@
 # Copyright 2020 Ecosoft Co., Ltd (https://ecosoft.co.th/)
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html)
-from odoo import _, api, fields, models
+from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
 from .withholding_tax_cert import INCOME_TAX_FORM, WHT_CERT_INCOME_TYPE
@@ -9,12 +9,13 @@ from .withholding_tax_cert import INCOME_TAX_FORM, WHT_CERT_INCOME_TYPE
 class AccountWithholdingTax(models.Model):
     _name = "account.withholding.tax"
     _description = "Account Withholding Tax"
+    _check_company_auto = True
 
     name = fields.Char(required=True)
     account_id = fields.Many2one(
         comodel_name="account.account",
         string="Withholding Tax Account",
-        domain=[("wht_account", "=", True)],
+    # No domain restriction so any chart of account can be selected from the dropdown
         required=True,
         ondelete="restrict",
     )
@@ -39,22 +40,28 @@ class AccountWithholdingTax(models.Model):
         selection=WHT_CERT_INCOME_TYPE,
         string="Default Type of Income",
     )
+    company_id = fields.Many2one(
+        comodel_name="res.company",
+        required=True,
+        default=lambda self: self.env.company,
+    )
+
+    # ...existing code...
 
     _sql_constraints = [
-        ("name_unique", "UNIQUE(name)", "Name must be unique!"),
+        ("name_unique", "UNIQUE(name,company_id)", "Name must be unique!"),
     ]
 
     @api.constrains("is_pit")
     def _check_is_pit(self):
         pits = self.search_count([("is_pit", "=", True)])
         if pits > 1:
-            raise ValidationError(_("Only 1 personal income tax allowed!"))
+            raise ValidationError(self.env._("Only 1 personal income tax allowed!"))
 
-    @api.constrains("account_id")
-    def _check_account_id(self):
-        for rec in self:
-            if rec.account_id and not rec.account_id.wht_account:
-                raise ValidationError(_("Selected account is not for withholding tax"))
+    # Removed constraint that required selected account to have wht_account=True
+    # so users can choose existing chart of accounts freely. If you want to
+    # enforce WHT accounts only, re-add this constraint or set the
+    # 'wht_account' flag on the desired accounts.
 
     @api.depends("is_pit")
     def _compute_pit_id(self):

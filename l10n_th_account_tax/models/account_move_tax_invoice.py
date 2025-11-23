@@ -6,7 +6,7 @@ import datetime
 
 from dateutil.relativedelta import relativedelta
 
-from odoo import _, api, fields, models
+from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 
@@ -42,6 +42,23 @@ class AccountMoveTaxInvoice(models.Model):
         string="Partner",
         ondelete="restrict",
     )
+    vat = fields.Char(
+        string="Tax ID",
+        compute="_compute_vat",
+        inverse="_inverse_vat",
+        store=True,
+        readonly=False,
+    )
+    
+    @api.depends("partner_id.vat")
+    def _compute_vat(self):
+        for rec in self:
+            rec.vat = rec.partner_id.vat
+    
+    def _inverse_vat(self):
+        for rec in self:
+            if rec.partner_id:
+                rec.partner_id.vat = rec.vat
     move_id = fields.Many2one(comodel_name="account.move", index=True, copy=True)
     move_state = fields.Selection(related="move_id.state", store=True)
     payment_id = fields.Many2one(
@@ -93,8 +110,8 @@ class AccountMoveTaxInvoice(models.Model):
     @api.depends("move_line_id.balance", "move_line_id.tax_base_amount")
     def _compute_tax_amount(self):
         """Compute without undue vat"""
-        for rec in self._origin.filtered(lambda l: not l.payment_id):
-            sign = 1 if rec.move_id.move_type not in ["in_refund", "out_refund"] else -1
+        for rec in self._origin.filtered(lambda tax: not tax.payment_id):
+            sign = -1 if rec.move_line_id.is_refund else 1
             rec.tax_base_amount = sign * rec.move_line_id.tax_base_amount or 0.0
             rec.balance = sign * abs(rec.move_line_id.balance) or 0.0
 
@@ -155,6 +172,6 @@ class AccountMoveTaxInvoice(models.Model):
             if len(line_taxinv[rec.move_line_id.id]) == 1 and not self.env.context.get(
                 "force_remove_tax_invoice"
             ):
-                raise UserError(_("Cannot delete this last tax invoice line"))
+                raise UserError(self.env._("Cannot delete this last tax invoice line"))
             line_taxinv[rec.move_line_id.id].remove(rec.id)
         return super().unlink()
