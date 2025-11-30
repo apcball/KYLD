@@ -134,21 +134,21 @@
                 <!-- ส่วนหัว (Header) -->
               <div class="row mb-2">
     <div class="col-12 text-center">
-        <t t-if="o.company_id.name == 'บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด1'">
+        <t t-if="o.company_id.name == 'บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
-                <strong style="font-size: 24px;">บริษัท สมาร์ท เควาย เเมนเนจเม้นท์ จำกัด</strong><br/>
+                <strong style="font-size: 24px;">บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด</strong><br/>
                 <strong>เลขที่ 99 หมู่ที่ 8 เเขวงฉิมพลี เขตตลิ่งชัน กรุงเทพมหานคร 10170</strong><br/>
                 <strong>เลขประจำตัวผู้เสียภาษีอากร 01005566027821</strong>
             </div>
         </t>
         <t t-elif="o.company_id.name == 'บริษัท เดอ ฟอเรส แลนด์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
-                <strong style="font-size: 24px;">บริษัท เดอะ ฟอเรส เเลนด์ จำกัด</strong><br/>
+                <strong style="font-size: 24px;">บริษัท เดอ ฟอเรส แลนด์ จำกัด</strong><br/>
                 <strong>45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
                 <strong>โทร. 02 105 4605 เลขประจำตัวผู้เสียภาษีอากร 0105559127166 สำนักงานใหญ่</strong>
             </div>
         </t>
-        <t t-elif="o.company_id.name == 'บริษัท เขาใหญ่ไลฟ์ ดีเวลลอปเม้นท์ จำกัด'">
+        <t t-elif="o.company_id.name == 'บริษัท เขาใหญ่ ไลฟ์ ดีเวลลอปเม้นท์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
                 <strong style="font-size: 24px;">บริษัท เขาใหญ่ ไลฟ์ ดีเวลลอปเม้นท์ จำกัด</strong><br/>
                 <strong>45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
@@ -156,8 +156,10 @@
             </div>
         </t>
         <t t-elif="o.company_id.name == 'บริษัท ไอดอล ซิสเท่ม จำกัด'">
-            <div style="font-size: 24px;">
-                <strong>บริษัท ไอดอล ซิมเท่ม จำกัด (สำนักงานใหญ่)   เลขที่ 45 หมู่14 ตำบลบึงคำพร้อย อำเภอลำลูกกา จังหวัดปทุมธานี 12150 โทร: (02) 105-4600</strong>
+            <div style="font-size: 20px; line-height: 1.6;">
+                <strong style="font-size: 24px;">บริษัท ไอดอล ซิสเท่ม จำกัด</strong><br/>
+                <strong>เลขที่ 45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
+                <strong>โทร: (02) 105-4600 เลขประจำตัวผู้เสียภาษีอากร 0135550001372</strong>
             </div>
         </t>
     </div>
