@@ -221,12 +221,12 @@
           style="width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 0px; margin-top: -85px;">
            <thead>
                <tr>
-                   <th style="width: 8%; text-align: center; border: 1px solid black; padding: 4px;">ลำดับ<br/><span style="font-size: 12px;">(No)</span></th>
-                   <th style="width: 42%; text-align: center; border: 1px solid black; padding: 4px;">รายการ<br/><span style="font-size: 12px;">(Description)</span></th>
+                   <th style="width: 5%; text-align: center; border: 1px solid black; padding: 4px;">ลำดับ<br/><span style="font-size: 12px;">(No)</span></th>
+                   <th style="width: 60%; text-align: center; border: 1px solid black; padding: 4px;">รายการ<br/><span style="font-size: 12px;">(Description)</span></th>
                    <th class="qty-col" style="width: 12%; text-align: center; border: 1px solid black; padding: 4px;">จำนวน<br/><span style="font-size: 12px;">(Qty)</span></th>
-                   <th style="width: 11%; text-align: center; border: 1px solid black; padding: 4px;">หน่วย<br/><span style="font-size: 12px;">(Unit)</span></th>
-                   <th style="width: 13%; text-align: center; border: 1px solid black; padding: 4px;">ราคา/หน่วย<br/><span style="font-size: 12px;">(Unit Price)</span></th>
-                   <th style="width: 14%; text-align: center; border: 1px solid black; padding: 4px;">จำนวนเงิน<br/><span style="font-size: 12px;">(Amount)</span></th>
+                   <th style="width: 10%; text-align: center; border: 1px solid black; padding: 4px;">หน่วย<br/><span style="font-size: 12px;">(Unit)</span></th>
+                   <th style="width: 10%; text-align: center; border: 1px solid black; padding: 4px;">ราคา/หน่วย<br/><span style="font-size: 12px;">(Unit Price)</span></th>
+                   <th style="width: 15%; text-align: center; border: 1px solid black; padding: 4px;">จำนวนเงิน<br/><span style="font-size: 12px;">(Amount)</span></th>
                </tr>
            </thead>
            <tbody>
