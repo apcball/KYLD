@@ -245,7 +245,7 @@
                        </td>
                        <!-- จำนวน -->
                     <td class="qty-col" style="border: 1px solid black; text-align: center; vertical-align: middle; padding: 0 2px; white-space: nowrap;">
-                        <span t-esc="'%.0f' % line_tuple[1].product_uom_qty if line_tuple[1].product_uom_qty else '0'"/>
+                        <span t-esc="'%.2f' % line_tuple[1].product_uom_qty if line_tuple[1].product_uom_qty else '0'"/>
                     </td>
                        <!-- หน่วย -->
                        <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
