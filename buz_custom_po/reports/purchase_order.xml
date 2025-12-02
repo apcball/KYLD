@@ -67,6 +67,9 @@
                                 padding-top: 10px !important;
                                 padding-bottom: 10px !important;
                                line-height: 1.1 !important;
+                               white-space: nowrap;
+                               overflow: hidden;
+                               text-overflow: ellipsis;
                             }
                             
                             .no-inner-borders td,
@@ -127,7 +130,7 @@
 
                <!-- Order Lines - Refactored: Loop only once, paginated in one loop -->
         <t t-set="line_count" t-value="len(o.order_line)"/>
-        <t t-set="lines_per_page" t-value="15"/>
+        <t t-set="lines_per_page" t-value="10"/>
         <t t-set="total_pages" t-value="int((line_count + lines_per_page - 1) / lines_per_page)"/>
         <t t-foreach="range(total_pages)" t-as="page_num">
             <div t-attf-style="#{page_num &gt; 0 and 'page-break-before: always;' or ''}">
@@ -234,14 +237,14 @@
                <t t-set="end_idx" t-value="min((page_num + 1) * lines_per_page, line_count)"/>
                <t t-set="current_line_number" t-value="start_idx + 1"/>
                <t t-foreach="enumerate(o.order_line[start_idx:end_idx])" t-as="line_tuple">
-                   <tr style="font-size: 18px; height: 25px;">
+                   <tr style="font-size: 18px; height: 40px;">
                        <!-- ลำดับ -->
                        <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
                            <span t-esc="current_line_number + line_tuple[0]"/>
                        </td>
                        <!-- รายการ (ชื่อสินค้า) -->
                        <td style="border: 1px solid black; vertical-align: middle; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                           <span t-field="line_tuple[1].product_id.name"/>
+                           <span t-field="line_tuple[1].name"/>
                        </td>
                        <!-- จำนวน -->
                     <td class="qty-col" style="border: 1px solid black; text-align: center; vertical-align: middle; padding: 0 2px; white-space: nowrap;">
@@ -253,7 +256,7 @@
                        </td>
                        <!-- ราคา/หน่วย -->
                        <td style="text-align: right; border: 1px solid black; padding: 1px 2px;
-                                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px;">
+                                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: 16px;">
                           <span t-esc="'{:,.2f}'.format(line_tuple[1].price_unit)"/>
                       </td>
                        <!-- จำนวนเงิน -->
