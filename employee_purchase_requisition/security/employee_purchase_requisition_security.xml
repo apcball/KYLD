@@ -23,4 +23,11 @@
         <field name="category_id" ref="employee_requisition"/>
         <field name="implied_ids" eval="[(4, ref('employee_purchase_requisition.employee_requisition_manager'))]"/>
     </record>
+
+    <!-- Multi-company record rule -->
+    <record id="employee_requisition_company_rule" model="ir.rule">
+        <field name="name">Employee Purchase Requisition: multi-company</field>
+        <field name="model_id" ref="model_employee_purchase_requisition"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>
