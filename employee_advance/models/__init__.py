@@ -1,4 +1,6 @@
 from . import advance_box
+from . import advance_box_refill
+from . import hr_employee
 from . import expense_sheet
 from . import hr_expense
 from . import account_move

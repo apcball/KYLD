@@ -78,6 +78,19 @@ def post_init_hook(env):
             ADD COLUMN vendor_id integer
         """)
     
+    # Add advance_box_id column to hr_employee table
+    cr.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'hr_employee' AND column_name = 'advance_box_id'
+    """)
+    if not cr.fetchone():
+        _logger.info("Adding advance_box_id column to hr_employee table")
+        cr.execute("""
+            ALTER TABLE hr_employee 
+            ADD COLUMN advance_box_id integer
+        """)
+    
     # Check if the many2many relationship table exists for bill_ids
     # The table name format for many2many is typically: model1_model2_rel
     cr.execute("""

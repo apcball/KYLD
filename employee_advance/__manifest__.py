@@ -35,6 +35,7 @@
         'views/advance_box_views.xml',
         'views/expense_sheet_views.xml',
         'views/hr_expense_views.xml',
+        'views/hr_employee_views.xml',
         'views/res_config_settings_views.xml',
         'views/wizard_views.xml',
         'views/account_move_views.xml',
@@ -42,6 +43,9 @@
         'views/wht_clear_advance_wizard_views.xml',
         'views/advance_refill_base_wizard_views.xml',  # Refill wizard view
         'views/advance_settlement_wizard_views.xml',   # Settlement wizard view
+        'views/advance_box_refill_views.xml',  # Refill history views
+        'views/wizard_refill_advance_box_views.xml',  # New refill wizard
+        'views/advance_box_refill_menus.xml',  # Refill menus
     ],
     'pre_init_hook': 'pre_init_hook',
     'post_init_hook': 'post_init_hook',

@@ -39,12 +39,6 @@
         <field name="arch" type="xml">
             <form string="Employee Advance Box">
                 <header>
-                    <button name="action_refill_to_base" 
-                            type="object" 
-                            string="Refill to Base" 
-                            class="btn-primary"
-                            invisible="not employee_id or not account_id or not journal_id or not remember_base_amount"
-                            help="Refill advance box to the specified base amount"/>
                     <button name="action_open_settlement_wizard" 
                             type="object" 
                             string="Settle Advance" 
@@ -60,13 +54,19 @@
                     </div>
                     
                     <div class="oe_button_box" name="button_box">
-                        <button name="action_refill_to_base" 
+                        <button name="action_view_refill_history" 
                                 type="object" 
                                 class="oe_stat_button" 
-                                icon="fa-usd"
-                                invisible="not employee_id or not account_id or not journal_id or not remember_base_amount">
+                                icon="fa-history">
+                            <field name="refill_count" widget="statinfo" string="Refills"/>
+                        </button>
+                        <button name="action_refill_box_wizard" 
+                                type="object" 
+                                class="oe_stat_button" 
+                                icon="fa-money"
+                                invisible="not journal_id">
                             <div class="o_form_field o_stat_info">
-                                <span class="o_stat_text">Refill to Base</span>
+                                <span class="o_stat_text">New Refill</span>
                             </div>
                         </button>
                         <button name="action_open_settlement_wizard" 
@@ -171,17 +171,4 @@
             </p>
         </field>
     </record>
-
-    <!-- Menu Item -->
-    <menuitem id="menu_employee_advance_root"
-              name="Employee Advance"
-              parent="account.menu_finance_payables"
-              sequence="10"
-              groups="base.group_user"/>
-    
-    <menuitem id="menu_employee_advance_box"
-              name="Advance Boxes"
-              parent="menu_employee_advance_root"
-              action="action_employee_advance_box"
-              sequence="10"/>
 </odoo>

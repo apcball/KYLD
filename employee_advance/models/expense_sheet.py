@@ -60,8 +60,25 @@ class HrExpenseSheet(models.Model):
     advance_box_id = fields.Many2one(
         'employee.advance.box',
         string='Advance Box',
-        domain="[('company_id', '=', company_id)]"
+        compute='_compute_advance_box_id',
+        store=True,
+        readonly=False,
+        domain="[('company_id', '=', company_id), ('employee_id', '=', employee_id)]"
     )
+    
+    @api.depends('employee_id')
+    def _compute_advance_box_id(self):
+        """Auto-fill advance box from employee's default advance box"""
+        for sheet in self:
+            if sheet.employee_id and sheet.employee_id.advance_box_id:
+                sheet.advance_box_id = sheet.employee_id.advance_box_id
+            elif not sheet.advance_box_id:
+                # Try to find advance box for this employee
+                box = self.env['employee.advance.box'].search([
+                    ('employee_id', '=', sheet.employee_id.id),
+                    ('company_id', '=', sheet.company_id.id)
+                ], limit=1)
+                sheet.advance_box_id = box if box else False
     
     # AUTO mode fields
     is_auto_mode = fields.Boolean(
@@ -222,7 +239,7 @@ class HrExpenseSheet(models.Model):
             }
             bill_vals['invoice_line_ids'].append((0, 0, bill_line_vals))
         
-        bill = self.env['account.move'].create(bill_vals)
+        bill = self.env['account.move'].sudo().create(bill_vals)
         
         # Link bill to expense sheet and also set advance box reference on the bill
         self.bill_id = bill.id
@@ -496,7 +513,7 @@ class HrExpenseSheet(models.Model):
             
             bill_vals['invoice_line_ids'].append((0, 0, line_vals))
         
-        bill = self.env['account.move'].create(bill_vals)
+        bill = self.env['account.move'].sudo().create(bill_vals)
         
         # Link advance box to ALL bills when using advance (not just employee bills)
         # This allows WHT wizard to find the correct advance box for vendor bills too
@@ -648,7 +665,7 @@ class HrExpenseSheet(models.Model):
             
             bill_vals['invoice_line_ids'].append((0, 0, line_vals))
         
-        bill = self.env['account.move'].create(bill_vals)
+        bill = self.env['account.move'].sudo().create(bill_vals)
         
         # Link advance box to ALL bills when using advance (not just employee bills)
         # This allows WHT wizard to find the correct advance box for vendor bills too
@@ -827,7 +844,7 @@ class HrExpenseSheet(models.Model):
                 line_vals['wht_tax_id'] = group_data['wht_tax_id']
             
             bill_vals['invoice_line_ids'].append((0, 0, line_vals))
-        bill = self.env['account.move'].create(bill_vals)
+        bill = self.env['account.move'].sudo().create(bill_vals)
         
         # Carry attachments from expense lines to the bill
         self._carry_attachments_to_bill(expense_lines, bill)
@@ -877,7 +894,8 @@ class HrExpenseSheet(models.Model):
             if group_id:
                 activity_vals['user_id'] = self.env['res.users'].search([('groups_id', '=', group_id)], limit=1).id or activity_vals['user_id']
             
-            bill.activity_schedule(
+            # Use sudo() to bypass access rights for creating activities
+            bill.sudo().activity_schedule(
                 activity_type_id=activity_vals['activity_type_id'],
                 summary=activity_vals['summary'],
                 note=f"Expense sheet {self.name} has been approved. Please review the vendor bill.",
@@ -1085,3 +1103,25 @@ class HrExpenseSheet(models.Model):
 
 
 
+
+    def action_refuse_sheet(self, reason):
+        """Override refuse to set back to draft instead of cancel"""
+        self.write({
+            'state': 'draft',
+        })
+        # Post message about refusal
+        for sheet in self:
+            sheet.message_post(
+                body=_('Expense Report refused by manager. Reason: %s') % (reason or 'No reason provided'),
+                subject=_('Expense Report Refused')
+            )
+        return True
+
+    def action_reset_expense_sheets(self):
+        """Reset expense sheet from refuse/cancel state back to draft"""
+        if not self.env.user.has_group('hr_expense.group_hr_expense_team_approver'):
+            raise UserError(_('Only managers can reset expense reports.'))
+        
+        self.write({'state': 'draft'})
+        self.message_post(body=_('Expense Report reset to draft for corrections.'))
+        return True

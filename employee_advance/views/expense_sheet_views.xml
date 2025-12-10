@@ -21,6 +21,15 @@
             
             <!-- Add buttons section -->
             <header position="inside">
+                <!-- Reset to Draft button for refused/cancelled expenses -->
+                <button name="action_reset_expense_sheets" 
+                        type="object" 
+                        string="Reset to Draft" 
+                        class="btn-warning"
+                        invisible="state not in ('cancel', 'refuse')"
+                        groups="hr_expense.group_hr_expense_team_approver"
+                        help="Reset expense report to draft for corrections"/>
+                
                 <button name="action_create_vendor_bills" 
                         type="object" 
                         string="Create Bills (by Vendor)" 

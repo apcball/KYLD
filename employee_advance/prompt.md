@@ -1,36 +1,147 @@
-Implement “Pay to Vendor per expense line” with auto bill-splitting:
+implement ฟีเจอร์ Refill Advance Box ในโมดูล Odoo 17 โดยมีรายละเอียดทั้งหมดดังนี้:
 
-1) Models:
-   - hr.expense (line): add vendor_id (supplier), constraints to require when needed.
-   - hr.expense.sheet: fields clear_mode (reimburse_employee | pay_vendor | mixed),
-     bill_ids (m2m account.move), is_billed flag.
+🎯 Objective
 
-2) Bill creation (on manager approve or explicit button):
-   - Group expense lines by (vendor_or_employee_partner, company, currency).
-   - Create draft account.move (move_type='in_invoice') per group, copying taxes/analytic/accounts.
-   - invoice_origin/ref = sheet.name; link all created bills back to sheet.bill_ids.
-   - Carry attachments from expense lines to the corresponding bill/line.
-   - Post an Accounting Activity to reviewers (configurable).
+ต้องการสร้างกระบวนการ “เติมเงินเข้ากล่อง Advance Box” โดยใช้ Payment Transfer จาก Bank Journal ไปยัง Advance Box Journal อย่างถูกต้องตามบัญชี และเชื่อมข้อมูลกับ Advance Box Record โดยอัตโนมัติ
 
-3) Clear with Advance:
-   - On posted bills, provide a “Clear with Advance” button that opens account.payment.register
-     with context force_advance_payment=True and default_journal_id=advance_box.journal_id.
-   - Advance account is Current Asset (141101); only this button bypasses the default AR/AP check.
-   - Payment results in Dr AP / Cr 141101 and reconciles the bill (Paid).
-   - Normal Register Payment outside this button remains standard.
+📦 Models to Implement
+1) advance.box
 
-4) Batch:
-   - Add a server action/wizard “Create Bills (by Vendor)” for multiple sheets; avoid duplicates using is_billed.
+ฟิลด์:
 
-5) Validations:
-   - Enforce company & currency consistency per group.
-   - Require vendor_id for lines in pay_vendor/mixed mode.
-   - Handle locked periods, missing partner private address (employee), missing advance box/journal.
-   - Sequence safety: keep name='/' before posting and retry once on duplicate.
+name (Char)
 
-6) UX:
-   - Smart buttons for Bills/Payments on sheets.
-   - Wizard preview showing how many bills will be generated per vendor/employee.
+journal_id (Many2one → account.journal) ประเภท = cash / petty cash
 
-7) Reports:
-   - Ensure Thai VAT/WHT modules operate on the generated vendor bills (no JE-only flows).
+balance (Monetary, compute)
+คำนวณยอดเงินคงเหลือจากข้อมูล JE ในบัญชีของ journal ที่ผูกกับกล่อง
+
+2) advance.box.refill
+
+สำหรับเก็บประวัติการเติมเงินเข้ากล่อง
+ฟิลด์:
+
+box_id (Many2one → advance.box)
+
+amount (Float)
+
+payment_id (Many2one → account.payment)
+
+state (Selection: draft / posted)
+
+date
+
+เมื่อ state = posted ต้องหมายถึง:
+
+Payment transfer ถูกสร้างและ posted สำเร็จ
+
+เงินเข้า advance box แล้ว
+
+🪄 Wizard Requirement
+
+สร้าง wizard: wizard.refill.advance.box
+
+ฟิลด์ wizard:
+
+box_id
+
+journal_bank_id (Many2one → account.journal, domain type = bank)
+
+amount
+
+date
+
+ปุ่ม:
+
+Confirm Refill
+
+🔄 Wizard Logic
+
+เมื่อกดปุ่ม Confirm:
+
+1) สร้าง Payment Transfer
+
+ใช้ model account.payment:
+{
+  'payment_type': 'transfer',
+  'journal_id': journal_bank_id.id,
+  'destination_journal_id': box_id.journal_id.id,
+  'amount': amount,
+  'date': date,
+  'ref': 'Refill Advance Box: %s' % box_id.name,
+}
+หลังจากสร้างต้อง:
+
+payment.action_post()
+
+ผลลัพธ์ทางบัญชี:
+Dr Advance Box Journal Account
+   Cr Bank Account
+
+2) บันทึกประวัติใน advance.box.refill
+
+สร้าง record:
+{
+    'box_id': box_id.id,
+    'amount': amount,
+    'payment_id': payment.id,
+    'state': 'posted',
+    'date': date,
+}
+
+3) อัปเดตยอดคงเหลือของกล่อง
+
+ให้ balance บน advance.box คำนวณจาก JE ที่ผูกกับ journal ของกล่อง:
+
+debit - credit สะสมของบัญชีใน journal นั้น
+🖼️ XML Requirement
+1) Menu
+
+เพิ่มเมนู:
+Accounting
+ └─ Advance Box
+      ├─ Advance Box
+      ├─ Refill History
+      └─ Refill Box (wizard)
+
+2) View ของ Wizard
+
+ฟอร์ม: box, bank journal, amount, date + ปุ่ม Confirm
+
+🧾 Security
+
+สร้าง access rule:
+
+accountant, manager สามารถ refill ได้
+
+user ธรรมดาอ่านข้อมูลได้อย่างเดียว
+
+✔️ Expected Deliverables
+
+ให้ AI สร้างสิ่งต่อไปนี้ครบ:
+
+Python models
+
+Wizard .py
+
+Wizard XML views
+
+Menu XML
+
+Security rules
+
+Logic การคำนวณ balance
+
+การสร้าง payment transfer อัตโนมัติ
+
+📌 ความสำคัญ
+
+ห้ามใช้ JE โดยตรง ให้ใช้ Payment Transfer เท่านั้น
+
+ต้อง link payment กับ refill record
+
+ต้องออกแบบให้รองรับ multi-company
+
+ต้องรองรับ multi-currency
+
+ต้องรองรับ rounding standard ของ Odoo

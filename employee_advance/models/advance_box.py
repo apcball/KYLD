@@ -55,6 +55,21 @@ class EmployeeAdvanceBox(models.Model):
         string='Company',
         default=lambda self: self.env.company
     )
+    refill_ids = fields.One2many(
+        'advance.box.refill',
+        'box_id',
+        string='Refill History',
+        help='History of refills for this advance box'
+    )
+    refill_count = fields.Integer(
+        string='Refill Count',
+        compute='_compute_refill_count'
+    )
+
+    @api.depends('refill_ids')
+    def _compute_refill_count(self):
+        for record in self:
+            record.refill_count = len(record.refill_ids)
 
     @api.model
     def _default_account(self):
@@ -73,28 +88,36 @@ class EmployeeAdvanceBox(models.Model):
             else:
                 record.name = "Advance Box"
 
-    @api.depends('account_id', 'employee_id')
+    @api.depends('account_id', 'employee_id', 'journal_id')
     def _compute_balance(self):
+        """
+        Compute balance from journal entries.
+        ALWAYS filter by employee partner to separate each employee's advance box.
+        Use account_id (113001) with partner filtering for balance calculation.
+        """
         for record in self:
             _logger.info("🔍 BALANCE DEBUG: Computing for advance box %s (employee: %s)", 
                        record.id, record.employee_id.name)
             
+            # Get employee partner for filtering
+            partner_id = record._get_employee_partner()
+            
+            if not partner_id:
+                _logger.warning("⚠️ BALANCE DEBUG: No partner found for employee %s, setting balance to 0", 
+                              record.employee_id.name)
+                record.balance = 0.0
+                continue
+            
+            # Use account_id (113001 เงินทดรองจ่าย) with partner filtering
             if record.account_id and record.employee_id:
-                # Use the same partner resolution method as _get_employee_partner to ensure consistency
-                partner_id = record._get_employee_partner()
-                
-                if not partner_id:
-                    _logger.warning("⚠️ BALANCE DEBUG: No partner found, setting balance to 0")
-                    record.balance = 0.0
-                    continue
-                
                 domain = [
                     ('account_id', '=', record.account_id.id),
                     ('move_id.state', '=', 'posted'),
                     ('partner_id', '=', partner_id),
                 ]
                 
-                _logger.info("📋 BALANCE DEBUG: Searching with domain: %s", domain)
+                _logger.info("📋 BALANCE DEBUG: Searching account %s (%s) with partner %s", 
+                           record.account_id.code, record.account_id.name, partner_id)
                 
                 # ใช้ search แทน read_group เพื่อ debug ง่ายขึ้น
                 lines = self.env['account.move.line'].search(domain)
@@ -110,6 +133,8 @@ class EmployeeAdvanceBox(models.Model):
                 for line in lines:
                     _logger.info("  📝 Line: %s | %s | Dr: %s | Cr: %s | Move: %s", 
                                line.date, line.name, line.debit, line.credit, line.move_id.name)
+                
+                record.balance = balance
                 
                 record.balance = balance
             else:
@@ -261,4 +286,35 @@ class EmployeeAdvanceBox(models.Model):
                 'default_box_id': self.id,
                 'default_employee_name': self.employee_id.name,
             }
+        }
+
+    def action_view_refill_history(self):
+        """Open the refill history for this advance box"""
+        self.ensure_one()
+        
+        return {
+            'name': _('Refill History'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'advance.box.refill',
+            'view_mode': 'tree,form',
+            'domain': [('box_id', '=', self.id)],
+            'context': {'default_box_id': self.id},
+        }
+
+    def action_refill_box_wizard(self):
+        """Open wizard to refill this advance box"""
+        self.ensure_one()
+        
+        # Create wizard with current box pre-selected
+        wizard = self.env['wizard.refill.advance.box'].create({
+            'box_id': self.id,
+        })
+        
+        return {
+            'name': _('Refill Advance Box'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'wizard.refill.advance.box',
+            'res_id': wizard.id,
+            'view_mode': 'form',
+            'target': 'new',
         }
