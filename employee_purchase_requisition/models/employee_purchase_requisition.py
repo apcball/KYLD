@@ -266,6 +266,31 @@ class PurchaseRequisition(models.Model):
             if manager_user:
                 self.manager_user_id = manager_user.id
 
+    def _get_default_stock_location(self):
+        """Get default stock location for the current company"""
+        # Try to find stock location for current company
+        stock_location = self.env['stock.location'].search([
+            ('usage', '=', 'internal'),
+            ('company_id', '=', self.company_id.id),
+        ], limit=1)
+        
+        # If no location found for company, try to get company's warehouse location
+        if not stock_location:
+            warehouse = self.env['stock.warehouse'].search([
+                ('company_id', '=', self.company_id.id)
+            ], limit=1)
+            if warehouse:
+                stock_location = warehouse.lot_stock_id
+        
+        # Last resort: get any internal location (with sudo to bypass access rights)
+        if not stock_location:
+            stock_location = self.env['stock.location'].sudo().search([
+                ('usage', '=', 'internal'),
+                '|', ('company_id', '=', self.company_id.id), ('company_id', '=', False)
+            ], limit=1)
+        
+        return stock_location
+
     def action_confirm_requisition(self):
         """Function to submit to purchase approval"""
         # Check if all requisition lines have analytic distribution
@@ -273,23 +298,31 @@ class PurchaseRequisition(models.Model):
             if not line.analytic_distribution:
                 raise ValidationError('Please enter Analytic Distribution for all items before submitting for approval.')
         
+        # Get default stock location for fallback
+        default_location = self._get_default_stock_location()
+        
         self.source_location_id = (
             self.employee_id.department_id.department_location_id.id) if (
             self.employee_id.department_id.department_location_id) else (
-            self.env.ref('stock.stock_location_stock').id)
+            default_location.id if default_location else False)
+        
         # Only set destination_location_id if not already set by user
         if not self.destination_location_id:
             # Check if user has access to employee_location_id field
             try:
                 employee_location = self.employee_id.sudo().employee_location_id
-                self.destination_location_id = employee_location.id if employee_location else self.env.ref('stock.stock_location_stock').id
+                self.destination_location_id = employee_location.id if employee_location else (
+                    default_location.id if default_location else False)
             except Exception:
                 # Fallback to default location if access is denied
-                self.destination_location_id = self.env.ref('stock.stock_location_stock').id
-        self.delivery_type_id = (
-            self.source_location_id.warehouse_id.in_type_id.id)
-        self.internal_picking_id = (
-            self.source_location_id.warehouse_id.int_type_id.id)
+                self.destination_location_id = default_location.id if default_location else False
+        
+        if self.source_location_id:
+            self.delivery_type_id = (
+                self.source_location_id.warehouse_id.in_type_id.id)
+            self.internal_picking_id = (
+                self.source_location_id.warehouse_id.int_type_id.id)
+        
         self.write({'state': 'waiting_head_approval'})
         self.confirm_id = self.env.uid
         self.confirmed_date = fields.Date.today()
