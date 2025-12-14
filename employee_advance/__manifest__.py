@@ -1,6 +1,6 @@
 {
     'name': 'Employee Advance',
-    'version': '17.0.1.0.2',
+    'version': '17.0.1.0.4',
     'category': 'Human Resources',
     'summary': 'Employee Advance Management with Advance Box and Bill Clearing',
     'description': """
@@ -15,8 +15,10 @@
         - NEW: Separate bills for same employee with different dates
         - NEW: Group by partner and date for proper accounting separation
         - NEW: Use expense sheet date as accounting date in bills
+        - NEW: Each expense line creates a separate invoice line (no grouping by product)
+        - FIXED: Expense lines with same product code now remain separate in bills
     """,
-    'author': 'Your Company',
+    'author': 'Apichart Ball',
     'website': 'https://www.yourcompany.com',
     'depends': [
         'hr_expense',

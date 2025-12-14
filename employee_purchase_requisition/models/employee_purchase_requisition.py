@@ -318,10 +318,11 @@ class PurchaseRequisition(models.Model):
                 self.destination_location_id = default_location.id if default_location else False
         
         if self.source_location_id:
-            self.delivery_type_id = (
-                self.source_location_id.warehouse_id.in_type_id.id)
-            self.internal_picking_id = (
-                self.source_location_id.warehouse_id.int_type_id.id)
+            # Use sudo() to bypass multi-company access restrictions
+            warehouse = self.source_location_id.sudo().warehouse_id
+            if warehouse:
+                self.delivery_type_id = warehouse.in_type_id.id
+                self.internal_picking_id = warehouse.int_type_id.id
         
         self.write({'state': 'waiting_head_approval'})
         self.confirm_id = self.env.uid
@@ -404,13 +405,12 @@ class PurchaseRequisition(models.Model):
             
             purchase_orders[vendor_id].append(line_vals)
 
-        # สร้าง Purchase Orders
+        # สร้าง Purchase Orders - ไม่ส่ง picking_type_id เพื่อหลีกเลี่ยง warehouse access error
         for vendor_id, lines in purchase_orders.items():
             order_lines = [(0, 0, line) for line in lines]
-            picking_type_id = False
-            if self.destination_location_id and self.destination_location_id.warehouse_id:
-                picking_type_id = self.destination_location_id.warehouse_id.in_type_id.id
-            self.env['purchase.order'].create({
+            
+            # Create PO without picking_type_id - ให้ระบบหาเองตาม company
+            po_vals = {
                 'partner_id': vendor_id,
                 'requisition_order': self.name,
                 'employee_id': self.employee_id.id,
@@ -418,9 +418,14 @@ class PurchaseRequisition(models.Model):
                 'pr_number': self.name,
                 'date_order': fields.Date.today(),
                 'order_line': order_lines,
-                'destination_location_id': self.destination_location_id.id,
-                'picking_type_id': picking_type_id,
-            })
+                'company_id': self.company_id.id,
+            }
+            
+            # ใช้ sudo() และ with_context เพื่อข้ามข้อจำกัดการเข้าถึง warehouse
+            self.env['purchase.order'].with_context(
+                force_company=self.company_id.id,
+                allowed_company_ids=[self.company_id.id]
+            ).sudo().create(po_vals)
 
         if purchase_orders:
             self.write({'state': 'purchase_order_created'})

@@ -274,23 +274,27 @@ class AccountMove(models.Model):
                     if sheet_name:
                         expense_sheet = ExpenseSheet.search([('name', 'ilike', sheet_name)], limit=1)
         
-        if not expense_sheet:
-            raise UserError(_("No related expense sheet found. This bill must be created from an expense sheet to use advance clearing."))
+        # Get advance box - prioritize bill's advance_box_id
+        advance_box = self.advance_box_id
         
-        # Get advance box - prioritize bill's advance_box_id, then expense_sheet's
-        advance_box = self.advance_box_id or expense_sheet.advance_box_id
-        if not advance_box:
-            # Final fallback: search by employee
-            advance_box = self.env['employee.advance.box'].search([
-                ('employee_id', '=', expense_sheet.employee_id.id),
-                ('company_id', '=', self.company_id.id)
-            ], limit=1)
+        # If no advance_box_id on bill, try to get from expense_sheet
+        if not advance_box and expense_sheet:
+            advance_box = expense_sheet.advance_box_id
+            if not advance_box:
+                # Final fallback: search by employee
+                advance_box = self.env['employee.advance.box'].search([
+                    ('employee_id', '=', expense_sheet.employee_id.id),
+                    ('company_id', '=', self.company_id.id)
+                ], limit=1)
         
         if not advance_box:
-            raise UserError(_("No advance box found. Please configure advance box for the employee %s in company %s.") % (expense_sheet.employee_id.name, self.company_id.name))
+            if expense_sheet:
+                raise UserError(_("No advance box found. Please configure advance box for the employee %s in company %s.") % (expense_sheet.employee_id.name, self.company_id.name))
+            else:
+                raise UserError(_("No advance box selected. Please select an advance box in the bill's 'Other Info' tab."))
         
         # Get employee partner
-        employee = expense_sheet.employee_id
+        employee = expense_sheet.employee_id if expense_sheet else advance_box.employee_id
         employee_partner = False
         if employee.user_id and employee.user_id.partner_id:
             employee_partner = employee.user_id.partner_id
@@ -406,19 +410,23 @@ class AccountMove(models.Model):
                 if sheet_name:
                     expense_sheet = ExpenseSheet.search([('name', 'ilike', sheet_name)], limit=1)
         
-        if not expense_sheet:
-            raise UserError(_("No related expense sheet found. This bill must be created from an expense sheet to use advance clearing."))
+        # Get advance box - prioritize bill's advance_box_id
+        advance_box = self.advance_box_id
         
-        # Get advance box
-        advance_box = self.advance_box_id or expense_sheet.advance_box_id
-        if not advance_box:
-            advance_box = self.env['employee.advance.box'].search([
-                ('employee_id', '=', expense_sheet.employee_id.id),
-                ('company_id', '=', self.company_id.id)
-            ], limit=1)
+        # If no advance_box_id on bill, try to get from expense_sheet
+        if not advance_box and expense_sheet:
+            advance_box = expense_sheet.advance_box_id
+            if not advance_box:
+                advance_box = self.env['employee.advance.box'].search([
+                    ('employee_id', '=', expense_sheet.employee_id.id),
+                    ('company_id', '=', self.company_id.id)
+                ], limit=1)
         
         if not advance_box:
-            raise UserError(_("No advance box found for employee %s.") % expense_sheet.employee_id.name)
+            if expense_sheet:
+                raise UserError(_("No advance box found for employee %s.") % expense_sheet.employee_id.name)
+            else:
+                raise UserError(_("No advance box selected. Please select an advance box in the bill's 'Other Info' tab."))
         
         # Check if bill has WHT
         has_wht = any(line.wht_tax_id for line in self.invoice_line_ids)

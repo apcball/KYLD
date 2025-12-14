@@ -10,6 +10,7 @@
                     <div class="oe_title">
                         <h1>
                             <field name="expense_sheet_id" readonly="1" 
+                                   invisible="not expense_sheet_id"
                                    options="{'no_create': True, 'no_open': True}"/>
                         </h1>
                         <h2>

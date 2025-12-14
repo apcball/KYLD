@@ -43,6 +43,12 @@ class AdvanceSettlementWizard(models.TransientModel):
         string='Journal',
         domain="[('company_id', '=', company_id)]"
     )
+    payment_account_id = fields.Many2one(
+        'account.account',
+        string='Payment Account (Cash/Bank)',
+        domain="[('deprecated', '=', False), ('company_id', '=', company_id)]",
+        help='Select which cash/bank account to use for the payment. Will default to journal default account if not specified.'
+    )
     amount_mode = fields.Selection([
         ('full', 'Full Settlement'),
         ('partial', 'Partial Settlement')
@@ -52,10 +58,11 @@ class AdvanceSettlementWizard(models.TransientModel):
         currency_field='currency_id'
     )
     scenario = fields.Selection([
-        ('pay_employee', 'Pay Employee (Dr 141101 / Cr Bank)'),
-        ('employee_refund', 'Employee Refund (Dr Bank / Cr 141101)'),
+        ('pay_employee', 'Pay Employee (Dr Bank / Cr 141101) - Clear positive balance'),
+        ('employee_refund', 'Employee Refund (Dr 141101 / Cr Bank) - Clear negative balance'),
         ('write_off', 'Write-off / Reclass'),
-    ], string='Settlement Scenario', required=True)
+    ], string='Settlement Scenario', required=True, readonly=True,
+        help="Auto-selected based on balance: Pay Employee when company owes employee (positive), Employee Refund when employee owes company (negative)")
     writeoff_policy = fields.Selection([
         ('none', 'No Write-off'),
         ('expense', 'Expense'),
@@ -112,7 +119,15 @@ class AdvanceSettlementWizard(models.TransientModel):
             box = self.env['employee.advance.box'].browse(self.env.context['default_box_id'])
             if box:
                 # Determine the default scenario based on balance
-                default_scenario = 'pay_employee' if box.balance > 0 else 'employee_refund'
+                # Positive balance = company owes employee (pay employee)
+                # Negative balance = employee owes company (employee refund)
+                # Zero balance = default to write-off
+                if box.balance > 0:
+                    default_scenario = 'pay_employee'
+                elif box.balance < 0:
+                    default_scenario = 'employee_refund'
+                else:
+                    default_scenario = 'write_off'
                 
                 # Try to set a default journal based on the advance box if available
                 default_journal = box.journal_id if box.journal_id and box.journal_id.type in ('bank', 'cash') else None
@@ -123,6 +138,9 @@ class AdvanceSettlementWizard(models.TransientModel):
                         ('type', 'in', ('bank', 'cash'))
                     ], limit=1, order="type desc, id asc")
                 
+                # Set payment account from journal's default account
+                payment_account = default_journal.default_account_id if default_journal and default_journal.default_account_id else None
+                
                 res.update({
                     'box_id': box.id,
                     'employee_id': box.employee_id.id,
@@ -130,6 +148,7 @@ class AdvanceSettlementWizard(models.TransientModel):
                     'memo': f'Advance Settlement for {box.employee_id.name}',
                     'scenario': default_scenario,
                     'journal_id': default_journal.id if default_journal else False,
+                    'payment_account_id': payment_account.id if payment_account else False,
                     'company_id': box.company_id.id
                 })
         
@@ -147,6 +166,9 @@ class AdvanceSettlementWizard(models.TransientModel):
             ], limit=1, order="type desc, id asc")
             if default_journal:
                 res['journal_id'] = default_journal.id
+                # Also set payment account
+                if default_journal.default_account_id:
+                    res['payment_account_id'] = default_journal.default_account_id.id
         
         return res
 
@@ -190,6 +212,8 @@ class AdvanceSettlementWizard(models.TransientModel):
                 self.scenario = 'pay_employee'
             elif self.box_id.balance < 0:
                 self.scenario = 'employee_refund'
+            else:
+                self.scenario = 'write_off'
     
     @api.onchange('box_id', 'scenario')
     def _onchange_default_journal(self):
@@ -205,15 +229,30 @@ class AdvanceSettlementWizard(models.TransientModel):
                         ('company_id', '=', w.box_id.company_id.id or self.env.company.id)
                     ], limit=1, order="type desc, id asc")
                 w.journal_id = journal or False
+                # Auto-fill payment account from journal
+                if journal and journal.default_account_id:
+                    w.payment_account_id = journal.default_account_id
             else:
                 # writeoff: bank journal not required
                 w.journal_id = False
+                w.payment_account_id = False
+    
+    @api.onchange('journal_id')
+    def _onchange_journal_id(self):
+        """Update payment account when journal changes"""
+        if self.journal_id and self.journal_id.default_account_id:
+            self.payment_account_id = self.journal_id.default_account_id
 
-    @api.constrains('scenario', 'journal_id')
+    @api.constrains('scenario', 'journal_id', 'payment_account_id')
     def _check_journal_required(self):
         for w in self:
-            if w.scenario in ('pay_employee', 'employee_refund') and not w.journal_id:
-                raise ValidationError(_("Please select a Bank/Cash journal for this settlement scenario."))
+            if w.scenario in ('pay_employee', 'employee_refund'):
+                if not w.journal_id:
+                    raise ValidationError(_("Please select a Bank/Cash journal for this settlement scenario."))
+                if not w.payment_account_id:
+                    raise ValidationError(_("Please select a payment account (Cash/Bank) for this settlement scenario."))
+            if w.scenario == 'write_off' and w.writeoff_policy != 'none' and not w.writeoff_account_id:
+                raise ValidationError(_("Please select a write-off account when using write-off policy."))
 
     @api.onchange('amount_mode')
     def _onchange_amount_mode(self):
@@ -254,28 +293,43 @@ class AdvanceSettlementWizard(models.TransientModel):
         """Validate settlement parameters before posting"""
         self.ensure_one()
         
+        # Check if balance is zero (nothing to settle)
+        if abs(self.current_balance) < 0.01:
+            raise UserError(_("Cannot settle advance box with zero balance."))
+        
         # Check if fiscal period is locked
         if self.settlement_date:
             company_id = self.company_id or self.env.company
             # Use the proper method to check lock date
-            locked_date = company_id._get_user_fiscal_lock_date()
-            if self.settlement_date <= locked_date:
-                raise UserError(_("You cannot add/modify entries prior to and during the lock date %s.", locked_date))
+            try:
+                locked_date = company_id._get_user_fiscal_lock_date()
+                if locked_date and self.settlement_date <= locked_date:
+                    raise UserError(_("You cannot add/modify entries prior to and during the lock date %s.", locked_date))
+            except AttributeError:
+                # Fallback if method doesn't exist
+                if hasattr(company_id, 'fiscalyear_lock_date') and company_id.fiscalyear_lock_date:
+                    if self.settlement_date <= company_id.fiscalyear_lock_date:
+                        raise UserError(_("You cannot add/modify entries prior to the fiscal year lock date %s.", company_id.fiscalyear_lock_date))
 
+        # Validate scenario matches balance direction (allow write-off for any balance)
+        if self.scenario == 'pay_employee' and self.current_balance < 0:
+            raise ValidationError(_("Pay Employee scenario can only be used when the company owes money to the employee (positive balance). Current balance is negative, use Employee Refund instead."))
+        if self.scenario == 'employee_refund' and self.current_balance > 0:
+            raise ValidationError(_("Employee Refund scenario can only be used when the employee owes money to the company (negative balance). Current balance is positive, use Pay Employee instead."))
+        
         # Validate journal based on scenario
         if self.scenario in ('pay_employee', 'employee_refund'):
             if not self.journal_id or self.journal_id.type not in ('bank', 'cash'):
                 raise ValidationError(_("Please select a bank or cash journal for this scenario."))
+            # Check if payment account is selected
+            if not self.payment_account_id:
+                raise ValidationError(_("Please select a payment account (Cash/Bank) for this scenario."))
         elif self.scenario == 'write_off':
-            # For write-off, any journal type can be used
-            if not self.journal_id:
-                raise ValidationError(_("Please select a journal for this write-off scenario."))
+            # For write-off, ensure we have write-off account
+            if self.writeoff_policy == 'none':
+                raise ValidationError(_("Please select a write-off policy for write-off scenario."))
             if not self.writeoff_account_id:
                 raise ValidationError(_("Write-off account is required for write-off scenario."))
-        else:
-            # For other scenarios, ensure journal is selected
-            if not self.journal_id:
-                raise ValidationError(_("Please select a journal."))
 
         # Validate partial amount
         if self.amount_mode == 'partial' and self.amount_to_settle <= 0:
@@ -334,41 +388,54 @@ class AdvanceSettlementWizard(models.TransientModel):
                     _logger.warning("⚠️ Final fallback also failed: %s", str(e2))
                     raise ValidationError(_("Cannot find or create employee partner for advance settlement."))
         
+        # Determine which journal to use based on scenario
+        journal_to_use = self.journal_id if self.scenario != 'write_off' else self._get_default_general_journal()
+        
         move_vals = {
-            'journal_id': self.journal_id.id,
+            'journal_id': journal_to_use.id,
             'move_type': 'entry',
             'date': self.settlement_date,
             'ref': self.memo or f'Advance Settlement for {self.employee_id.name}',
+            'partner_id': partner_id,  # Add partner_id for etax_transaction
             'company_id': self.company_id.id,
         }
+        
         # Ensure journal has a sequence and create if missing
-        self.env['hr.expense.advance.journal.utils'].ensure_journal_sequence(self.journal_id)
+        try:
+            self.env['hr.expense.advance.journal.utils'].ensure_journal_sequence(journal_to_use)
+        except Exception as e:
+            _logger.warning("Could not ensure journal sequence: %s", str(e))
+            # Continue anyway as Odoo will create sequence automatically if needed
         
         lines = []
         
         if self.scenario == 'pay_employee':
-            # Dr 141101 (employee) Cr Bank (journal.default_account)
+            # Pay Employee: Company owes employee (balance > 0)
+            # To reduce balance, need to CREDIT 141101
+            # Dr Bank (increase expense/clear) Cr 141101 (reduce advance balance)
             lines.append((0, 0, {
-                'account_id': self.box_id.account_id.id,
+                'account_id': self.payment_account_id.id,
                 'partner_id': partner_id,
                 'debit': self.target_amount,
                 'credit': 0.0,
-                'name': f'Payment to {self.employee_id.name}',
+                'name': f'Settlement Payment to {self.employee_id.name}',
                 'company_id': self.company_id.id,
             }))
             lines.append((0, 0, {
-                'account_id': self.journal_id.default_account_id.id,
+                'account_id': self.box_id.account_id.id,
                 'partner_id': partner_id,
                 'debit': 0.0,
                 'credit': self.target_amount,
-                'name': f'Payment to {self.employee_id.name}',
+                'name': f'Settlement Payment to {self.employee_id.name}',
                 'company_id': self.company_id.id,
             }))
             
         elif self.scenario == 'employee_refund':
-            # Dr Bank Cr 141101 (employee)
+            # Employee Refund: Employee owes company (balance < 0)
+            # To reduce negative balance, need to DEBIT 141101
+            # Dr 141101 (reduce negative balance) Cr Bank (employee pays back)
             lines.append((0, 0, {
-                'account_id': self.journal_id.default_account_id.id,
+                'account_id': self.box_id.account_id.id,
                 'partner_id': partner_id,
                 'debit': self.target_amount,
                 'credit': 0.0,
@@ -376,7 +443,7 @@ class AdvanceSettlementWizard(models.TransientModel):
                 'company_id': self.company_id.id,
             }))
             lines.append((0, 0, {
-                'account_id': self.box_id.account_id.id,
+                'account_id': self.payment_account_id.id,
                 'partner_id': partner_id,
                 'debit': 0.0,
                 'credit': self.target_amount,
@@ -458,6 +525,16 @@ class AdvanceSettlementWizard(models.TransientModel):
                         except Exception:
                             continue  # Try next credit line if reconciliation fails
 
+    def _get_default_general_journal(self):
+        """Get default general journal for write-off entries"""
+        general_journal = self.env['account.journal'].search([
+            ('type', '=', 'general'),
+            ('company_id', '=', self.company_id.id)
+        ], limit=1, order="id asc")
+        if not general_journal:
+            raise UserError(_("No general journal found for write-off entries. Please create one first."))
+        return general_journal
+    
     def action_settle_advance(self):
         """Main method to settle the advance"""
         self.ensure_one()
@@ -465,43 +542,73 @@ class AdvanceSettlementWizard(models.TransientModel):
         # Validate the settlement
         self._validate_settlement()
         
-        # Create the settlement move
-        move = self._create_settlement_move()
+        # Log the settlement attempt
+        _logger.info("🏦 SETTLEMENT: Starting settlement for advance box %s (employee: %s)", 
+                    self.box_id.id, self.employee_id.name)
+        _logger.info("🏦 SETTLEMENT: Scenario: %s, Amount: %s, Date: %s", 
+                    self.scenario, self.target_amount, self.settlement_date)
         
-        # Post the move
-        move.action_post()
-        
-        # Reconcile if enabled
-        self._reconcile_141101_lines(move)
-
-        # Force recompute of the advance box balance after posting/reconciliation
         try:
-            self.box_id._trigger_balance_recompute()
-        except Exception:
-            # Don't block the user flow if recompute fails; log could be added if desired
-            pass
+            # Create the settlement move
+            move = self._create_settlement_move()
+            
+            _logger.info("🏦 SETTLEMENT: Created journal entry %s", move.name)
+            
+            # Post the move
+            move.action_post()
+            
+            _logger.info("🏦 SETTLEMENT: Posted journal entry %s", move.name)
         
-        # Log in the advance box
-        self.box_id.message_post(
-            body=_("Advance box settled with journal entry %s. Amount: %s. Scenario: %s." % 
-                  (move.name, self.target_amount, self.scenario))
-        )
-        
-        # Create activity if requested
-        if self.create_activity and self.activity_user_id and self.activity_type_id:
-            self.box_id.activity_schedule(
-                activity_type_id=self.activity_type_id.id,
-                summary=self.activity_note or f'Advance settlement follow-up for {self.employee_id.name}',
-                note=self.activity_note,
-                user_id=self.activity_user_id.id
+            # Reconcile if enabled
+            if self.auto_reconcile:
+                _logger.info("🏦 SETTLEMENT: Attempting auto-reconciliation")
+                self._reconcile_141101_lines(move)
+            
+            # Force recompute of the advance box balance after posting/reconciliation
+            try:
+                self.box_id._trigger_balance_recompute()
+                _logger.info("🏦 SETTLEMENT: Balance recomputed. New balance: %s", self.box_id.balance)
+            except Exception as e:
+                _logger.warning("⚠️ Balance recompute failed: %s", str(e))
+            
+            # Build detailed settlement message
+            scenario_desc = dict(self._fields['scenario'].selection).get(self.scenario)
+            settlement_msg = _("<b>Advance Settlement Completed</b><br/>") + \
+                           _("<b>Journal Entry:</b> %s<br/>") % move.name + \
+                           _("<b>Scenario:</b> %s<br/>") % scenario_desc + \
+                           _("<b>Amount:</b> %s %s<br/>") % (self.target_amount, self.currency_id.name) + \
+                           _("<b>Date:</b> %s<br/>") % self.settlement_date + \
+                           _("<b>Previous Balance:</b> %s<br/>") % self.current_balance + \
+                           _("<b>New Balance:</b> %s") % self.box_id.balance
+            
+            # Log in the advance box with detailed info
+            self.box_id.message_post(
+                body=settlement_msg,
+                subject=_("Advance Settlement - %s") % move.name
             )
-        
-        # Return action to view the created move
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'account.move',
-            'res_id': move.id,
-            'view_mode': 'form',
-            'target': 'current',
-            'name': _('Settlement Journal Entry')
-        }
+            
+            # Create activity if requested
+            if self.create_activity and self.activity_user_id and self.activity_type_id:
+                _logger.info("🏦 SETTLEMENT: Creating follow-up activity")
+                self.box_id.activity_schedule(
+                    activity_type_id=self.activity_type_id.id,
+                    summary=self.activity_note or f'Advance settlement follow-up for {self.employee_id.name}',
+                    note=self.activity_note,
+                    user_id=self.activity_user_id.id
+                )
+            
+            _logger.info("✅ SETTLEMENT: Successfully completed settlement for advance box %s", self.box_id.id)
+            
+            # Return action to view the created move
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.move',
+                'res_id': move.id,
+                'view_mode': 'form',
+                'target': 'current',
+                'name': _('Settlement Journal Entry')
+            }
+            
+        except Exception as e:
+            _logger.error("❌ SETTLEMENT: Failed to settle advance box %s: %s", self.box_id.id, str(e))
+            raise UserError(_("Settlement failed: %s") % str(e))

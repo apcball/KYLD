@@ -89,14 +89,16 @@ class HrExpenseSheet(models.Model):
                 "Employee %s does not have a private address. Please set the employee's home address."
             ) % employee.name)
         
-        # Group expenses by account, taxes, analytic account, analytic tags, and WHT tax to create proper invoice lines
+        # Group expenses by account, taxes, analytic account, analytic tags, product, and WHT tax to create proper invoice lines
         account_tax_groups = {}
         for expense in employee_lines:
             account = expense.account_id
             taxes = tuple(expense.tax_ids.ids)
             analytic_distribution = expense.analytic_distribution or {}
             wht_tax = expense.wht_tax_id.id if hasattr(expense, 'wht_tax_id') and expense.wht_tax_id else False
-            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax)
+            product_id = expense.product_id.id if expense.product_id else False
+            # Include product_id in key to separate lines for different products
+            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax, product_id)
             
             if key not in account_tax_groups:
                 account_tax_groups[key] = {
@@ -104,7 +106,8 @@ class HrExpenseSheet(models.Model):
                     'expenses': self.env['hr.expense'],
                     'tax_ids': expense.tax_ids.ids,
                     'analytic_distribution': analytic_distribution,
-                    'wht_tax_id': wht_tax
+                    'wht_tax_id': wht_tax,
+                    'product_id': product_id
                 }
             
             # Use price_unit (before tax) to avoid VAT duplication when tax_ids are applied
@@ -126,7 +129,7 @@ class HrExpenseSheet(models.Model):
             'invoice_line_ids': []
         }
         
-        for (account_id, taxes_tuple, analytic_keys, wht_tax), group_data in account_tax_groups.items():
+        for (account_id, taxes_tuple, analytic_keys, wht_tax, product_id), group_data in account_tax_groups.items():
             line_vals = {
                 'name': ', '.join(group_data['expenses'].mapped('name')),
                 'quantity': 1,
@@ -151,6 +154,8 @@ class HrExpenseSheet(models.Model):
                 
             if group_data['analytic_distribution']:
                 line_vals['analytic_distribution'] = group_data['analytic_distribution']
+            if group_data.get('product_id'):
+                line_vals['product_id'] = group_data['product_id']
             if group_data.get('wht_tax_id'):
                 line_vals['wht_tax_id'] = group_data['wht_tax_id']
             

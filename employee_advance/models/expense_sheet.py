@@ -438,14 +438,17 @@ class HrExpenseSheet(models.Model):
                     "Expense '%s' uses a different currency."
                 ) % expense.name)
         
-        # Group expenses by account, taxes, analytic account, analytic tags, and WHT tax to create proper invoice lines
+        # Create separate invoice lines for each expense line (no grouping)
+        # Each expense line will have its own invoice line, even if they share the same product
         account_tax_groups = {}
         for expense in expenses:
             account = expense.account_id
             taxes = tuple(expense.tax_ids.ids)
             analytic_distribution = expense.analytic_distribution or {}
             wht_tax = expense.wht_tax_id.id if hasattr(expense, 'wht_tax_id') and expense.wht_tax_id else False
-            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax)
+            product_id = expense.product_id.id if expense.product_id else False
+            # Include expense.id in key to ensure each expense line creates a separate invoice line
+            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax, product_id, expense.id)
             
             _logger.info(f"DEBUG _create_single_bill_for_vendor_group_date: Expense {expense.name} - analytic_distribution: {analytic_distribution}")
             
@@ -456,7 +459,7 @@ class HrExpenseSheet(models.Model):
                     'tax_ids': expense.tax_ids.ids,
                     'analytic_distribution': analytic_distribution,
                     'wht_tax_id': wht_tax,
-                    'product_id': expense.product_id.id if expense.product_id else False
+                    'product_id': product_id
                 }
             
             # Use price_unit (before tax) to avoid VAT duplication when tax_ids are applied
@@ -482,7 +485,7 @@ class HrExpenseSheet(models.Model):
             'invoice_line_ids': []
         }
         
-        for (account_id, taxes_tuple, analytic_keys, wht_tax), group_data in account_tax_groups.items():
+        for (account_id, taxes_tuple, analytic_keys, wht_tax, product_id, expense_id), group_data in account_tax_groups.items():
             line_vals = {
                 'name': ', '.join(group_data['expenses'].mapped('name')),
                 'quantity': 1,
@@ -491,18 +494,20 @@ class HrExpenseSheet(models.Model):
                 'tax_ids': [(6, 0, list(set(group_data['tax_ids'])))],
             }
             
-            # Handle taxes and amounts properly
+            # Handle each expense line separately (no grouping)
+            # Since each expense has its own group now (expense.id in key), there should only be one expense per group
             expense_lines = group_data['expenses']
-            if len(expense_lines) > 1:
-                # Combine amounts from all expenses in this group
-                line_vals['name'] = ', '.join(expense_lines.mapped('name'))
-            else:
+            if len(expense_lines) == 1:
                 # Use the single expense details
                 single_expense = expense_lines[0]
                 line_vals['name'] = single_expense.name
                 line_vals['quantity'] = single_expense.quantity if hasattr(single_expense, 'quantity') else 1
                 # Always use price_unit (before tax) when tax_ids are applied to avoid VAT duplication
                 line_vals['price_unit'] = self._calculate_expense_base_amount(single_expense)
+            else:
+                # This shouldn't happen anymore since we include expense.id in the key
+                # But keep it as fallback
+                line_vals['name'] = ', '.join(expense_lines.mapped('name'))
                 
             if group_data['analytic_distribution']:
                 line_vals['analytic_distribution'] = group_data['analytic_distribution']
@@ -524,7 +529,11 @@ class HrExpenseSheet(models.Model):
             })
         
         # Carry attachments from expense lines to the bill
-        self._carry_attachments_to_bill(expense_lines, bill)
+        # Get all expenses from all groups to attach
+        all_expenses = self.env['hr.expense']
+        for group_data in account_tax_groups.values():
+            all_expenses |= group_data['expenses']
+        self._carry_attachments_to_bill(all_expenses, bill)
         
         return bill
 
@@ -594,14 +603,16 @@ class HrExpenseSheet(models.Model):
                     "Expense '%s' uses a different currency."
                 ) % expense.name)
         
-        # Group expenses by account, taxes, analytic account, analytic tags, and WHT tax to create proper invoice lines
+        # Group expenses by account, taxes, analytic account, analytic tags, product, and WHT tax to create proper invoice lines
         account_tax_groups = {}
         for expense in expenses:
             account = expense.account_id
             taxes = tuple(expense.tax_ids.ids)
             analytic_distribution = expense.analytic_distribution or {}
             wht_tax = expense.wht_tax_id.id if hasattr(expense, 'wht_tax_id') and expense.wht_tax_id else False
-            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax)
+            product_id = expense.product_id.id if expense.product_id else False
+            # Include product_id in key to separate lines for different products
+            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax, product_id)
             
             if key not in account_tax_groups:
                 account_tax_groups[key] = {
@@ -610,7 +621,7 @@ class HrExpenseSheet(models.Model):
                     'tax_ids': expense.tax_ids.ids,
                     'analytic_distribution': analytic_distribution,
                     'wht_tax_id': wht_tax,
-                    'product_id': expense.product_id.id if expense.product_id else False
+                    'product_id': product_id
                 }
             
             # Use price_unit (before tax) to avoid VAT duplication when tax_ids are applied
@@ -636,7 +647,7 @@ class HrExpenseSheet(models.Model):
             'invoice_line_ids': []
         }
         
-        for (account_id, taxes_tuple, analytic_keys, wht_tax), group_data in account_tax_groups.items():
+        for (account_id, taxes_tuple, analytic_keys, wht_tax, product_id), group_data in account_tax_groups.items():
             line_vals = {
                 'name': ', '.join(group_data['expenses'].mapped('name')),
                 'quantity': 1,
@@ -778,14 +789,16 @@ class HrExpenseSheet(models.Model):
         # Get company for this group
         company = self.env['res.company'].browse(company_id)
         
-        # Group expenses by account, taxes, analytic account, analytic tags, and WHT tax to create proper invoice lines
+        # Group expenses by account, taxes, analytic account, analytic tags, product, and WHT tax to create proper invoice lines
         account_tax_groups = {}
         for expense in expenses:
             account = expense.account_id
             taxes = tuple(expense.tax_ids.ids)
             analytic_distribution = expense.analytic_distribution or {}
             wht_tax = expense.wht_tax_id.id if hasattr(expense, 'wht_tax_id') and expense.wht_tax_id else False
-            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax)
+            product_id = expense.product_id.id if expense.product_id else False
+            # Include product_id in key to separate lines for different products
+            key = (account.id, taxes, tuple(sorted(analytic_distribution.keys())), wht_tax, product_id)
             
             if key not in account_tax_groups:
                 account_tax_groups[key] = {
@@ -794,7 +807,7 @@ class HrExpenseSheet(models.Model):
                     'tax_ids': expense.tax_ids.ids,
                     'analytic_distribution': analytic_distribution,
                     'wht_tax_id': wht_tax,
-                    'product_id': expense.product_id.id if expense.product_id else False
+                    'product_id': product_id
                 }
             
             # Use price_unit (before tax) to avoid VAT duplication when tax_ids are applied
@@ -813,7 +826,7 @@ class HrExpenseSheet(models.Model):
             'invoice_line_ids': []
         }
         
-        for (account_id, taxes_tuple, analytic_keys, wht_tax), group_data in account_tax_groups.items():
+        for (account_id, taxes_tuple, analytic_keys, wht_tax, product_id), group_data in account_tax_groups.items():
             line_vals = {
                 'name': ', '.join(group_data['expenses'].mapped('name')),
                 'quantity': 1,

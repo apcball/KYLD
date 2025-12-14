@@ -13,7 +13,7 @@ class WhtClearAdvanceWizard(models.TransientModel):
     expense_sheet_id = fields.Many2one(
         'hr.expense.sheet',
         string='Expense Sheet',
-        required=True,
+        required=False,  # Not required when clearing from standalone bills
         readonly=True
     )
     employee_id = fields.Many2one(
@@ -695,9 +695,9 @@ class WhtClearAdvanceWizard(models.TransientModel):
         """Validate data integrity between expense sheet, employee, and advance box (fast version)"""
         errors = []
         
-        # Basic field validation
-        if not self.expense_sheet_id:
-            errors.append(_("No expense sheet specified"))
+        # Basic field validation - expense sheet is now OPTIONAL
+        # if not self.expense_sheet_id:
+        #     errors.append(_("No expense sheet specified"))
         
         if not self.employee_id:
             errors.append(_("No employee specified"))
@@ -705,7 +705,7 @@ class WhtClearAdvanceWizard(models.TransientModel):
         if not self.advance_box_id:
             errors.append(_("No advance box specified"))
         
-        # Quick validation without heavy field access
+        # Quick validation without heavy field access - only if expense sheet exists
         if self.expense_sheet_id and self.employee_id:
             # Allow cross-employee operations
             # ให้สามารถทำงานข้าม employee ได้
@@ -1130,6 +1130,42 @@ class WhtClearAdvanceWizard(models.TransientModel):
             move.write(move_data)
             
             _logger.info("Created WHT advance clearing journal entry: %s", move.name)
+            
+            # Auto-reconcile the clearing entry with the original bill to mark it as paid
+            try:
+                bill = None
+                # Find the bill from context or expense sheet
+                active_model = self.env.context.get('active_model')
+                active_id = self.env.context.get('active_id')
+                
+                if active_model == 'account.move' and active_id:
+                    bill = self.env['account.move'].browse(active_id)
+                elif self.expense_sheet_id:
+                    bill = self.expense_sheet_id.bill_id or (self.expense_sheet_id.bill_ids[:1] if self.expense_sheet_id.bill_ids else False)
+                
+                if bill and bill.state == 'posted':
+                    # Find payable lines from both moves
+                    clearing_payable_line = move.line_ids.filtered(
+                        lambda l: l.account_id.account_type == 'liability_payable' and l.debit > 0 and not l.reconciled
+                    )
+                    bill_payable_line = bill.line_ids.filtered(
+                        lambda l: l.account_id.account_type == 'liability_payable' and l.credit > 0 and not l.reconciled
+                    )
+                    
+                    if clearing_payable_line and bill_payable_line:
+                        # Reconcile to mark bill as paid
+                        lines_to_reconcile = clearing_payable_line + bill_payable_line
+                        lines_to_reconcile.reconcile()
+                        _logger.info("✅ Successfully reconciled bill %s with clearing entry %s - Bill is now PAID", 
+                                   bill.name, move.name)
+                    else:
+                        _logger.warning("⚠️ Could not find payable lines to reconcile (clearing: %s, bill: %s)", 
+                                      bool(clearing_payable_line), bool(bill_payable_line))
+                else:
+                    _logger.info("ℹ️ No bill found for reconciliation or bill not posted")
+                    
+            except Exception as e:
+                _logger.warning("⚠️ Failed to auto-reconcile with bill: %s (continuing anyway)", str(e))
             
             # Return action to open the created journal entry
             return {
