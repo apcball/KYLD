@@ -23,12 +23,12 @@
                     <t t-call="web.external_layout">
                        <!-- Split order lines into chunks of 10 -->
                        <t t-set="lines" t-value="o.requisition_order_ids"/>
-                       <t t-set="chunk_size" t-value="13"/>
+                       <t t-set="chunk_size" t-value="10"/>
                        <t t-set="total_lines" t-value="len(lines)"/>
                        <t t-set="chunks" t-value="[lines[i:i+chunk_size] for i in range(0, total_lines, chunk_size)]"/>
                        
                        <t t-foreach="chunks" t-as="chunk">
-                           <t t-set="current_chunk_index" t-value="chunk_index"/>
+                           <t t-set="chunk_index" t-value="chunk_index_index"/>
                            <div class="page">
 
                         <style>
@@ -135,14 +135,14 @@
     <div class="col-12 text-center">
         <t t-if="o.company_id.name == 'บริษัท สมาร์ท เควาย แมนเนจเม้นท์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
-                <strong style="font-size: 24px;">บริษัท สมาร์ท เควาย เแมนเนจเม้นท์ จำกัด</strong><br/>
-                <strong>เลขที่ 99 หมู่ที่ 8 เแขวงฉิมพลี เขตตลิ่งชัน กรุงเทพมหานคร 10170</strong><br/>
+                <strong style="font-size: 24px;">บริษัท สมาร์ท เควาย เเมนเนจเม้นท์ จำกัด</strong><br/>
+                <strong>เลขที่ 99 หมู่ที่ 8 เเขวงฉิมพลี เขตตลิ่งชัน กรุงเทพมหานคร 10170</strong><br/>
                 <strong>เลขประจำตัวผู้เสียภาษีอากร 01005566027821</strong>
             </div>
         </t>
         <t t-elif="o.company_id.name == 'บริษัท เดอ ฟอเรส แลนด์ จำกัด'">
             <div style="font-size: 20px; line-height: 1.6;">
-                <strong style="font-size: 24px;">บริษัท เดอะ ฟอเรส เแลนด์ จำกัด</strong><br/>
+                <strong style="font-size: 24px;">บริษัท เดอะ ฟอเรส เเลนด์ จำกัด</strong><br/>
                 <strong>45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
                 <strong>โทร. 02 105 4605 เลขประจำตัวผู้เสียภาษีอากร 0105559127166 สำนักงานใหญ่</strong>
             </div>
@@ -314,8 +314,6 @@
                     </tbody>
                 </table>
 
-                <!-- Signature section only on last page -->
-                <t t-if="current_chunk_index == len(chunks) - 1">
                 <table style="width: 100%; border: 1px solid #000; border-collapse: collapse; table-layout: fixed; font-size: 16px;">
                     <tr>
                         <!-- ช่องที่ 1 -->
@@ -338,7 +336,7 @@
                         <td style="width: 25%; border: 1px solid #000; vertical-align: top; padding: 2px; text-align: center;">
                             <p style="margin:0;"></p>
                             <br/>
-                            <p style="margin:0;">ต้นฉบับส่งที่เแผนกจัดซื้อ</p>
+                            <p style="margin:0;">ต้นฉบับส่งที่เเผนกจัดซื้อ</p>
                             <p style="margin:0;">สำเนาเก็บที่ผู้จัดทำ</p>
                         </td>
                         <!-- ช่องที่ 4 -->
@@ -351,10 +349,7 @@
                         </td>
                     </tr>
                 </table>
-                </t>
-
                    </div>
-                       </t>
                   </t>
                </t>
              </t>
