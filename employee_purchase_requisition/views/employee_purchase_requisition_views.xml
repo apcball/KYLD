@@ -89,6 +89,13 @@
             class="oe_highlight"
             invisible="state != 'approved'"/>
     
+    <!-- Duplicate Button -->
+    <button name="action_duplicate_requisition"
+            string="Duplicate PR"
+            type="object"
+            invisible="state in ['cancelled']"
+            help="Create a copy of this Purchase Requisition in draft state"/>
+    
     <!-- Receive Button -->
     <button name="action_receive" 
             string="Mark as Received" 

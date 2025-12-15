@@ -477,6 +477,58 @@ class PurchaseRequisition(models.Model):
             'domain': [('requisition_order', '=', self.name)],
         }
     
+    def action_duplicate_requisition(self):
+        """Duplicate the purchase requisition with all its lines"""
+        self.ensure_one()
+        
+        # Prepare the values for the new requisition (without lines first)
+        new_vals = {
+            'employee_id': self.employee_id.id,
+            'dept_id': self.dept_id.id,
+            'manager_user_id': self.manager_user_id.id if self.manager_user_id else False,
+            'user_id': self.user_id.id,
+            'company_id': self.company_id.id,
+            'requisition_date': fields.Date.today(),
+            'request_plan': self.request_plan,
+            'requisition_deadline': self.requisition_deadline,
+            'destination_location_id': self.destination_location_id.id if self.destination_location_id else False,
+            'source_location_id': self.source_location_id.id if self.source_location_id else False,
+            'delivery_type_id': self.delivery_type_id.id if self.delivery_type_id else False,
+            'internal_picking_id': self.internal_picking_id.id if self.internal_picking_id else False,
+            'requisition_description': self.requisition_description,
+            'purpose': self.purpose,
+            'state': 'draft',  # Reset state to draft
+        }
+        
+        # Create the new requisition first
+        new_requisition = self.create(new_vals)
+        
+        # Copy all requisition lines to the new requisition
+        RequisitionOrder = self.env['requisition.order']
+        for line in self.requisition_order_ids:
+            line_vals = {
+                'requisition_product_id': new_requisition.id,
+                'product_id': line.product_id.id,
+                'description': line.description,
+                'quantity': line.quantity,
+                'uom': line.uom.id if line.uom else False,
+                'unit_price': line.unit_price,
+                'partner_id': False,  # Reset vendor selection to allow fresh selection
+                'analytic_distribution': line.analytic_distribution if line.analytic_distribution else {},
+                'remark': line.remark
+            }
+            RequisitionOrder.create(line_vals)
+        
+        # Return action to view the new requisition
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Duplicated Purchase Requisition',
+            'view_mode': 'form',
+            'res_model': 'employee.purchase.requisition',
+            'res_id': new_requisition.id,
+            'target': 'current',
+        }
+    
     def _create_head_approval_activity(self):
         """Create activity for department head approval"""
         if not self.manager_user_id:
