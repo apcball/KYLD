@@ -107,6 +107,20 @@
                                 overflow: hidden;
                                 text-overflow: ellipsis;
                             }
+
+                            /* Order line table styling */
+                            .order-line-table tbody tr {
+                                height: 25px;
+                            }
+
+                            .order-line-table td {
+                                max-height: 25px;
+                                overflow: hidden;
+                                white-space: normal;
+                                word-wrap: break-word;
+                                padding: 2px !important;
+                                vertical-align: middle;
+                            }
                             .footer-fixed {
                                 position: absolute;
                                 bottom: 0;
@@ -130,6 +144,11 @@
 
 
                         
+                        <!-- Page Number at Top Right -->
+                        <div style="margin-bottom: 10px; text-align: right;">
+                            <span style="font-size: 12px; font-weight: bold;">หน้า <t t-esc="current_chunk_index + 1"/> / <t t-esc="len(chunks)"/></span>
+                        </div>
+
                         <!-- ส่วนหัว (Header) -->
                   <div class="row mb-2">
     <div class="col-12 text-center">
@@ -273,7 +292,7 @@
                     </tr>
                 </table>
 
-                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; font-family: 'Sarabun', Arial, sans-serif; margin-top: 10px; border-spacing: 0; border: 1px solid #000;">
+                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; font-family: 'Sarabun', Arial, sans-serif; margin-top: 10px; border-spacing: 0; border: 1px solid #000;" class="order-line-table">
                     <thead>
                         <tr>
                             <th style="width: 5%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 0 2px; margin: 0;">รายการ</th>
@@ -286,11 +305,11 @@
                     </thead>
                     <tbody>
                        <t t-if="chunk">
-                       <t t-set="line_index" t-value="0"/>
                        <t t-foreach="chunk" t-as="line">
+                            <t t-set="global_line_number" t-value="current_chunk_index * 13 + line_index + 1"/>
                             <tr>
                                 <td style="border: 1px solid #000; text-align: center; padding: 0 2px; margin: 0;">
-                                      <t t-esc="line_index + 1"/>
+                                      <t t-esc="global_line_number"/>
                                 </td>
                                 <td style="border: 1px solid #000; text-align: center; padding: 0 2px; margin: 0;">
                                     <t t-esc="line.quantity or ''"/>
@@ -308,7 +327,6 @@
                                     <t t-esc="line.remark or ''"/>
                                 </td>
                             </tr>
-                            <t t-set="line_index" t-value="line_index + 1"/>
                         </t>
                         </t>
                     </tbody>
