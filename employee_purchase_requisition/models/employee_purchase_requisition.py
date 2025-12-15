@@ -236,6 +236,14 @@ class PurchaseRequisition(models.Model):
         
         return super().create(vals)
     
+    def unlink(self):
+        """Override unlink to restrict deletion to Purchase group only"""
+        # Check if user is in Purchase group (employee_requisition_head)
+        if not self.env.user.has_group('employee_purchase_requisition.employee_requisition_head'):
+            raise ValidationError('Only users in the "Purchase" group can delete Purchase Requisitions.')
+        
+        return super().unlink()
+    
     @api.onchange('user_id')
     def _onchange_user_id(self):
         """When user is changed, update employee_id if not set"""

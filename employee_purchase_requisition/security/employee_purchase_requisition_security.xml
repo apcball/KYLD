@@ -31,6 +31,30 @@
         <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
     </record>
 
+    <!-- Delete restriction: Only Purchase group can delete -->
+    <record id="employee_requisition_delete_rule" model="ir.rule">
+        <field name="name">Employee Purchase Requisition: Only Purchase group can delete</field>
+        <field name="model_id" ref="model_employee_purchase_requisition"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('employee_purchase_requisition.employee_requisition_head'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+
+    <!-- Deny delete for other groups -->
+    <record id="employee_requisition_no_delete_rule" model="ir.rule">
+        <field name="name">Employee Purchase Requisition: Other groups cannot delete</field>
+        <field name="model_id" ref="model_employee_purchase_requisition"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('employee_purchase_requisition.employee_requisition_user')), (4, ref('employee_purchase_requisition.employee_requisition_manager'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
     <!-- Allow all users to read warehouse records -->
     <record id="stock_warehouse_all_users_read_rule" model="ir.rule">
         <field name="name">Warehouse: Allow Read Access</field>
