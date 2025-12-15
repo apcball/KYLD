@@ -572,7 +572,14 @@ class RequisitionOrder(models.Model):
     requisition_product_id = fields.Many2one('employee.purchase.requisition', string="Requisition")
     product_id = fields.Many2one('product.product', string="Product")
     quantity = fields.Float(string="จำนวนขอซื้อ", required=True)
-    product_uom_id = fields.Many2one('uom.uom', string="หน่วย")
+    product_uom_category_id = fields.Many2one(
+        'uom.category',
+        related='product_id.uom_id.category_id',
+        string='Product UOM Category',
+        store=True,
+        readonly=True
+    )
+    product_uom_id = fields.Many2one('uom.uom', string="หน่วย", domain="[('category_id', '=', product_uom_category_id)]")
     price_unit = fields.Float(string="ราคา/หน่วย", default=0.0)
     requisition_order_ids = fields.One2many('requisition.order', 'requisition_id', string="รายการสินค้า")
     need_date = fields.Date(string='วันที่ต้องการสินค้า')

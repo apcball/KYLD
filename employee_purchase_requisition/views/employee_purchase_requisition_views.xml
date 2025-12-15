@@ -162,7 +162,8 @@
                                     <field name="unit_price" string="Unit Price"/>
                                     <field name="quantity"/>
                                     <field name="price_subtotal" string="Subtotal" readonly="1" widget="monetary"/>
-                                    <field name="uom"/>
+                                    <field name="product_uom_category_id" column_invisible="1"/>
+                                    <field name="uom" domain="[('category_id', '=', product_uom_category_id)]"/>
                                     <field name="partner_id"
                                            groups="employee_purchase_requisition.employee_requisition_head,employee_purchase_requisition.employee_requisition_manager"/>
                                     <field name="remark"/>

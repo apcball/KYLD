@@ -16,9 +16,17 @@ class RequisitionOrder(models.Model):
     )
     description = fields.Text(string='Description')
     quantity = fields.Float(string='Quantity', default=1.0)
+    product_uom_category_id = fields.Many2one(
+        'uom.category',
+        related='product_id.uom_id.category_id',
+        string='Product UOM Category',
+        store=True,
+        readonly=True
+    )
     uom = fields.Many2one(
         'uom.uom',
-        string='Unit of Measure'
+        string='Unit of Measure',
+        domain="[('category_id', '=', product_uom_category_id)]"
     )
     partner_id = fields.Many2one(
         'res.partner',
