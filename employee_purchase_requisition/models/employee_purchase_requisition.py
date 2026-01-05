@@ -9,6 +9,8 @@ class PurchaseRequisition(models.Model):
     _name = 'employee.purchase.requisition'
     _description = 'Employee Purchase Requisition'
     _inherit = ["mail.thread", "mail.activity.mixin"]
+    _rec_name = 'name'
+    _order = 'name desc'
 
     name = fields.Char(string="Reference No", readonly=True)
     requisition_id = fields.Many2one('employee.purchase.requisition', string="Requisition")
@@ -236,6 +238,32 @@ class PurchaseRequisition(models.Model):
         
         return super().create(vals)
     
+    @api.model
+    def _name_search(self, name='', args=None, operator='ilike', limit=100, name_get_uid=None):
+        """Enhanced search to find PR by number, employee, or department"""
+        args = args or []
+        domain = []
+        
+        if name:
+            domain = ['|', '|', '|',
+                     ('name', operator, name),
+                     ('employee_id.name', operator, name),
+                     ('dept_id.name', operator, name),
+                     ('user_id.name', operator, name)]
+        
+        return self._search(domain + args, limit=limit, access_rights_uid=name_get_uid)
+    
+    def name_get(self):
+        """Display name with employee for better identification"""
+        result = []
+        for rec in self:
+            if rec.employee_id:
+                name = f"{rec.name} - {rec.employee_id.name}"
+            else:
+                name = rec.name
+            result.append((rec.id, name))
+        return result
+    
     def unlink(self):
         """Override unlink to restrict deletion to Purchase group only"""
         # Check if user is in Purchase group (employee_requisition_head)
@@ -398,8 +426,13 @@ class PurchaseRequisition(models.Model):
             if vendor_id not in purchase_orders:
                 purchase_orders[vendor_id] = []
 
+            # Use description from PR, fall back to product name if not set
+            description_text = rec.description or rec.product_id.name
+            if rec.remark:
+                description_text = f"{description_text}\n{rec.remark}"
+            
             line_vals = {
-                'name': rec.product_id.name,
+                'name': description_text,
                 'product_id': rec.product_id.id,
                 'product_qty': rec.quantity,
                 'product_uom': rec.product_id.uom_po_id.id,

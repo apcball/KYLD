@@ -287,11 +287,28 @@
         <field name="model">employee.purchase.requisition</field>
         <field name="arch" type="xml">
             <search string="Search Tips">
+                <field name="name" string="PR Number" filter_domain="[('name', 'ilike', self)]"/>
+                <field name="employee_id" string="Employee"/>
+                <field name="dept_id" string="Department"/>
+                <field name="user_id" string="Responsible"/>
+                <field name="state" string="Status"/>
+                <separator/>
+                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Waiting Approval" name="waiting" domain="[('state', 'in', ['waiting_head_approval', 'waiting_purchase_approval'])]"/>
+                <filter string="Approved" name="approved" domain="[('state', '=', 'approved')]"/>
+                <filter string="PO Created" name="po_created" domain="[('state', '=', 'purchase_order_created')]"/>
+                <separator/>
+                <filter string="My Requisitions" name="my_requisitions" domain="[('employee_id.user_id', '=', uid)]"/>
+                <filter string="My Department" name="my_department" domain="[('dept_id.manager_id.user_id', '=', uid)]"/>
                 <group expand="1" string="Group By">
                     <filter string="Employee" name="employee_id"
                             context="{'group_by':'employee_id', 'residual_visible':True}"/>
                     <filter string="Department" name="dept_id"
                             context="{'group_by':'dept_id', 'residual_visible':True}"/>
+                    <filter string="Status" name="state"
+                            context="{'group_by':'state'}"/>
+                    <filter string="Requisition Date" name="requisition_date"
+                            context="{'group_by':'requisition_date'}"/>
                 </group>
             </search>
         </field>
