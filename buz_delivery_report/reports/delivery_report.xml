@@ -123,12 +123,12 @@
                                     </t>
                                     <!-- Company Info Section -->
                                     <div class="row mb-2">
-                                        <div class="col-4 text-start">
+                                       <div class="col-4 text-start" style="display: none;">
                                             <img src="/buz_delivery_report/static/img/LOGO MOGEN.png"
                                                  style="width: 150px; height: auto; object-fit: contain;margin-bottom: -30px;"
                                                  alt="Company Logo"/>
                                         </div>
-                                        <div class="col-8">
+                                        <div class="col-12">
                                             <div class="company-header mb-1 text-end">
                                                 <strong>เลขที่เอกสาร:</strong>
                                                 <span t-field="doc.name"/>
