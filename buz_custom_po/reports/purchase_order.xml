@@ -211,7 +211,7 @@
                       </tr>
                     </table>
                     <p><strong>วันที่กำหนดส่ง:</strong> <span t-field="o.date_planned" t-options='{"widget": "date"}'/></p>
-                    <p><strong>จำนวนวันเครดิต:</strong> <span t-field="o.payment_term_id.name"/></p>
+                    <p><strong>จำนวนวันเครดิต:</strong> <span t-esc="o.payment_term_id.name or '-'"/></p>
                     <p><strong>ชื่อผู้ติดต่อ:</strong> <span t-field="o.employee_contact_id.name"/></p>
                   </td>
                 </tr>
