@@ -19,24 +19,32 @@ class ThaiTaxReport(models.AbstractModel):
         """
 
     def _query_select_sub_tax(self):
-        return """t.id, t.company_id, ml.account_id, t.partner_id,
-            CASE WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
-                THEN t.tax_invoice_number
-            ELSE
-                t.tax_invoice_number || ' (VOID)'
+        return """t.id, t.company_id, 
+            COALESCE(ml.account_id, t.account_id) AS account_id, 
+            t.partner_id,
+            CASE 
+                WHEN ml.id IS NULL THEN t.tax_invoice_number
+                WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
+                    THEN t.tax_invoice_number
+                ELSE t.tax_invoice_number || ' (VOID)'
             END AS tax_invoice_number,
             t.tax_invoice_date AS tax_date,
-            CASE WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
-                THEN t.tax_base_amount
-            ELSE 0.0
+            CASE 
+                WHEN ml.id IS NULL THEN t.tax_base_amount
+                WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
+                    THEN t.tax_base_amount
+                ELSE 0.0
             END AS tax_base_amount,
-            CASE WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
-                THEN t.balance
-            ELSE 0.0
+            CASE 
+                WHEN ml.id IS NULL THEN t.tax_amount
+                WHEN ml.parent_state = 'posted' AND t.reversing_id IS NULL
+                    THEN t.balance
+                ELSE 0.0
             END AS tax_amount,
-            CASE WHEN m.ref IS NOT NULL
-                THEN m.ref
-            ELSE ml.move_name
+            CASE 
+                WHEN ml.id IS NULL THEN COALESCE(t.name, '')
+                WHEN m.ref IS NOT NULL THEN m.ref
+                ELSE ml.move_name
             END AS name
         """
 
@@ -45,7 +53,9 @@ class ThaiTaxReport(models.AbstractModel):
 
     def _domain_where_clause_tax(self, show_cancel):
         condition = "IN ('posted', 'cancel')" if show_cancel else "= 'posted'"
-        return " ".join(["ml.parent_state", condition])
+        return " ".join(
+            ["(ml.parent_state", condition, "OR ml.id IS NULL)"]
+        )
 
     def _get_tax_data(self, tax_id, date_from, date_to, show_cancel, company_id):
         domain = self._domain_where_clause_tax(show_cancel)
@@ -55,15 +65,18 @@ class ThaiTaxReport(models.AbstractModel):
             FROM (
                 SELECT {self._query_select_sub_tax()}
                 FROM account_move_tax_invoice t
-                JOIN account_move_line ml ON ml.id = t.move_line_id
-                JOIN account_move m ON m.id = ml.move_id
+                LEFT JOIN account_move_line ml ON ml.id = t.move_line_id
+                LEFT JOIN account_move m ON m.id = COALESCE(ml.move_id, t.move_id)
                 WHERE {domain}
                     AND t.tax_invoice_number IS NOT NULL
-                    AND ml.account_id IN (
-                        SELECT account_id
-                        FROM account_tax_repartition_line
-                        WHERE account_id is not null AND tax_id = %s
-                        GROUP BY account_id
+                    AND (
+                        COALESCE(ml.account_id, t.account_id) IN (
+                            SELECT account_id
+                            FROM account_tax_repartition_line
+                            WHERE account_id is not null AND tax_id = %s
+                            GROUP BY account_id
+                        )
+                        OR (ml.id IS NULL AND t.tax_id = %s)
                     )
                     -- query condition with normal report date by report date
                     -- and late report date within range date end
@@ -77,13 +90,14 @@ class ThaiTaxReport(models.AbstractModel):
                             EXTRACT(YEAR FROM t.report_date) >= %s
                         )
                     )
-                AND ml.company_id = %s
+                AND t.company_id = %s
                 AND t.reversed_id is null
             ) a
             GROUP BY {self._query_groupby_tax()}
             ORDER BY tax_date, tax_invoice_number
         """,
             (
+                tax_id,
                 tax_id,
                 date_from,
                 date_to,
@@ -110,8 +124,8 @@ class ThaiTaxReport(models.AbstractModel):
                     "partner_branch": partner_id.branch or "00000",
                 }
             )
-            total_base += line["tax_base_amount"]
-            total_tax += line["tax_amount"]
+            total_base += line["tax_base_amount"] or 0.0
+            total_tax += line["tax_amount"] or 0.0
         total_amount = total_base + total_tax
         return total_base, total_tax, total_amount, tax_report_data
 

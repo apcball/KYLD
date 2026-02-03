@@ -66,14 +66,22 @@
             <field name="name">Material Requisition: User Access</field>
             <field name="model_id" ref="model_material_requisition"/>
             <field name="groups" eval="[(4, ref('group_material_requisition_user'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+            <field name="domain_force">['|', ('employee_id.user_id', '=', user.id), ('employee_id', '=', False)]</field>
         </record>
 
         <record id="rule_material_requisition_dept_manager" model="ir.rule">
             <field name="name">Material Requisition: Department Manager Access</field>
             <field name="model_id" ref="model_material_requisition"/>
             <field name="groups" eval="[(4, ref('group_department_manager'))]"/>
-            <field name="domain_force">[('department_id.manager_id.user_id', '=', user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+            <field name="domain_force">['|', ('department_id.manager_id.user_id', '=', user.id), ('department_id', '=', False)]</field>
         </record>
 
         <record id="rule_material_requisition_manager" model="ir.rule">
@@ -96,6 +104,49 @@
             <field name="model_id" ref="model_job_note"/>
             <field name="groups" eval="[(4, ref('group_job_costing_manager'))]"/>
             <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- Multi-Company Rules -->
+        <record id="rule_job_cost_sheet_multi_company" model="ir.rule">
+            <field name="name">Job Cost Sheet: Multi Company</field>
+            <field name="model_id" ref="model_job_cost_sheet"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_job_cost_line_multi_company" model="ir.rule">
+            <field name="name">Job Cost Line: Multi Company</field>
+            <field name="model_id" ref="model_job_cost_line"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_boq_multi_company" model="ir.rule">
+            <field name="name">BOQ: Multi Company</field>
+            <field name="model_id" ref="model_boq_boq"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+        
+        <record id="rule_boq_line_multi_company" model="ir.rule">
+            <field name="name">BOQ Line: Multi Company</field>
+            <field name="model_id" ref="model_boq_line"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_job_order_multi_company" model="ir.rule">
+            <field name="name">Job Order: Multi Company</field>
+            <field name="model_id" ref="model_job_order"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_material_requisition_multi_company" model="ir.rule">
+            <field name="name">Material Requisition: Multi Company</field>
+            <field name="model_id" ref="model_material_requisition"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+        
+        <record id="rule_material_requisition_line_multi_company" model="ir.rule">
+            <field name="name">Material Requisition Line: Multi Company</field>
+            <field name="model_id" ref="model_material_requisition_line"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
     </data>

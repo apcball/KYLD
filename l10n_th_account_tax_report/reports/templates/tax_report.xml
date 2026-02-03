@@ -127,13 +127,13 @@
                 <t t-out="line['partner_branch']" />
             </div>
             <div class="act_as_cell amount">
-                <t t-out="'{0:,.2f}'.format(line['tax_base_amount'])" />
+                <t t-out="'{0:,.2f}'.format(line['tax_base_amount'] or 0.0)" />
             </div>
             <div class="act_as_cell amount">
-                <t t-out="'{0:,.2f}'.format(line['tax_amount'])" />
+                <t t-out="'{0:,.2f}'.format(line['tax_amount'] or 0.0)" />
             </div>
             <div class="act_as_cell amount">
-                <t t-out="'{0:,.2f}'.format(line['tax_base_amount'] + line['tax_amount'])" />
+                <t t-out="'{0:,.2f}'.format((line['tax_base_amount'] or 0.0) + (line['tax_amount'] or 0.0))" />
             </div>
         </div>
     </template>

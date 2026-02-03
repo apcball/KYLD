@@ -19,6 +19,7 @@ class JobCostSheet(models.Model):
     project_id = fields.Many2one('project.project', string='Project/Contract', required=True)
     job_order_id = fields.Many2one('job.order', string='Job Order')
     analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
     
     # State management
     state = fields.Selection([
@@ -69,8 +70,14 @@ class JobCostSheet(models.Model):
     
     # Other fields
     notes = fields.Text(string='Notes')
-    company_id = fields.Many2one('res.company', string='Company', default=lambda self: self.env.company)
     currency_id = fields.Many2one('res.currency', string='Currency')
+
+    @api.onchange('project_id')
+    def _onchange_project_id(self):
+        if self.project_id:
+            self.analytic_account_id = self.project_id.analytic_account_id
+            if self.project_id.company_id:
+                self.company_id = self.project_id.company_id
 
     @api.model
     def create(self, vals):
@@ -336,6 +343,7 @@ class JobCostLine(models.Model):
     _order = 'sequence, id'
 
     cost_sheet_id = fields.Many2one('job.cost.sheet', string='Cost Sheet', required=True, ondelete='cascade')
+    company_id = fields.Many2one('res.company', related='cost_sheet_id.company_id', string='Company', store=True, readonly=True)
     sequence = fields.Integer(string='Sequence', default=10)
     
     # Cost type

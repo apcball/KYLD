@@ -17,6 +17,7 @@ class BOQ(models.Model):
     project_id = fields.Many2one('project.project', string='Project', required=True)
     job_order_id = fields.Many2one('job.order', string='Job Order')
     job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet')
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
     
     # BOQ Information
     title = fields.Char(string='BOQ Title', required=True)
@@ -47,6 +48,11 @@ class BOQ(models.Model):
     total_ordered_amount = fields.Float(string='Total Ordered Amount', compute='_compute_purchase_totals', store=True)
     total_received_amount = fields.Float(string='Total Received Amount', compute='_compute_purchase_totals', store=True)
     overall_purchase_progress = fields.Float(string='Overall Purchase Progress (%)', compute='_compute_purchase_totals', store=True)
+
+    @api.onchange('project_id')
+    def _onchange_project_id(self):
+        if self.project_id and self.project_id.company_id:
+            self.company_id = self.project_id.company_id
     
     # Smart buttons
     requisition_count = fields.Integer(string='Requisitions', compute='_compute_requisition_count')
@@ -518,6 +524,7 @@ class BOQLine(models.Model):
     _order = 'sequence, id'
 
     boq_id = fields.Many2one('boq.boq', string='BOQ', required=True, ondelete='cascade')
+    company_id = fields.Many2one('res.company', related='boq_id.company_id', string='Company', store=True, readonly=True)
     sequence = fields.Integer(string='Sequence', default=10)
     category_id = fields.Many2one('boq.category', string='Category')
     

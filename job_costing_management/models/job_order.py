@@ -18,6 +18,7 @@ class JobOrder(models.Model):
     task_id = fields.Many2one('project.task', string='Related Task')
     stage_id = fields.Many2one('job.stage', string='Stage', 
                               default=lambda self: self.env['job.stage'].search([('is_draft', '=', True)], limit=1))
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
     parent_job_order_id = fields.Many2one('job.order', string='Parent Job Order')
     child_job_order_ids = fields.One2many('job.order', 'parent_job_order_id', string='Sub Job Orders')
     
@@ -174,6 +175,8 @@ class JobOrder(models.Model):
     def _onchange_project_id(self):
         """Update domain for task_id when project changes"""
         if self.project_id:
+            if self.project_id.company_id:
+                self.company_id = self.project_id.company_id
             return {'domain': {'task_id': [('project_id', '=', self.project_id.id)]}}
         else:
             return {'domain': {'task_id': []}}
