@@ -104,7 +104,7 @@ Key Benefits:
         'demo/job_cost_demo_rfq.xml',
         'demo/job_cost_line_demo.xml',
     ],
-    'qweb': [],
+
     'installable': True,
     'auto_install': False,
     'application': True,

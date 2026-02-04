@@ -47,9 +47,9 @@
                         <button name="action_reject" string="Reject" type="object" 
                                 invisible="state not in ('submitted', 'dept_approved')"/>
                         <button name="action_cancel" string="Cancel" type="object" 
-                                invisible="state not in ('draft', 'submitted', 'dept_approved', 'approved')"/>
+                                invisible="state not in ('draft', 'submitted', 'dept_approved', 'approved', 'ordered')"/>
                         <button name="action_reset_to_draft" string="Reset to Draft" type="object" 
-                                invisible="state not in ('rejected', 'cancelled')"/>
+                                invisible="state not in ('rejected', 'cancelled', 'ordered')"/>
                         <field name="state" widget="statusbar" statusbar_visible="draft,submitted,dept_approved,approved,ordered,received"/>
                     </header>
                     <sheet>

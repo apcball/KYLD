@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import logging
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
+import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ class JobCostSheet(models.Model):
     name = fields.Char(string='Job Cost Sheet', required=True, copy=False, readonly=True,
                       default=lambda self: _('New'))
     sequence = fields.Integer(string='Sequence', default=10)
-    project_id = fields.Many2one('project.project', string='Project/Contract', required=True)
-    job_order_id = fields.Many2one('job.order', string='Job Order')
-    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
-    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
+    project_id = fields.Many2one('project.project', string='Project/Contract', required=True, index=True)
+    job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company, index=True)
     
     # State management
     state = fields.Selection([
@@ -27,7 +27,7 @@ class JobCostSheet(models.Model):
         ('approved', 'Approved'),
         ('done', 'Done'),
         ('cancelled', 'Cancelled')
-    ], string='Status', default='draft', tracking=True)
+    ], string='Status', default='draft', tracking=True, index=True)
     
     # Dates
     date_start = fields.Date(string='Start Date', default=fields.Date.today)
@@ -72,6 +72,11 @@ class JobCostSheet(models.Model):
     notes = fields.Text(string='Notes')
     currency_id = fields.Many2one('res.currency', string='Currency')
 
+    _sql_constraints = [
+        ('name_unique', 'UNIQUE(name)', _('Job Cost Sheet name must be unique!')),
+        ('check_planned_qty_positive', 'CHECK(1=1)', _('')),  # Placeholder, real check on cost.line
+    ]
+
     @api.onchange('project_id')
     def _onchange_project_id(self):
         if self.project_id:
@@ -106,7 +111,9 @@ class JobCostSheet(models.Model):
     def _compute_actual_costs(self):
         for record in self:
             record.actual_material_cost = sum(record.material_cost_ids.mapped('actual_cost'))
-            record.actual_labour_cost = sum(record.labour_cost_ids.mapped('actual_cost'))
+            # FIX ISSUE #1: Use abs() for labour actual cost to handle negative timesheet amounts
+            record.actual_labour_cost = sum(abs(line.actual_cost) for line in record.labour_cost_ids)
+            # FIX ISSUE #3: Ensure overhead is not double-counted
             record.actual_overhead_cost = sum(record.overhead_cost_ids.mapped('actual_cost'))
             record.actual_total_cost = record.actual_material_cost + record.actual_labour_cost + record.actual_overhead_cost
             
@@ -342,7 +349,7 @@ class JobCostLine(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'sequence, id'
 
-    cost_sheet_id = fields.Many2one('job.cost.sheet', string='Cost Sheet', required=True, ondelete='cascade')
+    cost_sheet_id = fields.Many2one('job.cost.sheet', string='Cost Sheet', required=True, ondelete='cascade', index=True)
     company_id = fields.Many2one('res.company', related='cost_sheet_id.company_id', string='Company', store=True, readonly=True)
     sequence = fields.Integer(string='Sequence', default=10)
     
@@ -351,10 +358,10 @@ class JobCostLine(models.Model):
         ('material', 'Material'),
         ('labour', 'Labour'),
         ('overhead', 'Overhead')
-    ], string='Cost Type', required=True, tracking=True)
+    ], string='Cost Type', required=True, tracking=True, index=True)
     
     # Product/Service
-    product_id = fields.Many2one('product.product', string='Product/Service', tracking=True)
+    product_id = fields.Many2one('product.product', string='Product/Service', tracking=True, index=True)
     name = fields.Char(string='Description', required=True, tracking=True)
     
     # Quantities
@@ -377,16 +384,29 @@ class JobCostLine(models.Model):
     uom_id = fields.Many2one('uom.uom', string='Unit of Measure')
     
     # Analytic
-    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
     
     # Relations
     purchase_order_line_ids = fields.One2many('purchase.order.line', 'job_cost_line_id', string='Purchase Order Lines')
     timesheet_ids = fields.One2many('account.analytic.line', 'job_cost_line_id', string='Timesheets')
     invoice_line_ids = fields.One2many('account.move.line', 'job_cost_line_id', string='Invoice Lines')
-    boq_line_id = fields.Many2one('boq.line', string='BOQ Line')
+    boq_line_id = fields.Many2one('boq.line', string='BOQ Line', index=True)
+    
+    # Source tracking fields to prevent duplicates
+    source_po_line_id = fields.Many2one('purchase.order.line', string='Source PO Line', index=True, 
+                                        help='Tracks the PO line that created this cost line to prevent duplicates')
+    source_timesheet_id = fields.Many2one('account.analytic.line', string='Source Timesheet', index=True,
+                                          help='Tracks the timesheet that created this cost line to prevent duplicates')
+    source_invoice_line_id = fields.Many2one('account.move.line', string='Source Invoice Line', index=True,
+                                             help='Tracks the invoice line that created this cost line to prevent duplicates')
     
     # Currency (inherits from cost sheet)
     currency_id = fields.Many2one('res.currency', related='cost_sheet_id.currency_id', string='Currency', store=True, readonly=True)
+
+    _sql_constraints = [
+        ('check_planned_qty_positive', 'CHECK(planned_qty >= 0)', _('Planned quantity must be positive!')),
+        ('check_unit_cost_positive', 'CHECK(unit_cost >= 0)', _('Unit cost must be positive!')),
+    ]
 
     @api.depends('planned_qty', 'unit_cost')
     def _compute_total_cost(self):
@@ -416,13 +436,26 @@ class JobCostLine(models.Model):
                     _logger.info(f"  - Timesheet: {ts.name}, unit_amount={ts.unit_amount}, amount={ts.amount}")
                     
             else:  # overhead
-                # Use invoice lines first, fallback to purchase orders
+                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
+                invoice_qty = 0
+                po_qty = 0
+                
+                # Calculate from invoice lines first (preferred source for overhead)
                 if record.invoice_line_ids:
-                    record.actual_qty = sum(record.invoice_line_ids.filtered(
-                        lambda l: l.move_id.state == 'posted').mapped('quantity'))
-                else:
+                    invoice_lines = record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted')
+                    invoice_qty = sum(invoice_lines.mapped('quantity'))
+                
+                # Calculate from purchase orders (fallback)
+                if record.purchase_order_line_ids:
                     po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
-                    record.actual_qty = sum(po_lines.mapped('qty_received'))
+                    po_qty = sum(po_lines.mapped('qty_received'))
+                
+                # Use invoice quantity if available, otherwise use PO quantity
+                # This prevents double counting when both sources exist
+                if invoice_qty > 0:
+                    record.actual_qty = invoice_qty
+                else:
+                    record.actual_qty = po_qty
     
     @api.depends('purchase_order_line_ids.price_unit', 'purchase_order_line_ids.product_qty', 
                  'timesheet_ids.amount', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity')
@@ -450,15 +483,31 @@ class JobCostLine(models.Model):
                     _logger.info(f"Timesheet line: unit_amount={line.unit_amount}, amount={line.amount}, abs_amount={cost_amount}")
                     
             else:  # overhead
-                # Use invoice lines or purchase order lines
-                for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
-                    total_cost += line.price_subtotal
-                    total_qty += line.quantity
-                # If no invoices, use purchase orders
-                if not total_cost:
+                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
+                invoice_cost = 0
+                invoice_qty = 0
+                po_cost = 0
+                po_qty = 0
+                
+                # Calculate from invoice lines first (preferred source)
+                if record.invoice_line_ids:
+                    for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
+                        invoice_cost += line.price_subtotal
+                        invoice_qty += line.quantity
+                
+                # Calculate from purchase orders (fallback)
+                if record.purchase_order_line_ids:
                     for line in record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done']):
-                        total_cost += line.price_subtotal
-                        total_qty += line.product_qty
+                        po_cost += line.price_subtotal
+                        po_qty += line.product_qty
+                
+                # Use invoice data if available, otherwise use PO data
+                if invoice_cost > 0 and invoice_qty > 0:
+                    total_cost = invoice_cost
+                    total_qty = invoice_qty
+                elif po_cost > 0 and po_qty > 0:
+                    total_cost = po_cost
+                    total_qty = po_qty
             
             record.actual_unit_cost = total_cost / total_qty if total_qty else 0
             
@@ -640,3 +689,65 @@ class JobCostLine(models.Model):
         """Button action to update actual costs"""
         self.update_actual_costs_from_purchases()
         return True
+    
+    @api.model
+    def get_or_create_cost_line(self, cost_sheet_id, product_id, cost_type='material', 
+                                source_po_line_id=None, source_timesheet_id=None, 
+                                source_invoice_line_id=None, vals=None):
+        """
+        Get existing cost line or create new one.
+        Prevents duplicate cost lines by checking source tracking fields.
+        
+        FIX ISSUE #2: Duplicate Cost Lines Prevention
+        """
+        if vals is None:
+            vals = {}
+            
+        domain = [('cost_sheet_id', '=', cost_sheet_id)]
+        
+        # Check by source fields first (most reliable)
+        if source_po_line_id:
+            existing = self.search([('source_po_line_id', '=', source_po_line_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for PO line {source_po_line_id}")
+                return existing
+                
+        if source_timesheet_id:
+            existing = self.search([('source_timesheet_id', '=', source_timesheet_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for timesheet {source_timesheet_id}")
+                return existing
+                
+        if source_invoice_line_id:
+            existing = self.search([('source_invoice_line_id', '=', source_invoice_line_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for invoice line {source_invoice_line_id}")
+                return existing
+        
+        # Check by product if no source match
+        if product_id:
+            domain.append(('product_id', '=', product_id))
+            existing = self.search(domain, limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for product {product_id} in sheet {cost_sheet_id}")
+                return existing
+        
+        # Create new cost line
+        create_vals = {
+            'cost_sheet_id': cost_sheet_id,
+            'cost_type': cost_type,
+            'product_id': product_id,
+            'source_po_line_id': source_po_line_id,
+            'source_timesheet_id': source_timesheet_id,
+            'source_invoice_line_id': source_invoice_line_id,
+        }
+        create_vals.update(vals)
+        
+        # Set default name if not provided
+        if not create_vals.get('name') and product_id:
+            product = self.env['product.product'].browse(product_id)
+            create_vals['name'] = product.name
+            
+        new_line = self.create(create_vals)
+        _logger.info(f"Created new cost line {new_line.id} for sheet {cost_sheet_id}")
+        return new_line
