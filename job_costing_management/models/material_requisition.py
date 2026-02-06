@@ -170,6 +170,21 @@ class MaterialRequisition(models.Model):
                         record.message_post(body=msg)
             
             record.write({'state': 'cancelled'})
+            
+            # IMPORTANT: Trigger recalculation of Job Cost Line active costs
+            # Find all related Job Cost Lines through BOQ lines
+            boq_lines = record.line_ids.mapped('boq_line_id')
+            if boq_lines:
+                cost_lines = boq_lines.mapped('cost_line_ids')
+                if cost_lines:
+                    # Force recomputation of active planned qty and active total cost
+                    cost_lines._compute_active_planned_qty()
+                    cost_lines._compute_active_total_cost()
+                    
+                    # Also recompute the Job Cost Sheet totals
+                    cost_sheets = cost_lines.mapped('cost_sheet_id')
+                    if cost_sheets:
+                        cost_sheets._compute_active_totals()
     
     def action_reset_to_draft(self):
         for record in self:

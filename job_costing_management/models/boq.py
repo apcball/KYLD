@@ -305,6 +305,9 @@ class BOQ(models.Model):
                 'uom_id': line.uom_id.id,
                 'unit_cost': line.unit_cost,
                 'boq_line_id': line.id,  # Link to BOQ line
+                # BOQ Baseline (set once, never changes)
+                'boq_qty': line.quantity,
+                'boq_unit_cost': line.unit_cost,
             }
             
             try:
