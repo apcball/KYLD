@@ -17,7 +17,9 @@ class MaterialRequisition(models.Model):
     project_id = fields.Many2one('project.project', string='Project', required=True)
     job_order_id = fields.Many2one('job.order', string='Job Order')
     job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet')  # Add job cost sheet link
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
     boq_id = fields.Many2one('boq.boq', string='BOQ Reference')
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
     employee_id = fields.Many2one('hr.employee', string='Requested by', 
                                  default=lambda self: self.env.user.employee_id)
     department_id = fields.Many2one('hr.department', string='Department',
@@ -66,8 +68,13 @@ class MaterialRequisition(models.Model):
     # Total cost computation
     total_cost = fields.Float(string='Total Cost', compute='_compute_total_amount', store=True)
     
-    company_id = fields.Many2one('res.company', string='Company', default=lambda self: self.env.company)
-    
+    @api.onchange('project_id')
+    def _onchange_project_id(self):
+        if self.project_id:
+            self.analytic_account_id = self.project_id.analytic_account_id
+            if self.project_id.company_id:
+                self.company_id = self.project_id.company_id
+                
     @api.model
     def create(self, vals):
         if vals.get('name', _('New')) == _('New'):
@@ -164,6 +171,7 @@ class MaterialRequisition(models.Model):
                     'material_requisition_line_id': line.id,  # Link to requisition line
                     'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
                     'job_cost_line_id': line.job_cost_line_id.id if line.job_cost_line_id else False,  # Pass job cost line
+                    'analytic_distribution': line.analytic_distribution,
                 }
                 po_vals['order_line'].append((0, 0, po_line_vals))
             
@@ -326,6 +334,7 @@ class MaterialRequisitionLine(models.Model):
     _order = 'sequence, id'
 
     requisition_id = fields.Many2one('material.requisition', string='Requisition', required=True, ondelete='cascade')
+    company_id = fields.Many2one('res.company', related='requisition_id.company_id', string='Company', store=True, readonly=True)
     sequence = fields.Integer(string='Sequence', default=10)
     
     # Product information
@@ -333,6 +342,9 @@ class MaterialRequisitionLine(models.Model):
     description = fields.Char(string='Description', required=True)
     quantity = fields.Float(string='Quantity', default=1.0, required=True)
     uom_id = fields.Many2one('uom.uom', string='Unit of Measure')
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
+    analytic_distribution = fields.Json(string='Analytic Distribution')
+    analytic_precision = fields.Integer(store=False, default=2)
     
     # Cost information
     estimated_cost = fields.Float(string='Estimated Unit Cost')

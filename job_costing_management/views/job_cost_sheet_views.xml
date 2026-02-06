@@ -16,6 +16,7 @@
                     <field name="total_cost" widget="monetary" options="{'currency_field': 'currency_id'}"/>
                     <field name="actual_total_cost" widget="monetary" options="{'currency_field': 'currency_id'}"/>
                     <field name="total_variance" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                    <field name="company_id" groups="base.group_multi_company" optional="show"/>
                     <field name="state" widget="badge" 
                            decoration-success="state == 'approved'"
                            decoration-primary="state == 'done'"

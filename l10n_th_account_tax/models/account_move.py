@@ -441,6 +441,10 @@ class AccountMove(models.Model):
                     not tax_invoice.tax_invoice_number
                     or not tax_invoice.tax_invoice_date
                 ):
+                    # Skip validation for VAT Undue taxes - will be filled later when using VAT
+                    if hasattr(tax_invoice.tax_line_id, 'is_vat_undue') and tax_invoice.tax_line_id.is_vat_undue:
+                        continue
+                    
                     if tax_invoice.payment_id:  # Defer posting for payment
                         tax_invoice.payment_id.write({"to_clear_tax": True})
                         # Auto post tax cash basis when reset to draft

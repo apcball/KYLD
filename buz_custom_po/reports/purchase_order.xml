@@ -168,6 +168,13 @@
                 <strong>โทร: (02) 105-4600 เลขประจำตัวผู้เสียภาษีอากร 0135550001372</strong>
             </div>
         </t>
+        <t t-elif="o.company_id.name == 'BLUE ZONE HILL'">
+            <div style="font-size: 20px; line-height: 1.6;">
+                <strong style="font-size: 24px;">บริษัท ไอดอล ซิสเท่ม จำกัด</strong><br/>
+                <strong>เลขที่ 45 หมู่ 14 ต.บึงคำพร้อย อ.ลำลูกกา จ.ปทุมธานี 12150</strong><br/>
+                <strong>โทร: (02) 105-4600 เลขประจำตัวผู้เสียภาษีอากร 0135550001372</strong>
+            </div>
+        </t>
     </div>
 </div>
 
