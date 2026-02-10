@@ -694,6 +694,62 @@ class AccountMove(models.Model):
         
         return True
 
+    # ============================================================
+    # Advance Box Balance Refresh on State Changes
+    # ============================================================
+
+    def _find_related_advance_boxes(self):
+        """Find advance boxes affected by this move's lines"""
+        advance_boxes = self.env['employee.advance.box']
+        for move in self:
+            # Method 1: Direct link via advance_box_id
+            if move.advance_box_id:
+                advance_boxes |= move.advance_box_id
+
+            # Method 2: Find via account.move.line matching advance box accounts
+            all_boxes = self.env['employee.advance.box'].search([])
+            if not all_boxes:
+                continue
+            box_account_ids = all_boxes.mapped('account_id.id')
+            affected_lines = move.line_ids.filtered(
+                lambda l: l.account_id.id in box_account_ids
+            )
+            if affected_lines:
+                for box in all_boxes:
+                    box_partner = box._get_employee_partner()
+                    for line in affected_lines:
+                        if (line.account_id.id == box.account_id.id and
+                                line.partner_id.id == box_partner):
+                            advance_boxes |= box
+        return advance_boxes
+
+    def button_draft(self):
+        # Find affected advance boxes BEFORE changing state
+        advance_boxes = self._find_related_advance_boxes()
+        result = super().button_draft()
+        # Refresh balance after state change
+        for box in advance_boxes:
+            box._refresh_balance_simple()
+        return result
+
+    def _reverse_moves(self, default_values_list=None, cancel=False):
+        advance_boxes = self._find_related_advance_boxes()
+        result = super()._reverse_moves(
+            default_values_list=default_values_list, cancel=cancel
+        )
+        # Refresh after reversal JE is created/posted
+        for box in advance_boxes:
+            box._refresh_balance_simple()
+        return result
+
+    def button_cancel(self):
+        advance_boxes = self._find_related_advance_boxes()
+        result = super().button_cancel()
+        for box in advance_boxes:
+            box._refresh_balance_simple()
+        return result
+
+
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 

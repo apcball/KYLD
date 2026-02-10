@@ -31,6 +31,18 @@ class AdvanceBoxRefill(models.Model):
         currency_field='currency_id',
         tracking=True
     )
+    bank_charge_amount = fields.Monetary(
+        string='Bank Charges (THB)',
+        currency_field='bank_charge_currency_id',
+        default=0.0,
+        tracking=True
+    )
+    bank_charge_currency_id = fields.Many2one(
+        'res.currency',
+        string='Bank Charge Currency',
+        default=lambda self: self.env.ref('base.THB'),
+        required=True
+    )
     payment_id = fields.Many2one(
         'account.payment',
         string='Payment Transfer',
@@ -78,11 +90,27 @@ class AdvanceBoxRefill(models.Model):
                 record.name = _('New Refill')
 
     def action_cancel(self):
-        """Cancel the refill"""
+        """Cancel the refill and reverse journal entries if posted"""
         for record in self:
-            if record.state == 'posted' and record.payment_id:
-                raise UserError(_('Cannot cancel a posted refill with payment. Please cancel the payment first.'))
+            if record.state == 'cancel':
+                raise UserError(_('This refill is already cancelled.'))
+            
+            # If posted and has payment, cancel the payment first
+            if record.payment_id and record.payment_id.state == 'posted':
+                try:
+                    record.payment_id.action_draft()
+                    record.payment_id.action_cancel()
+                except Exception as e:
+                    raise UserError(_('Cannot cancel payment: %s. Please cancel the payment manually first.') % str(e))
+            
+            # Set state to cancel and log message
             record.state = 'cancel'
+            record.message_post(body=_('Refill cancelled'))
+            
+            # Post message to advance box
+            if record.box_id:
+                message = _('Refill cancelled: %s (Amount: %s)') % (record.name, record.amount)
+                record.box_id.message_post(body=message)
 
     def action_reset_to_draft(self):
         """Reset to draft"""
