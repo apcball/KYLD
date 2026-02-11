@@ -10,11 +10,10 @@
                     <div class="o_portal_sidebar_content">
                         <div class="d-grid gap-2 col-12 mx-auto mb-3">
                             <!-- Logged In: Auto Approve -->
-                            <button type="button" class="btn btn-success" id="btn-auto-approve" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and request.session.uid">
-                                <i class="fa fa-check"/> Approve
-                            </button>
+                            <!-- Logged In: Auto Approve REMOVED -->
+
                             <!-- Guest: Manual Sign -->
-                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and not request.session.uid">
+                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
                                 <i class="fa fa-check"/> Approve &amp; Sign
                             </button>
                             <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalreject" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
@@ -67,11 +66,10 @@
                         <div class="card-body">
                             <div class="d-grid gap-2">
                                 <!-- Logged In: Auto Approve -->
-                                <button type="button" class="btn btn-success" id="btn-auto-approve-mobile" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and request.session.uid">
-                                    <i class="fa fa-check"/> Approve
-                                </button>
+                                <!-- Logged In: Auto Approve REMOVED -->
+
                                 <!-- Guest: Manual Sign -->
-                                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and not request.session.uid">
+                                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
                                     <i class="fa fa-check"/> Approve &amp; Sign
                                 </button>
                                 <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalreject" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
@@ -300,6 +298,7 @@
                                             <div>ผู้อนุมัติ</div>
                                             <div>
                                                 <span t-if="po.approver_id" t-field="po.approver_id.name"/>
+                                                <span t-elif="request.session.uid" t-esc="request.env['res.users'].sudo().browse(request.session.uid).name"/>
                                                 <span t-else="">(.......................................................)</span>
                                             </div>
                                             <div>Date: <span t-if="po.approval_date" t-field="po.approval_date" t-options='{"widget": "date"}'/></div>

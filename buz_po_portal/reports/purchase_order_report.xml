@@ -470,7 +470,11 @@
                                                 <div style="height: 60px;"></div>
                                                 <div style="border-bottom: 1px solid black; width: 80%; margin: 0 auto;"></div>
                                                 <div>
-                                                    <t t-if="o.company_id.po_approver_ids">
+                                                    <!-- Check if PO exceeds approval limit -->
+                                                    <t t-if="o.amount_total &gt; o.company_id.po_approver_limit and o.company_id.po_approver_above_limit_id">
+                                                        (<span t-esc="o.company_id.po_approver_above_limit_id.name" style="display:inline; margin:0; padding:0;"/>)
+                                                    </t>
+                                                    <t t-elif="o.company_id.po_approver_ids">
                                                         (<span t-esc="', '.join(o.company_id.po_approver_ids.mapped('name'))" style="display:inline; margin:0; padding:0;"/>)
                                                     </t>
                                                     <t t-else="">

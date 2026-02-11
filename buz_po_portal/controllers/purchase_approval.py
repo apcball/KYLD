@@ -166,8 +166,10 @@ class PurchaseApprovalController(http.Controller):
     def confirm_approval(self, po_id, token, **post):
         po = request.env['purchase.order'].sudo().browse(po_id)
         
-        # Debug logging
-        _logger.info(f"PO Approval Attempt - ID: {po_id}, Token: {token}")
+        # Debug logging - INITIAL REQUEST
+        _logger.info(f"=== PO Approval Request === ID: {po_id}, Token: {token}")
+        _logger.info(f"POST data keys: {list(post.keys())}")
+        _logger.info(f"POST signature present: {'signature' in post}, Value: {post.get('signature', 'NOT_IN_POST')[:50] if post.get('signature') else 'EMPTY'}")
 
         if not po.exists():
             return request.make_json_response({
@@ -208,36 +210,23 @@ class PurchaseApprovalController(http.Controller):
 
         # Handle signature
         signature = post.get('signature', '')
-        _logger.info(f"Signature handling - Has signature in post: {bool(signature)}, Session UID: {request.session.uid}")
+        
+        # Check logged-in user - both session and env uid (public routes may have different behavior)
+        logged_in_uid = request.session.uid or request.env.uid
+        # Exclude public user
+        public_user_id = request.env.ref('base.public_user').id
+        is_logged_in = logged_in_uid and logged_in_uid != public_user_id
+        
+        _logger.info(f"Signature handling - Has signature in post: {bool(signature)}, Session UID: {request.session.uid}, Env UID: {request.env.uid}, Is logged in: {is_logged_in}")
         
         if signature:
             # Remove data:image/png;base64, prefix if present
             if signature.startswith('data:image'):
                 signature = signature.split(',')[1]
-        elif request.session.uid:
-             # Auto-sign for logged in user
-             user = request.env['res.users'].sudo().browse(request.session.uid)
-             _logger.info(f"User found: {user.name} (ID: {user.id})")
-             
-             employee = user.employee_id
-             _logger.info(f"Employee linked: {employee.name if employee else 'None'} (ID: {employee.id if employee else 'None'})")
-             
-             if not employee:
-                 _logger.warning(f"User {user.name} has no linked employee record")
-                 return request.make_json_response({
-                    'success': False,
-                    'message': 'Logged in user is not linked to an employee. Cannot use auto-signature.'
-                })
-             
-             if not employee.signature_image:
-                  _logger.warning(f"Employee {employee.name} has no signature_image set")
-                  return request.make_json_response({
-                    'success': False,
-                    'message': 'No signature found in your Employee profile. Please upload one first.'
-                })
-             
-             _logger.info(f"Using employee signature for {employee.name}")
-             signature = employee.signature_image
+        elif is_logged_in:
+             # Auto-sign for logged in user -> REMOVED to force signature for everyone
+             pass
+
         
         if not signature:
              return request.make_json_response({
@@ -246,12 +235,17 @@ class PurchaseApprovalController(http.Controller):
             })
 
         # Update PO
-        po.write({
+        vals = {
             'approval_signature': signature,
             'approval_state': 'approved',
             'approval_date': fields.Datetime.now(),
             'approval_token_expired': True, # Keep legacy field updated
-        })
+        }
+        
+        if is_logged_in:
+             vals['approver_id'] = logged_in_uid
+
+        po.write(vals)
         
         # Mark token as used
         if token_rec:
