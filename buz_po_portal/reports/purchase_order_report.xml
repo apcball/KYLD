@@ -470,8 +470,8 @@
                                                 <div style="height: 60px;"></div>
                                                 <div style="border-bottom: 1px solid black; width: 80%; margin: 0 auto;"></div>
                                                 <div>
-                                                    <t t-if="o.company_id.po_approver_id">
-                                                        (<span t-field="o.company_id.po_approver_id.name" style="display:inline; margin:0; padding:0;"/>)
+                                                    <t t-if="o.company_id.po_approver_ids">
+                                                        (<span t-esc="', '.join(o.company_id.po_approver_ids.mapped('name'))" style="display:inline; margin:0; padding:0;"/>)
                                                     </t>
                                                     <t t-else="">
                                                         (....................................)

@@ -9,12 +9,12 @@
                 <block title="PO Custom Approval Matrix" id="buz_po_approval_matrix">
                      <setting string="Approval Levels" help="Configure reviewers and approvers for Purchase Orders.">
                         <div class="row mt16">
-                            <label for="po_reviewer_id" class="col-lg-4 o_light_label"/>
-                            <field name="po_reviewer_id" class="oe_inline"/>
+                            <label for="po_reviewer_ids" class="col-lg-4 o_light_label"/>
+                            <field name="po_reviewer_ids" widget="many2many_tags" class="oe_inline"/>
                         </div>
                         <div class="row mt16">
-                            <label for="po_approver_id" class="col-lg-4 o_light_label"/>
-                            <field name="po_approver_id" class="oe_inline"/>
+                            <label for="po_approver_ids" class="col-lg-4 o_light_label"/>
+                            <field name="po_approver_ids" widget="many2many_tags" class="oe_inline"/>
                         </div>
                         <div class="row mt16">
                             <label for="po_approver_limit" class="col-lg-4 o_light_label"/>

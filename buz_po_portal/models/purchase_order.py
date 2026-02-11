@@ -89,15 +89,31 @@ class PurchaseOrder(models.Model):
             # Check review
             item_can_review = False
             if rec.approval_state == 'to_review':
-                 if is_admin or rec.reviewer_id == self.env.user:
+                 # Check if current user is in the configured reviewers list
+                 if is_admin or self.env.user in rec.company_id.po_reviewer_ids:
                      item_can_review = True
             rec.can_review = item_can_review
 
             # Check approve
             item_can_approve = False
             if rec.approval_state == 'to_approve':
-                 if is_admin or rec.approver_id == self.env.user:
-                     item_can_approve = True
+                 # Check if current user is in the configured approvers list
+                 # First check standard approvers
+                 allowed_approvers = rec.company_id.po_approver_ids
+                 
+                 # If over limit, check high-limit approver (keeping this single for now as per plan/code structure)
+                 if rec.amount_total > rec.company_id.po_approver_limit and rec.company_id.po_approver_above_limit_id:
+                     # If high limit approver is set, ONLY they can approve? Or mixed? 
+                     # Original logic: if amount > limit: next_approver = above_limit_id
+                     # So if amount > limit, we should check against above_limit_id
+                     if rec.company_id.po_approver_above_limit_id == self.env.user:
+                         item_can_approve = True
+                     elif is_admin: 
+                         item_can_approve = True
+                 else:
+                     # Standard approval
+                     if is_admin or self.env.user in allowed_approvers:
+                         item_can_approve = True
             rec.can_approve = item_can_approve
 
     @api.model_create_multi
@@ -139,7 +155,7 @@ class PurchaseOrder(models.Model):
             raise UserError(_("You have not uploaded a signature in your Employee profile.\nPlease go to Employees app > select your profile > upload signature."))
 
         company = self.company_id
-        if not company.po_reviewer_id:
+        if not company.po_reviewer_ids:
             raise UserError(_("No default reviewer configured. Please set up the Purchase Order Reviewer in Settings."))
 
         # Update PO
@@ -147,16 +163,17 @@ class PurchaseOrder(models.Model):
             'prepared_signature': employee.signature_image,
             'prepared_date': fields.Datetime.now(),
             'approval_state': 'to_review',
-            'reviewer_id': company.po_reviewer_id.id
+            'reviewer_id': False # Clear previous reviewer if any, waiting for anyone to pick up
         })
 
-        # Schedule Review Activity
-        self.activity_schedule(
-            'mail.mail_activity_data_todo',
-            user_id=company.po_reviewer_id.id,
-            summary='Please Review Purchase Order',
-            note=f'Purchase Order {self.name} needs your review.'
-        )
+        # Schedule Review Activity for ALL reviewers
+        for reviewer in company.po_reviewer_ids:
+            self.activity_schedule(
+                'mail.mail_activity_data_todo',
+                user_id=reviewer.id,
+                summary='Please Review Purchase Order',
+                note=f'Purchase Order {self.name} needs your review.'
+            )
         
         # Trigger LINE Notification
         self.action_send_line_approval_request(raise_exception=False)
@@ -177,15 +194,18 @@ class PurchaseOrder(models.Model):
              
         company = self.company_id
         
-        # Determine Approver
+        # Determine Approvers
         limit = company.po_approver_limit
         amount = self.amount_total
-        next_approver = company.po_approver_id
+        
+        next_approvers = self.env['res.users']
         
         if amount > limit and company.po_approver_above_limit_id:
-             next_approver = company.po_approver_above_limit_id
+             next_approvers = company.po_approver_above_limit_id
+        else:
+             next_approvers = company.po_approver_ids
 
-        if not next_approver:
+        if not next_approvers:
              raise UserError(_("No approver configured. Please set up the Purchase Order Approver in Settings."))
              
         # Update PO
@@ -194,7 +214,7 @@ class PurchaseOrder(models.Model):
             'reviewed_date': fields.Datetime.now(),
             'approval_state': 'to_approve',
             'reviewer_id': self.env.user.id,
-            'approver_id': next_approver.id
+            'approver_id': False # Clear specific approver, waiting for one of them
         })
         
         # Complete Review Activity
@@ -202,12 +222,13 @@ class PurchaseOrder(models.Model):
         self.env['mail.activity'].search(activity_domain).action_feedback()
         
         # Schedule Approve Activity & Send Email
-        self.activity_schedule(
-            'mail.mail_activity_data_todo',
-            user_id=next_approver.id,
-            summary='Please Approve Purchase Order',
-            note=f'Purchase Order {self.name} needs your approval.'
-        )
+        for approver in next_approvers:
+            self.activity_schedule(
+                'mail.mail_activity_data_todo',
+                user_id=approver.id,
+                summary='Please Approve Purchase Order',
+                note=f'Purchase Order {self.name} needs your approval.'
+            )
         
         # Generate Token if not exists
         if not self.approval_token:
@@ -293,67 +314,95 @@ class PurchaseOrder(models.Model):
                 raise UserError(_("PO must be in 'Waiting for Approval' state to send LINE notification."))
             return False
 
-        # 2. Get approver (Manager)
-        approver = self.approver_id
-        if not approver:
+        # 2. Get approvers (Manager)
+        # approver = self.approver_id # Old logic
+        
+        # Determine eligible approvers
+        company = self.company_id
+        limit = company.po_approver_limit
+        amount = self.amount_total
+        
+        target_approvers = self.env['res.users']
+        if amount > limit and company.po_approver_above_limit_id:
+             target_approvers = company.po_approver_above_limit_id
+        else:
+             target_approvers = company.po_approver_ids
+             
+        if not target_approvers:
             if raise_exception:
-                raise UserError(_("Please assign an Approver (Manager) before sending LINE notification."))
+                raise UserError(_("Please assign Approvers (Manager) in Settings before sending LINE notification."))
             return False
 
-        # 3. Validation LINE ID
-        if not approver.line_user_id or not approver.line_user_id.strip():
-            msg = _(
-                "Approver '%s' does not have LINE User ID configured.\n\n"
-                "Please go to:\n"
-                "Settings > Users > %s\n"
-                "And add LINE User ID in the 'LINE Notification' section."
-            ) % (approver.name, approver.name)
-            if raise_exception:
-                raise UserError(msg)
-            return False
+        # Loop through all approvers
+        sent_count = 0
+        for approver in target_approvers:
+            # 3. Validation LINE ID
+            if not approver.line_user_id or not approver.line_user_id.strip():
+                msg = _(
+                    "Approver '%s' does not have LINE User ID configured.\n\n"
+                    "Please go to:\n"
+                    "Settings > Users > %s\n"
+                    "And add LINE User ID in the 'LINE Notification' section."
+                ) % (approver.name, approver.name)
+                # Should we raise exception here? If one is missing but others are fine?
+                # Maybe log warning and continue to next
+                _logger.warning("LINE Notification: " + msg)
+                continue
 
-        # 4. Generate Approval Token
-        # Create approval.token record instead of local token
-        doc_name = self.name or f"PO/{self.id}"
-        token_record = self.env['approval.token'].generate_token(
-            res_model='purchase.order',
-            res_id=self.id,
-            approver_id=approver.id,
-            res_name=doc_name,
-            line_user_id=approver.line_user_id,
-        )
-        
-        # Update local fields for backward compatibility (optional but good for view)
-        self.write({
-            'approval_token': token_record.token,
-            'approval_token_created': fields.Datetime.now(),
-            'approval_token_expired': False,
-            'approval_token_id': token_record.id,
-        })
-
-        # Construct URL using the new token (landing page for LINE browser detection)
-        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-        db_name = self.env.cr.dbname
-        portal_url = f"{base_url}/l/purchase/approve/{token_record.token}?db={db_name}"
-
-        
-        # 5. Build Messages
-        text_message = self._get_line_approval_message(portal_url)
-        flex_contents = self._build_po_flex_message(portal_url)
-        
-        # 6. Send Messages
-        line_service = self.env['line.api.service']
-        try:
-            # Try to send Flex message (rich UI) as primary notification
-            try:
-                alt_text = f"PO {self.name} รอการอนุมัติ ({self.amount_total:,.2f} {self.currency_id.name if self.currency_id else 'THB'})"
-                line_service.send_flex_message(approver.line_user_id, alt_text, flex_contents)
-            except Exception as flex_error:
-                _logger.warning(f"Failed to send Flex message, fallback to text: {str(flex_error)}")
-                # Send text message fallback
-                line_service.send_push_message(approver.line_user_id, text_message)
+            # 4. Generate Approval Token
+            # Create approval.token record instead of local token
+            doc_name = self.name or f"PO/{self.id}"
             
-            # Update status
+            # Check if token already exists for this approver/doc to avoid spamming new tokens? 
+            # flexible_token logic usually handles new token generation.
+            
+            token_record = self.env['approval.token'].generate_token(
+                res_model='purchase.order',
+                res_id=self.id,
+                approver_id=approver.id,
+                res_name=doc_name,
+                line_user_id=approver.line_user_id,
+            )
+            
+            # Update local fields for backward compatibility (optional but good for view)
+            # Just updating with the LAST generated token for now
+            self.write({
+                'approval_token': token_record.token,
+                'approval_token_created': fields.Datetime.now(),
+                'approval_token_expired': False,
+                'approval_token_id': token_record.id,
+            })
+
+            # Construct URL using the new token (landing page for LINE browser detection)
+            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+            db_name = self.env.cr.dbname
+            portal_url = f"{base_url}/l/purchase/approve/{token_record.token}?db={db_name}"
+
+            
+            # 5. Build Messages
+            text_message = self._get_line_approval_message(portal_url)
+            flex_contents = self._build_po_flex_message(portal_url)
+            
+            # 6. Send Messages
+            line_service = self.env['line.api.service']
+            try:
+                # Try to send Flex message (rich UI) as primary notification
+                try:
+                    alt_text = f"PO {self.name} รอการอนุมัติ ({self.amount_total:,.2f} {self.currency_id.name if self.currency_id else 'THB'})"
+                    line_service.send_flex_message(approver.line_user_id, alt_text, flex_contents)
+                except Exception as flex_error:
+                    _logger.warning(f"Failed to send Flex message to {approver.name}, fallback to text: {str(flex_error)}")
+                    # Send text message fallback
+                    line_service.send_push_message(approver.line_user_id, text_message)
+                
+                sent_count += 1
+                
+            except Exception as e:
+                msg = _("Failed to send LINE message to %s: %s") % (approver.name, str(e))
+                _logger.error(msg)
+                
+        # Update status if at least one sent
+        if sent_count > 0:
             self.write({
                 'line_notification_sent': True,
                 'line_notification_datetime': fields.Datetime.now(),
@@ -362,7 +411,7 @@ class PurchaseOrder(models.Model):
             # Log Success
             if hasattr(self, 'message_post'):
                 self.message_post(
-                    body=_("LINE approval request sent to %s") % approver.name,
+                    body=_("LINE approval request sent to %s approvers") % sent_count,
                     message_type='notification',
                 )
                 
@@ -371,20 +420,13 @@ class PurchaseOrder(models.Model):
                 'tag': 'display_notification',
                 'params': {
                     'title': _("Success"),
-                    'message': _("LINE approval request sent to %s") % approver.name,
+                    'message': _("LINE approval request sent to %s approvers") % sent_count,
                     'type': 'success',
                     'sticky': False,
                 }
             }
-            
-        except Exception as e:
-            msg = _("Failed to send LINE message: %s") % str(e)
-            _logger.error(msg)
-            if hasattr(self, 'message_post'):
-                self.message_post(body=f"⚠️ {msg}")
-            if raise_exception:
-                raise UserError(msg)
-            return False
+        
+        return False
 
     def send_line_approval_notification_by_token(self, token_record):
         """

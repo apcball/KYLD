@@ -3,16 +3,16 @@ from odoo import fields, models
 class ResConfigSettings(models.TransientModel):
     _inherit = 'res.config.settings'
 
-    po_reviewer_id = fields.Many2one(
+    po_reviewer_ids = fields.Many2many(
         'res.users', 
-        related='company_id.po_reviewer_id', 
-        string='Default PO Reviewer', 
+        related='company_id.po_reviewer_ids', 
+        string='Default PO Reviewers', 
         readonly=False
     )
-    po_approver_id = fields.Many2one(
+    po_approver_ids = fields.Many2many(
         'res.users', 
-        related='company_id.po_approver_id', 
-        string='PO Approver (Standard)', 
+        related='company_id.po_approver_ids', 
+        string='PO Approvers (Standard)', 
         readonly=False
     )
     po_approver_limit = fields.Monetary(
