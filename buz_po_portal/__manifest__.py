@@ -1,6 +1,6 @@
 {
     'name': "buz_po_portal",
-    'version': '0.5',
+    'version': '0.1',
     'category': 'Uncategorized',
     'summary': 'Module for Purchase Order Portal',
     'description': """
@@ -12,6 +12,7 @@
         'security/ir.model.access.csv',
         'data/mail_template.xml',
         'views/purchase_view.xml',
+        'views/hr_employee_views.xml',
         'views/po_landing_page.xml',
         'views/po_signature_page.xml',
         'views/res_config_settings_views.xml',

@@ -9,7 +9,12 @@
                 <div class="col-lg-3 d-none d-lg-block">
                     <div class="o_portal_sidebar_content">
                         <div class="d-grid gap-2 col-12 mx-auto mb-3">
-                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
+                            <!-- Logged In: Auto Approve -->
+                            <button type="button" class="btn btn-success" id="btn-auto-approve" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and request.session.uid">
+                                <i class="fa fa-check"/> Approve
+                            </button>
+                            <!-- Guest: Manual Sign -->
+                            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and not request.session.uid">
                                 <i class="fa fa-check"/> Approve &amp; Sign
                             </button>
                             <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalreject" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
@@ -61,7 +66,12 @@
                     <div class="d-lg-none card mb-3">
                         <div class="card-body">
                             <div class="d-grid gap-2">
-                                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
+                                <!-- Logged In: Auto Approve -->
+                                <button type="button" class="btn btn-success" id="btn-auto-approve-mobile" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and request.session.uid">
+                                    <i class="fa fa-check"/> Approve
+                                </button>
+                                <!-- Guest: Manual Sign -->
+                                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalaccept" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time and not request.session.uid">
                                     <i class="fa fa-check"/> Approve &amp; Sign
                                 </button>
                                 <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalreject" t-if="not po.approval_token_expired and not po.approval_signature and not token_expired_by_time">
@@ -124,21 +134,10 @@
                                 <div class="row mb-2">
                                     <div class="col-12 col-md-8 mb-3 mb-md-0">
                                         <div style="font-size: 16px;">
-                                            <div class="mb-1"><strong><span t-field="po.company_id.name"/></strong></div>
-                                            <div>
-                                                <span t-if="po.company_id.street" t-field="po.company_id.street"/>
-                                                <span t-if="po.company_id.street2" t-field="po.company_id.street2"/>
-                                                <span t-if="po.company_id.city" t-field="po.company_id.city"/>
-                                                <span t-if="po.company_id.state_id" t-field="po.company_id.state_id.name"/>
-                                                <span t-if="po.company_id.zip" t-field="po.company_id.zip"/>
-                                            </div>
-                                            <div>
-                                                <t t-if="po.company_id.vat">เลขที่ประจำตัวผู้เสียภาษี <span t-field="po.company_id.vat"/></t>
-                                            </div>
-                                            <div>
-                                                <t t-if="po.company_id.phone">โทร <span t-field="po.company_id.phone"/></t>
-                                                <t t-if="po.company_id.email"> E-mail: <span t-field="po.company_id.email"/></t>
-                                            </div>
+                                            <div class="mb-1"><strong>บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</strong></div>
+                                            <div>9 หมู่ 12 ตำบลบึงคำพร้อย อำเภอลำลูกกา จ.ปทุมธานี 12150</div>
+                                            <div>เลขที่ประจำตัวผู้เสียภาษี 0105547076103</div>
+                                            <div>โทร 02 1509710 E-mail: contact@mogen.co.th</div>
                                         </div>
                                     </div>
                                     <div class="col-12 col-md-4 text-center text-md-end">

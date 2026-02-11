@@ -4,6 +4,75 @@ import publicWidget from "@web/legacy/js/public/public_widget";
 import { _t } from "@web/core/l10n/translation";
 
 /**
+ * Purchase Order Auto Approval Widget
+ * Handles automatic approval for logged-in users
+ */
+publicWidget.registry.POAutoApprove = publicWidget.Widget.extend({
+    selector: '.o_portal_sidebar, .o_portal_content', // Target areas where buttons exist
+    events: {
+        'click #btn-auto-approve': '_onAutoApprove',
+        'click #btn-auto-approve-mobile': '_onAutoApprove',
+    },
+
+    _onAutoApprove: function (ev) {
+        ev.preventDefault();
+        const btn = $(ev.currentTarget);
+
+        // We need to find the form tokens/ids. 
+        // Since we are outside the modal, we can grab them from the modal form which should still be present in DOM
+        // OR we can add data attributes to the button itself.
+        // Let's look at the modal form: <form id="accept" ... t-att-data-order-id="po.id" t-att-data-token="po.approval_token">
+        const modalForm = document.getElementById('accept');
+        if (!modalForm) {
+            console.error('Approval form not found');
+            return;
+        }
+
+        const poId = modalForm.dataset.orderId;
+        const token = modalForm.dataset.token;
+        const csrfToken = modalForm.querySelector('input[name="csrf_token"]').value;
+
+        if (!confirm('Confirm approval with your stored signature?')) {
+            return;
+        }
+
+        // Disable button
+        btn.prop('disabled', true);
+        const originalContent = btn.html();
+        btn.html('<i class="fa fa-spinner fa-spin"/> Processing...');
+
+        const formData = new FormData();
+        formData.append('csrf_token', csrfToken);
+        formData.append('po_id', poId);
+        formData.append('signature', ''); // Explicitly empty for auto-sign
+
+        fetch(`/purchase/approve/${poId}/${token}`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert(data.message || 'An error occurred.');
+                    btn.prop('disabled', false);
+                    btn.html(originalContent);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred.');
+                btn.prop('disabled', false);
+                btn.html(originalContent);
+            });
+    }
+});
+
+/**
  * Purchase Order Signature Widget
  * Handles signature drawing and form submission for PO approval
  */
@@ -183,42 +252,6 @@ publicWidget.registry.POSignature = publicWidget.Widget.extend({
     },
 
     /**
-     * Resize canvas signature to reduce file size
-     * Returns a smaller data URI that won't cause wkhtmltopdf memory issues
-     */
-    _resizeCanvasSignature: function (sourceCanvas, maxWidth, maxHeight) {
-        // Create a temporary canvas for resizing
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // Calculate new dimensions maintaining aspect ratio
-        let width = sourceCanvas.width;
-        let height = sourceCanvas.height;
-
-        if (width > maxWidth) {
-            height = height * (maxWidth / width);
-            width = maxWidth;
-        }
-        if (height > maxHeight) {
-            width = width * (maxHeight / height);
-            height = maxHeight;
-        }
-
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-
-        // Fill with white background (important for PNG transparency)
-        tempCtx.fillStyle = '#FFFFFF';
-        tempCtx.fillRect(0, 0, width, height);
-
-        // Draw the resized signature
-        tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-
-        // Return as PNG (smaller than original due to resize)
-        return tempCanvas.toDataURL('image/png');
-    },
-
-    /**
      * Submit approval with signature
      */
     _onSubmitApproval: function (ev) {
@@ -233,8 +266,7 @@ publicWidget.registry.POSignature = publicWidget.Widget.extend({
                 alert('Please provide your signature before submitting.');
                 return;
             }
-            // Resize signature to reduce file size and prevent PDF memory issues
-            signatureData = this._resizeCanvasSignature(this.canvas, 300, 120);
+            signatureData = this.canvas.toDataURL('image/png');
             this._submitData(signatureData);
         } else {
             const fileInput = document.getElementById('signature_file');

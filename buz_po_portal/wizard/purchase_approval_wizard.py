@@ -1,6 +1,5 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
-from odoo.tools.image import image_process
 
 class PurchaseOrderApprovalWizard(models.TransientModel):
     _name = 'purchase.order.approval.wizard'
@@ -22,15 +21,6 @@ class PurchaseOrderApprovalWizard(models.TransientModel):
         
         if not signature:
             raise UserError(_("Please provide a signature."))
-
-        # Resize signature to prevent memory issues in reports
-        # Wrap in try-except because some inputs (e.g. drawn value) might not be standard images parsable by PIL
-        try:
-            signature = image_process(signature, size=(1024, 1024))
-        except Exception:
-            # If resizing fails (e.g. invalid format), use the original. 
-            # Drawn signatures are usually small anyway, so this is safe.
-            pass
 
         vals = {}
         company = self.order_id.company_id
