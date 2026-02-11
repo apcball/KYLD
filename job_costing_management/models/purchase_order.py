@@ -7,9 +7,9 @@ class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
     material_requisition_id = fields.Many2one('material.requisition', string='Material Requisition')
-    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet')
-    project_id = fields.Many2one('project.project', string='Project')
-    job_order_id = fields.Many2one('job.order', string='Job Order')
+    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet', index=True)
+    project_id = fields.Many2one('project.project', string='Project', index=True)
+    job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
     
     @api.model
     def create(self, vals):
@@ -99,10 +99,10 @@ class PurchaseOrder(models.Model):
 class PurchaseOrderLine(models.Model):
     _inherit = 'purchase.order.line'
 
-    material_requisition_line_id = fields.Many2one('material.requisition.line', string='Requisition Line')
-    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Center')
-    job_cost_line_id = fields.Many2one('job.cost.line', string='Job Cost Line')
-    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
+    material_requisition_line_id = fields.Many2one('material.requisition.line', string='Requisition Line', index=True)
+    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Center', index=True)
+    job_cost_line_id = fields.Many2one('job.cost.line', string='Job Cost Line', index=True)
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
     
     @api.model
     def create(self, vals):
@@ -173,15 +173,23 @@ class PurchaseOrderLine(models.Model):
                     if cost_sheet.analytic_account_id:
                         result.analytic_account_id = cost_sheet.analytic_account_id.id
                     
-                    # Check if there's an existing cost line for this product
-                    existing_line = cost_sheet.material_cost_ids.filtered(
-                        lambda l: l.product_id == result.product_id
-                    )
+                    # FIX ISSUE #2: Check for duplicate before creating cost line
+                    existing_line = self.env['job.cost.line'].sudo().search([
+                        ('cost_sheet_id', '=', cost_sheet.id),
+                        ('source_po_line_id', '=', result.id)
+                    ], limit=1)
+                    
+                    if not existing_line:
+                        # Also check by product
+                        existing_line = cost_sheet.material_cost_ids.filtered(
+                            lambda l: l.product_id == result.product_id
+                        )
                     
                     if existing_line:
                         result.job_cost_line_id = existing_line[0].id
+                        _logger.info(f"Using existing job cost line: {existing_line[0].id}")
                     else:
-                        # Create new cost line
+                        # Create new cost line with source tracking
                         cost_line_vals = {
                             'cost_sheet_id': cost_sheet.id,
                             'cost_type': 'material',
@@ -191,26 +199,36 @@ class PurchaseOrderLine(models.Model):
                             'unit_cost': result.price_unit,
                             'uom_id': result.product_uom.id,
                             'analytic_account_id': cost_sheet.analytic_account_id.id if cost_sheet.analytic_account_id else False,
+                            'source_po_line_id': result.id,  # Track source to prevent duplicates
                         }
                         # Use sudo() to allow creation of job cost lines by users without explicit access
                         new_cost_line = self.env['job.cost.line'].sudo().create(cost_line_vals)
                         result.job_cost_line_id = new_cost_line.id
+                        _logger.info(f"Created new job cost line: {new_cost_line.id}")
         
         # Auto-link to job cost sheet if job cost sheet is set but job cost line is not
         if result.job_cost_sheet_id and not result.job_cost_line_id and result.product_id:
             cost_sheet = result.job_cost_sheet_id
             _logger.info(f"Auto-linking to job cost sheet: {cost_sheet.name}")
             
-            # Check if there's an existing cost line for this product
-            existing_line = cost_sheet.material_cost_ids.filtered(
-                lambda l: l.product_id == result.product_id
-            )
+            # FIX ISSUE #2: Check for duplicate before creating cost line
+            # First check by source PO line ID
+            existing_line = self.env['job.cost.line'].sudo().search([
+                ('cost_sheet_id', '=', cost_sheet.id),
+                ('source_po_line_id', '=', result.id)
+            ], limit=1)
+            
+            if not existing_line:
+                # Check by product
+                existing_line = cost_sheet.material_cost_ids.filtered(
+                    lambda l: l.product_id == result.product_id
+                )
             
             if existing_line:
                 result.job_cost_line_id = existing_line[0].id
                 _logger.info(f"Found existing job cost line: {existing_line[0].id}")
             else:
-                # Create new cost line
+                # Create new cost line with source tracking
                 cost_line_vals = {
                     'cost_sheet_id': cost_sheet.id,
                     'cost_type': 'material',
@@ -220,6 +238,7 @@ class PurchaseOrderLine(models.Model):
                     'unit_cost': result.price_unit,
                     'uom_id': result.product_uom.id,
                     'analytic_account_id': cost_sheet.analytic_account_id.id if cost_sheet.analytic_account_id else False,
+                    'source_po_line_id': result.id,  # Track source to prevent duplicates
                 }
                 # Use sudo() to allow creation of job cost lines by users without explicit access
                 new_cost_line = self.env['job.cost.line'].sudo().create(cost_line_vals)
@@ -230,6 +249,16 @@ class PurchaseOrderLine(models.Model):
             if cost_sheet.analytic_account_id:
                 result.analytic_account_id = cost_sheet.analytic_account_id.id
         
+        return result
+    
+    def write(self, vals):
+        """Override write to update job cost line when PO line changes"""
+        result = super(PurchaseOrderLine, self).write(vals)
+        
+        # If this line has a job cost line, update the actual costs
+        if self.job_cost_line_id and 'qty_received' in vals:
+            self.job_cost_line_id.update_actual_costs_from_purchases()
+            
         return result
     
     @api.onchange('job_cost_sheet_id')

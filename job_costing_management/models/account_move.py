@@ -6,9 +6,9 @@ from odoo import models, fields, api
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
-    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet')
-    project_id = fields.Many2one('project.project', string='Project')
-    job_order_id = fields.Many2one('job.order', string='Job Order')
+    job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet', index=True)
+    project_id = fields.Many2one('project.project', string='Project', index=True)
+    job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
     
     @api.model
     def create(self, vals):
@@ -46,7 +46,7 @@ class AccountMove(models.Model):
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
 
-    job_cost_line_id = fields.Many2one('job.cost.line', string='Job Cost Line')
+    job_cost_line_id = fields.Many2one('job.cost.line', string='Job Cost Line', index=True)
     
     @api.model
     def create(self, vals):
@@ -56,9 +56,10 @@ class AccountMoveLine(models.Model):
         import logging
         _logger = logging.getLogger(__name__)
         
+        # FIX ISSUE #2: Check for duplicate before linking/creating
         # Auto-link to job cost line if created from purchase order line
         if result.purchase_line_id and result.purchase_line_id.job_cost_line_id:
-            _logger.info(f"Linking invoice line to job cost line: {result.purchase_line_id.job_cost_line_id.id}")
+            _logger.info(f"Linking invoice line to job cost line from PO: {result.purchase_line_id.job_cost_line_id.id}")
             result.job_cost_line_id = result.purchase_line_id.job_cost_line_id.id
         
         # Fallback: link through analytic account if no direct link
@@ -79,13 +80,28 @@ class AccountMoveLine(models.Model):
                     ], limit=1)
                     
                     if cost_sheet and result.product_id:
-                        # Find matching job cost line
-                        matching_cost_line = cost_sheet.material_cost_ids.filtered(
-                            lambda l: l.product_id == result.product_id
-                        )
-                        if matching_cost_line:
-                            _logger.info(f"Linking invoice line to job cost line via analytic account: {matching_cost_line[0].id}")
-                            result.job_cost_line_id = matching_cost_line[0].id
+                        # FIX ISSUE #2: Check if cost line already exists for this invoice line
+                        existing_cost_line = self.env['job.cost.line'].sudo().search([
+                            ('source_invoice_line_id', '=', result.id)
+                        ], limit=1)
+                        
+                        if existing_cost_line:
+                            _logger.info(f"Found existing cost line for invoice line {result.id}: {existing_cost_line.id}")
+                            result.job_cost_line_id = existing_cost_line.id
+                        else:
+                            # Find matching job cost line by product
+                            matching_cost_line = cost_sheet.material_cost_ids.filtered(
+                                lambda l: l.product_id == result.product_id
+                            )
+                            if matching_cost_line:
+                                _logger.info(f"Linking invoice line to existing job cost line via analytic account: {matching_cost_line[0].id}")
+                                result.job_cost_line_id = matching_cost_line[0].id
+                            else:
+                                # FIX ISSUE #3: Don't auto-create overhead cost lines from invoices
+                                # to prevent double counting with purchase orders
+                                # Only create for non-overhead or when explicitly requested
+                                _logger.info(f"No matching cost line found for invoice line {result.id}, skipping auto-creation to prevent double counting")
+                                
                 except Exception as e:
                     _logger.error(f"Error linking invoice line to job cost line: {e}")
         

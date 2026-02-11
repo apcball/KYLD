@@ -96,36 +96,46 @@ class HrExpenseSheet(models.Model):
     @api.depends("expense_line_ids")
     def _compute_auto_mode(self):
         for sheet in self:
-            # Check if there are mixed vendors - use AUTO mode when multiple vendors exist
-            unique_vendors = set(exp.expense_vendor_id.id if exp.expense_vendor_id else None for exp in sheet.expense_line_ids)
-            sheet.is_auto_mode = len(unique_vendors) > 1
+            # AUTO MODE is enabled when:
+            # 1. Sheet has expenses from multiple vendors, OR
+            # 2. Sheet has mixed VAT status (with and without VAT)
+            unique_vendors = set(e.expense_vendor_id.id for e in sheet.expense_line_ids if e.expense_vendor_id)
+            has_vat_lines = any(bool(e.tax_ids) for e in sheet.expense_line_ids)
+            has_no_vat_lines = any(not bool(e.tax_ids) for e in sheet.expense_line_ids)
+            mixed_vat = has_vat_lines and has_no_vat_lines
+            sheet.is_auto_mode = (len(unique_vendors) > 1) or mixed_vat
     
     @api.depends("expense_line_ids", "is_auto_mode")  
     def _compute_vendor_summary(self):
         for sheet in self:
-            if sheet.is_auto_mode:
-                # Show vendor summary in AUTO mode
-                vendors_with_employee = []
-                vendors_without_employee = []
-                
-                for exp in sheet.expense_line_ids:
-                    if exp.expense_vendor_id:
-                        vendor_name = exp.expense_vendor_id.name
-                        if vendor_name not in vendors_with_employee:
-                            vendors_with_employee.append(vendor_name)
-                    else:
-                        if sheet.employee_id.name not in vendors_without_employee:
-                            vendors_without_employee.append(sheet.employee_id.name)
-                
-                summary_parts = []
-                if vendors_with_employee:
-                    summary_parts.append(f"Vendors: {', '.join(vendors_with_employee)}")
-                if vendors_without_employee:
-                    summary_parts.append(f"Employee: {', '.join(vendors_without_employee)}")
-                    
-                sheet.vendor_summary = f"🤖 AUTO MODE - แยกบิลตาม: {' | '.join(summary_parts)}"
-            else:
+            if not sheet.expense_line_ids:
                 sheet.vendor_summary = ""
+                continue
+            
+            # Get unique vendors using expense_vendor_id
+            vendors = {}
+            for expense in sheet.expense_line_ids:
+                if expense.expense_vendor_id:
+                    if expense.expense_vendor_id.id not in vendors:
+                        vendors[expense.expense_vendor_id.id] = expense.expense_vendor_id.name
+            
+            vendor_list = ", ".join(sorted(vendors.values())) if vendors else "Employee"
+            
+            # Calculate expected bill counts by VAT grouping
+            has_vat = any(bool(e.tax_ids) for e in sheet.expense_line_ids)
+            has_no_vat = any(not bool(e.tax_ids) for e in sheet.expense_line_ids)
+            bill_types = []
+            if has_no_vat:
+                bill_types.append("📄 Without VAT")
+            if has_vat:
+                bill_types.append("📊 With VAT")
+            bill_types_str = " | ".join(bill_types)
+            
+            # Summary format
+            if sheet.is_auto_mode:
+                sheet.vendor_summary = f"🤖 AUTO MODE - Bill Types: {bill_types_str} | Vendors: {vendor_list}"
+            else:
+                sheet.vendor_summary = f"Vendors: {vendor_list}"
     bill_id = fields.Many2one(
         'account.move',
         string='Vendor Bill',
@@ -334,11 +344,12 @@ class HrExpenseSheet(models.Model):
         return bills
 
     def _create_bills_by_vendor_grouping(self):
-        """Enhanced: Group expenses by vendor and expense line date, and create separate bills per vendor/expense date.
-        If no vendor specified, group under employee name and expense line date."""
+        """Enhanced: Each expense line creates a separate bill.
+        Groups by (vendor, company, currency, expense_line_date, expense_line_id).
+        This ensures clear separation and proper tracking of each expense."""
         bills = self.env['account.move']
         
-        # Group expense lines by (vendor_or_employee_partner, company, currency, expense_line_date)
+        # Group expense lines - each expense gets its own group
         groups = {}
         
         for expense in self.expense_line_ids:
@@ -361,15 +372,34 @@ class HrExpenseSheet(models.Model):
             # Get expense line date for grouping
             expense_date = expense.date or fields.Date.context_today(self)
             
-            # Create group key (partner, company, currency, expense_line_date)
-            group_key = (
-                partner_id, 
-                expense.company_id.id, 
-                expense.currency_id.id,
-                expense_date
-            )
+            # Determine VAT status
+            has_vat = bool(expense.tax_ids)
+            
+            # Create group key with special logic:
+            # - Lines WITHOUT VAT: Group together by (vendor, date, False)
+            # - Lines WITH VAT: Separate by (vendor, date, True, expense.id)
+            if has_vat:
+                # Lines with VAT must be separated - add expense.id to make unique
+                group_key = (
+                    partner_id, 
+                    expense.company_id.id, 
+                    expense.currency_id.id,
+                    expense_date,
+                    True,  # has_vat
+                    expense.id  # Make each VAT line unique
+                )
+            else:
+                # Lines without VAT can be grouped together
+                group_key = (
+                    partner_id, 
+                    expense.company_id.id, 
+                    expense.currency_id.id,
+                    expense_date,
+                    False  # has_vat
+                )
             
             # Initialize group if not exists
+            # Lines with same VAT status will share the same group
             if group_key not in groups:
                 groups[group_key] = {
                     'partner_id': partner_id,
@@ -377,13 +407,19 @@ class HrExpenseSheet(models.Model):
                     'company_id': expense.company_id.id,
                     'currency_id': expense.currency_id.id,
                     'expense_line_date': expense_date,
+                    'has_vat': has_vat,
+                    'expense_names': [],
                     'expenses': self.env['hr.expense'],
                     'is_vendor': bool(expense.expense_vendor_id)
                 }
             
+            # Add this expense name to the group's list
+            if expense.name not in groups[group_key]['expense_names']:
+                groups[group_key]['expense_names'].append(expense.name)
+            
             groups[group_key]['expenses'] |= expense
         
-        # Create bills for each group
+        # Create bills for each group (one bill per expense line)
         for group_data in groups.values():
             bill = self._create_single_bill_for_vendor_group_date(group_data)
             if bill:
@@ -413,7 +449,7 @@ class HrExpenseSheet(models.Model):
         return base_amount
 
     def _create_single_bill_for_vendor_group_date(self, group_data):
-        """Create a single vendor bill for a vendor group with specific date (enhanced version)"""
+        """Create a single vendor bill for a vendor group with specific date and VAT status (enhanced version)"""
         partner_id = group_data['partner_id']
         partner_name = group_data['partner_name']
         company_id = group_data['company_id']
@@ -421,6 +457,7 @@ class HrExpenseSheet(models.Model):
         expense_line_date = group_data['expense_line_date']
         expenses = group_data['expenses']
         is_vendor = group_data['is_vendor']
+        has_vat = group_data.get('has_vat', False)  # NEW: Get VAT status
         
         if not partner_id:
             return self.env['account.move']
@@ -467,11 +504,24 @@ class HrExpenseSheet(models.Model):
             account_tax_groups[key]['expenses'] |= expense
         
         # Create vendor bill with grouped lines
+        # Include expense names and VAT status in reference
         bill_ref = f'Expense Sheet {self.name}'
         if is_vendor:
-            bill_ref += f' - {partner_name} - Date: {expense_line_date}'
+            bill_ref += f' - {partner_name}'
         else:
-            bill_ref += f' - Employee: {partner_name} - Date: {expense_line_date}'
+            bill_ref += f' - Employee: {partner_name}'
+        
+        # Add date
+        bill_ref += f' - Date: {expense_line_date}'
+        
+        # Add expense names from the group
+        expense_names = group_data.get('expense_names', [])
+        if expense_names:
+            bill_ref += f' - {", ".join(expense_names)}'
+        
+        # Append VAT status to reference
+        vat_label = '(With VAT)' if has_vat else '(No VAT)'
+        bill_ref += f' {vat_label}'
             
         bill_vals = {
             'move_type': 'in_invoice',

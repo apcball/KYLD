@@ -1216,56 +1216,67 @@ class WhtClearAdvanceWizard(models.TransientModel):
                 return False
 
     def _auto_reconcile_ultra_fast(self, move):
-        """Ultra-fast auto reconcile with minimal database queries - HANG FIX"""
+        """Ultra-fast auto reconcile - ONLY with the specific bill being cleared"""
         self.ensure_one()
         
         try:
-            _logger.info("🎯 Ultra-fast auto reconcile for move %s", move.name)
+            _logger.info("🎯 Auto reconcile for move %s - reconcile ONLY with specific bill", move.name)
             
-            # Find only the first payable line to reconcile
-            payable_line = move.line_ids.filtered(
-                lambda l: l.debit > 0 and l.partner_id and l.account_id.account_type == 'liability_payable'
-            )[:1]  # Take only first line
+            # Find the specific bill we're clearing from context or expense sheet
+            bill = None
+            active_model = self.env.context.get('active_model')
+            active_id = self.env.context.get('active_id')
             
-            if not payable_line:
-                _logger.info("ℹ️ No payable lines found for reconciliation (this is normal)")
+            if active_model == 'account.move' and active_id:
+                bill = self.env['account.move'].browse(active_id)
+                _logger.info("📄 Found bill from context: %s", bill.name if bill else 'None')
+            elif self.expense_sheet_id:
+                bill = self.expense_sheet_id.bill_id or (
+                    self.expense_sheet_id.bill_ids[:1] if self.expense_sheet_id.bill_ids else False
+                )
+                _logger.info("📄 Found bill from expense sheet: %s", bill.name if bill else 'None')
+            
+            if not bill or bill.state != 'posted':
+                _logger.info("ℹ️ No specific posted bill to reconcile with - skipping reconciliation")
                 return True
-                
-            line = payable_line[0]
-            _logger.info("💳 Processing payable line: %s (%.2f)", line.name, line.debit)
             
-            # Ultra-restricted search - only very recent entries
-            from datetime import datetime, timedelta
-            recent_date = datetime.now().date() - timedelta(days=7)  # Only last 7 days
+            # Find payable line from clearing JE (debit side)
+            clearing_payable_line = move.line_ids.filtered(
+                lambda l: l.debit > 0 and l.partner_id and 
+                         l.account_id.account_type == 'liability_payable' and 
+                         not l.reconciled
+            )[:1]
             
-            domain = [
-                ('partner_id', '=', line.partner_id.id),
-                ('account_id', '=', line.account_id.id),
-                ('credit', '>', 0),
-                ('reconciled', '=', False),
-                ('move_id.state', '=', 'posted'),
-                ('date', '>=', recent_date)  # Very recent only
-            ]
+            if not clearing_payable_line:
+                _logger.info("ℹ️ No unreconciled payable lines in clearing entry")
+                return True
             
-            # Super limited search - only 1 record max to prevent hanging
-            reconcilable_lines = self.env['account.move.line'].search(
-                domain, limit=1, order='date desc, id desc'
-            )
+            _logger.info("💳 Clearing entry payable line: %s (Debit: %.2f)", 
+                       clearing_payable_line.name, clearing_payable_line.debit)
             
-            if reconcilable_lines:
-                target_line = reconcilable_lines[0]
-                lines_to_reconcile = line + target_line
-                
-                _logger.info("🔗 Ultra-fast reconciling with: %s", target_line.name)
+            # Find payable line from the SPECIFIC bill only (credit side)
+            # IMPORTANT: Only reconcile with THIS bill, not other bills with same partner
+            bill_payable_line = bill.line_ids.filtered(
+                lambda l: l.credit > 0 and 
+                         l.account_id.id == clearing_payable_line.account_id.id and
+                         l.partner_id.id == clearing_payable_line.partner_id.id and
+                         not l.reconciled
+            )[:1]
+            
+            if bill_payable_line:
+                lines_to_reconcile = clearing_payable_line + bill_payable_line
                 lines_to_reconcile.reconcile()
-                _logger.info("✅ Ultra-fast reconciliation completed")
+                _logger.info("✅ Successfully reconciled with SPECIFIC bill %s ONLY (Bill Credit: %.2f)", 
+                           bill.name, bill_payable_line.credit)
+                _logger.info("🔒 Other bills with same partner are NOT affected")
                 return True
             else:
-                _logger.info("ℹ️ No recent matching lines found (this is normal)")
+                _logger.info("ℹ️ No matching unreconciled payable line in bill %s", bill.name)
+                _logger.info("   This may happen if bill is already reconciled or has different account/partner")
                 return True
                 
         except Exception as e:
-            _logger.warning("⚠️ Ultra-fast auto reconcile failed: %s", str(e))
+            _logger.warning("⚠️ Auto reconcile failed: %s", str(e))
             return False
 
     def _auto_reconcile(self, move):

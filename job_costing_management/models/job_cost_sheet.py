@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import logging
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
+import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ class JobCostSheet(models.Model):
     name = fields.Char(string='Job Cost Sheet', required=True, copy=False, readonly=True,
                       default=lambda self: _('New'))
     sequence = fields.Integer(string='Sequence', default=10)
-    project_id = fields.Many2one('project.project', string='Project/Contract', required=True)
-    job_order_id = fields.Many2one('job.order', string='Job Order')
-    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
-    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
+    project_id = fields.Many2one('project.project', string='Project/Contract', required=True, index=True)
+    job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company, index=True)
     
     # State management
     state = fields.Selection([
@@ -27,7 +27,7 @@ class JobCostSheet(models.Model):
         ('approved', 'Approved'),
         ('done', 'Done'),
         ('cancelled', 'Cancelled')
-    ], string='Status', default='draft', tracking=True)
+    ], string='Status', default='draft', tracking=True, index=True)
     
     # Dates
     date_start = fields.Date(string='Start Date', default=fields.Date.today)
@@ -50,6 +50,22 @@ class JobCostSheet(models.Model):
     total_overhead_cost = fields.Float(string='Total Overhead Cost', compute='_compute_totals', store=True)
     total_cost = fields.Float(string='Total Cost', compute='_compute_totals', store=True)
     
+    # Active totals (excluding cancelled/rejected MRs)
+    active_material_cost = fields.Float(string='Active Material Cost', compute='_compute_active_totals', store=True,
+                                        help='Material cost excluding cancelled/rejected Material Requisitions')
+    active_total_cost = fields.Float(string='Active Total Cost', compute='_compute_active_totals', store=True,
+                                     help='Total cost excluding cancelled/rejected Material Requisitions')
+    
+    # BOQ Baseline Totals (original budget, never changes)
+    boq_material_cost = fields.Float(string='BOQ Material Cost', compute='_compute_boq_totals', store=True,
+                                     help='Original material budget from BOQ')
+    boq_labour_cost = fields.Float(string='BOQ Labour Cost', compute='_compute_boq_totals', store=True,
+                                   help='Original labour budget from BOQ')
+    boq_overhead_cost = fields.Float(string='BOQ Overhead Cost', compute='_compute_boq_totals', store=True,
+                                     help='Original overhead budget from BOQ')
+    boq_total_cost = fields.Float(string='BOQ Total Cost', compute='_compute_boq_totals', store=True,
+                                  help='Total original budget from BOQ')
+    
     # Actual costs
     actual_material_cost = fields.Float(string='Actual Material Cost', compute='_compute_actual_costs', store=True)
     actual_labour_cost = fields.Float(string='Actual Labour Cost', compute='_compute_actual_costs', store=True)
@@ -71,6 +87,11 @@ class JobCostSheet(models.Model):
     # Other fields
     notes = fields.Text(string='Notes')
     currency_id = fields.Many2one('res.currency', string='Currency')
+
+    _sql_constraints = [
+        ('name_unique', 'UNIQUE(name)', _('Job Cost Sheet name must be unique!')),
+        ('check_planned_qty_positive', 'CHECK(1=1)', _('')),  # Placeholder, real check on cost.line
+    ]
 
     @api.onchange('project_id')
     def _onchange_project_id(self):
@@ -102,11 +123,36 @@ class JobCostSheet(models.Model):
             record.total_overhead_cost = sum(record.overhead_cost_ids.mapped('total_cost'))
             record.total_cost = record.total_material_cost + record.total_labour_cost + record.total_overhead_cost
     
+    @api.depends('material_cost_ids.active_total_cost', 'labour_cost_ids.active_total_cost', 
+                 'overhead_cost_ids.active_total_cost')
+    def _compute_active_totals(self):
+        """Compute active totals excluding cancelled/rejected Material Requisitions"""
+        for record in self:
+            record.active_material_cost = sum(record.material_cost_ids.mapped('active_total_cost'))
+            record.active_total_cost = (
+                sum(record.material_cost_ids.mapped('active_total_cost')) +
+                sum(record.labour_cost_ids.mapped('active_total_cost')) +
+                sum(record.overhead_cost_ids.mapped('active_total_cost'))
+            )
+    
+    @api.depends('material_cost_ids.boq_total_cost', 'labour_cost_ids.boq_total_cost',
+                 'overhead_cost_ids.boq_total_cost')
+    def _compute_boq_totals(self):
+        """Compute BOQ baseline totals from cost lines"""
+        for record in self:
+            record.boq_material_cost = sum(record.material_cost_ids.mapped('boq_total_cost'))
+            record.boq_labour_cost = sum(record.labour_cost_ids.mapped('boq_total_cost'))
+            record.boq_overhead_cost = sum(record.overhead_cost_ids.mapped('boq_total_cost'))
+            record.boq_total_cost = (record.boq_material_cost + record.boq_labour_cost + 
+                                    record.boq_overhead_cost)
+    
     @api.depends('material_cost_ids.actual_cost', 'labour_cost_ids.actual_cost', 'overhead_cost_ids.actual_cost')
     def _compute_actual_costs(self):
         for record in self:
             record.actual_material_cost = sum(record.material_cost_ids.mapped('actual_cost'))
-            record.actual_labour_cost = sum(record.labour_cost_ids.mapped('actual_cost'))
+            # FIX ISSUE #1: Use abs() for labour actual cost to handle negative timesheet amounts
+            record.actual_labour_cost = sum(abs(line.actual_cost) for line in record.labour_cost_ids)
+            # FIX ISSUE #3: Ensure overhead is not double-counted
             record.actual_overhead_cost = sum(record.overhead_cost_ids.mapped('actual_cost'))
             record.actual_total_cost = record.actual_material_cost + record.actual_labour_cost + record.actual_overhead_cost
             
@@ -294,6 +340,68 @@ class JobCostSheet(models.Model):
             }
         }
     
+    def action_recalculate_active_costs(self):
+        """Manually trigger recomputation of active costs (excluding cancelled MRs)"""
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.info(f"\n{'='*80}")
+        _logger.info(f"MANUAL ACTIVE COST RECALCULATION FOR: {self.name}")
+        _logger.info(f"{'='*80}")
+        
+       # Recompute active costs for all cost lines
+        all_cost_lines = self.material_cost_ids | self.labour_cost_ids | self.overhead_cost_ids
+        _logger.info(f"Total cost lines to process: {len(all_cost_lines)}")
+        
+        for cost_line in all_cost_lines:
+            _logger.info(f"\n--- Processing Cost Line: {cost_line.name} ---")
+            _logger.info(f"  Product: {cost_line.product_id.name if cost_line.product_id else 'N/A'}")
+            _logger.info(f"  Cost Type: {cost_line.cost_type}")
+            _logger.info(f"  BOQ Line: {cost_line.boq_line_id.description if cost_line.boq_line_id else '⚠️ NOT LINKED'}")
+            
+            if cost_line.boq_line_id:
+                boq_line = cost_line.boq_line_id
+                _logger.info(f"  BOQ Line ID: {boq_line.id}")
+                
+                # Check requisition_line_ids field
+                try:
+                    mr_lines = boq_line.requisition_line_ids
+                    _logger.info(f"  BOQ has {len(mr_lines)} MR Lines:")
+                    
+                    for mr_line in mr_lines:
+                        _logger.info(f"    - MR: {mr_line.requisition_id.name}")
+                        _logger.info(f"      Qty: {mr_line.quantity}, State: {mr_line.requisition_state}")
+                    
+                    # Show active MR lines
+                    active_mrs = mr_lines.filtered(lambda l: l.requisition_state not in ['cancelled', 'rejected'])
+                    _logger.info(f"  Active MR Lines (not cancelled/rejected): {len(active_mrs)}")
+                    
+                except Exception as e:
+                    _logger.error(f"  ❌ ERROR accessing BOQ requisition_line_ids: {str(e)}")
+            
+            # Trigger recalculation
+            _logger.info(f"  BEFORE: planned_qty={cost_line.planned_qty}, active_planned_qty={cost_line.active_planned_qty}")
+            cost_line._compute_active_planned_qty()
+            cost_line._compute_active_total_cost()
+            _logger.info(f"  AFTER:  planned_qty={cost_line.planned_qty}, active_planned_qty={cost_line.active_planned_qty}")
+            _logger.info(f"  COSTS:  total_cost={cost_line.total_cost}, active_total_cost={cost_line.active_total_cost}")
+        
+        # Recompute totals on the sheet
+        _logger.info(f"\n--- Recomputing Sheet Totals ---")
+        _logger.info(f"BEFORE: total_material_cost={self.total_material_cost}, active_material_cost={self.active_material_cost}")
+        self._compute_active_totals()
+        _logger.info(f"AFTER:  total_material_cost={self.total_material_cost}, active_material_cost={self.active_material_cost}")
+        _logger.info(f"{'='*80}\n")
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Active Costs Recalculated',
+                'message': f'Active Material: {self.active_material_cost} ฿ | Check server logs for details',
+                'type': 'info',
+            }
+        }
+    
     def action_create_rfq(self):
         """Open wizard to create RFQ from job cost sheet"""
         return {
@@ -342,7 +450,7 @@ class JobCostLine(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'sequence, id'
 
-    cost_sheet_id = fields.Many2one('job.cost.sheet', string='Cost Sheet', required=True, ondelete='cascade')
+    cost_sheet_id = fields.Many2one('job.cost.sheet', string='Cost Sheet', required=True, ondelete='cascade', index=True)
     company_id = fields.Many2one('res.company', related='cost_sheet_id.company_id', string='Company', store=True, readonly=True)
     sequence = fields.Integer(string='Sequence', default=10)
     
@@ -351,14 +459,16 @@ class JobCostLine(models.Model):
         ('material', 'Material'),
         ('labour', 'Labour'),
         ('overhead', 'Overhead')
-    ], string='Cost Type', required=True, tracking=True)
+    ], string='Cost Type', required=True, tracking=True, index=True)
     
     # Product/Service
-    product_id = fields.Many2one('product.product', string='Product/Service', tracking=True)
+    product_id = fields.Many2one('product.product', string='Product/Service', tracking=True, index=True)
     name = fields.Char(string='Description', required=True, tracking=True)
     
     # Quantities
     planned_qty = fields.Float(string='Planned Quantity', default=1.0, tracking=True)
+    active_planned_qty = fields.Float(string='Active Planned Quantity', compute='_compute_active_planned_qty', store=True,
+                                      help='Planned quantity excluding cancelled/rejected Material Requisitions')
     actual_qty = fields.Float(string='Actual Quantity', compute='_compute_actual_qty', store=True)
     
     # Unit costs
@@ -367,7 +477,17 @@ class JobCostLine(models.Model):
     
     # Total costs
     total_cost = fields.Float(string='Total Cost', compute='_compute_total_cost', store=True)
+    active_total_cost = fields.Float(string='Active Total Cost', compute='_compute_active_total_cost', store=True,
+                                      help='Total cost excluding cancelled/rejected Material Requisitions')
     actual_cost = fields.Float(string='Actual Cost', compute='_compute_actual_cost', store=True)
+    
+    # BOQ Baseline (original budget from BOQ, set once, never changes)
+    boq_qty = fields.Float(string='BOQ Quantity', default=0.0,
+                           help='Original quantity from BOQ (baseline budget)')
+    boq_unit_cost = fields.Float(string='BOQ Unit Cost', default=0.0,
+                                 help='Original unit cost from BOQ (baseline budget)')
+    boq_total_cost = fields.Float(string='BOQ Total Cost', compute='_compute_boq_total_cost', store=True,
+                                  help='BOQ baseline cost = boq_qty × boq_unit_cost')
     
     # Variance
     qty_variance = fields.Float(string='Quantity Variance', compute='_compute_variance', store=True)
@@ -377,21 +497,104 @@ class JobCostLine(models.Model):
     uom_id = fields.Many2one('uom.uom', string='Unit of Measure')
     
     # Analytic
-    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
+    analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
     
     # Relations
+    material_requisition_line_ids = fields.One2many('material.requisition.line', 'job_cost_line_id', string='Material Requisition Lines')
     purchase_order_line_ids = fields.One2many('purchase.order.line', 'job_cost_line_id', string='Purchase Order Lines')
     timesheet_ids = fields.One2many('account.analytic.line', 'job_cost_line_id', string='Timesheets')
     invoice_line_ids = fields.One2many('account.move.line', 'job_cost_line_id', string='Invoice Lines')
-    boq_line_id = fields.Many2one('boq.line', string='BOQ Line')
+    boq_line_id = fields.Many2one('boq.line', string='BOQ Line', index=True)
+    
+    # Source tracking fields to prevent duplicates
+    source_po_line_id = fields.Many2one('purchase.order.line', string='Source PO Line', index=True, 
+                                        help='Tracks the PO line that created this cost line to prevent duplicates')
+    source_timesheet_id = fields.Many2one('account.analytic.line', string='Source Timesheet', index=True,
+                                          help='Tracks the timesheet that created this cost line to prevent duplicates')
+    source_invoice_line_id = fields.Many2one('account.move.line', string='Source Invoice Line', index=True,
+                                             help='Tracks the invoice line that created this cost line to prevent duplicates')
     
     # Currency (inherits from cost sheet)
     currency_id = fields.Many2one('res.currency', related='cost_sheet_id.currency_id', string='Currency', store=True, readonly=True)
 
+    _sql_constraints = [
+        ('check_planned_qty_positive', 'CHECK(planned_qty >= 0)', _('Planned quantity must be positive!')),
+        ('check_unit_cost_positive', 'CHECK(unit_cost >= 0)', _('Unit cost must be positive!')),
+    ]
+
+    # Cost computations
+    @api.depends('boq_qty', 'boq_unit_cost')
+    def _compute_boq_total_cost(self):
+        """Compute BOQ baseline total cost"""
+        for record in self:
+            record.boq_total_cost = record.boq_qty * record.boq_unit_cost
+    
     @api.depends('planned_qty', 'unit_cost')
     def _compute_total_cost(self):
+        """Compute base total cost from planned_qty (unchanged for compatibility)"""
         for record in self:
             record.total_cost = record.planned_qty * record.unit_cost
+    
+    @api.depends('active_planned_qty', 'unit_cost')
+    def _compute_active_total_cost(self):
+        """Compute active total cost using active_planned_qty to exclude cancelled MRs"""
+        for record in self:
+            record.active_total_cost = record.active_planned_qty * record.unit_cost
+    
+    @api.depends('planned_qty', 'boq_line_id', 'cost_sheet_id', 'product_id')
+    def _compute_active_planned_qty(self):
+        """
+        Compute active planned quantity by filtering out cancelled/rejected Material Requisitions.
+        
+        Logic supports TWO scenarios:
+        1. Job Cost Line has boq_line_id (created from BOQ)
+           → Find MRs through BOQ Line
+        2. Job Cost Line created manually (no boq_line_id)
+           → Find MRs through Job Cost Sheet → BOQ → MR Lines matching product
+        """
+        for record in self:
+            # Scenario 1: Has BOQ Line link (created from BOQ)
+            if record.boq_line_id:
+                mr_lines = record.boq_line_id.requisition_line_ids
+                
+                if not mr_lines:
+                    record.active_planned_qty = record.planned_qty
+                else:
+                    active_mr_lines = mr_lines.filtered(
+                        lambda l: l.requisition_state not in ['cancelled', 'rejected']
+                    )
+                    record.active_planned_qty = sum(active_mr_lines.mapped('quantity')) if active_mr_lines else 0.0
+            
+            # Scenario 2: No BOQ Line link (manual Job Cost Sheet)
+            elif record.cost_sheet_id and record.product_id:
+                # Find all MRs created for this Job Cost Sheet's BOQ
+                mr_lines = self.env['material.requisition.line'].search([
+                    ('requisition_id.job_cost_sheet_id', '=', record.cost_sheet_id.id),
+                    ('product_id', '=', record.product_id.id),
+                ])
+                
+                if not mr_lines:
+                    # No MRs found for this product
+                    record.active_planned_qty = record.planned_qty
+                else:
+                    # Filter out cancelled/rejected MRs
+                    active_mr_lines = mr_lines.filtered(
+                        lambda l: l.requisition_state not in ['cancelled', 'rejected']
+                    )
+                    record.active_planned_qty = sum(active_mr_lines.mapped('quantity')) if active_mr_lines else 0.0
+                    
+                    # Debug logging
+                    import logging
+                    _logger = logging.getLogger(__name__)
+                    _logger.info(f"Job Cost Line {record.name} (NO BOQ LINK):")
+                    _logger.info(f"  Product: {record.product_id.name}")
+                    _logger.info(f"  Found {len(mr_lines)} MR Lines for this product")
+                    _logger.info(f"  Active MR Lines: {len(active_mr_lines)}")
+                    _logger.info(f"  planned_qty={record.planned_qty}, active_planned_qty={record.active_planned_qty}")
+            
+            else:
+                # No BOQ Line and no product/cost sheet - use full planned qty
+                record.active_planned_qty = record.planned_qty
     
     @api.depends('purchase_order_line_ids.product_qty', 'purchase_order_line_ids.qty_received',
                  'timesheet_ids.unit_amount', 'invoice_line_ids.quantity')
@@ -416,13 +619,26 @@ class JobCostLine(models.Model):
                     _logger.info(f"  - Timesheet: {ts.name}, unit_amount={ts.unit_amount}, amount={ts.amount}")
                     
             else:  # overhead
-                # Use invoice lines first, fallback to purchase orders
+                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
+                invoice_qty = 0
+                po_qty = 0
+                
+                # Calculate from invoice lines first (preferred source for overhead)
                 if record.invoice_line_ids:
-                    record.actual_qty = sum(record.invoice_line_ids.filtered(
-                        lambda l: l.move_id.state == 'posted').mapped('quantity'))
-                else:
+                    invoice_lines = record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted')
+                    invoice_qty = sum(invoice_lines.mapped('quantity'))
+                
+                # Calculate from purchase orders (fallback)
+                if record.purchase_order_line_ids:
                     po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
-                    record.actual_qty = sum(po_lines.mapped('qty_received'))
+                    po_qty = sum(po_lines.mapped('qty_received'))
+                
+                # Use invoice quantity if available, otherwise use PO quantity
+                # This prevents double counting when both sources exist
+                if invoice_qty > 0:
+                    record.actual_qty = invoice_qty
+                else:
+                    record.actual_qty = po_qty
     
     @api.depends('purchase_order_line_ids.price_unit', 'purchase_order_line_ids.product_qty', 
                  'timesheet_ids.amount', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity')
@@ -450,15 +666,31 @@ class JobCostLine(models.Model):
                     _logger.info(f"Timesheet line: unit_amount={line.unit_amount}, amount={line.amount}, abs_amount={cost_amount}")
                     
             else:  # overhead
-                # Use invoice lines or purchase order lines
-                for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
-                    total_cost += line.price_subtotal
-                    total_qty += line.quantity
-                # If no invoices, use purchase orders
-                if not total_cost:
+                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
+                invoice_cost = 0
+                invoice_qty = 0
+                po_cost = 0
+                po_qty = 0
+                
+                # Calculate from invoice lines first (preferred source)
+                if record.invoice_line_ids:
+                    for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
+                        invoice_cost += line.price_subtotal
+                        invoice_qty += line.quantity
+                
+                # Calculate from purchase orders (fallback)
+                if record.purchase_order_line_ids:
                     for line in record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done']):
-                        total_cost += line.price_subtotal
-                        total_qty += line.product_qty
+                        po_cost += line.price_subtotal
+                        po_qty += line.product_qty
+                
+                # Use invoice data if available, otherwise use PO data
+                if invoice_cost > 0 and invoice_qty > 0:
+                    total_cost = invoice_cost
+                    total_qty = invoice_qty
+                elif po_cost > 0 and po_qty > 0:
+                    total_cost = po_cost
+                    total_qty = po_qty
             
             record.actual_unit_cost = total_cost / total_qty if total_qty else 0
             
@@ -640,3 +872,65 @@ class JobCostLine(models.Model):
         """Button action to update actual costs"""
         self.update_actual_costs_from_purchases()
         return True
+    
+    @api.model
+    def get_or_create_cost_line(self, cost_sheet_id, product_id, cost_type='material', 
+                                source_po_line_id=None, source_timesheet_id=None, 
+                                source_invoice_line_id=None, vals=None):
+        """
+        Get existing cost line or create new one.
+        Prevents duplicate cost lines by checking source tracking fields.
+        
+        FIX ISSUE #2: Duplicate Cost Lines Prevention
+        """
+        if vals is None:
+            vals = {}
+            
+        domain = [('cost_sheet_id', '=', cost_sheet_id)]
+        
+        # Check by source fields first (most reliable)
+        if source_po_line_id:
+            existing = self.search([('source_po_line_id', '=', source_po_line_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for PO line {source_po_line_id}")
+                return existing
+                
+        if source_timesheet_id:
+            existing = self.search([('source_timesheet_id', '=', source_timesheet_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for timesheet {source_timesheet_id}")
+                return existing
+                
+        if source_invoice_line_id:
+            existing = self.search([('source_invoice_line_id', '=', source_invoice_line_id)], limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for invoice line {source_invoice_line_id}")
+                return existing
+        
+        # Check by product if no source match
+        if product_id:
+            domain.append(('product_id', '=', product_id))
+            existing = self.search(domain, limit=1)
+            if existing:
+                _logger.info(f"Found existing cost line {existing.id} for product {product_id} in sheet {cost_sheet_id}")
+                return existing
+        
+        # Create new cost line
+        create_vals = {
+            'cost_sheet_id': cost_sheet_id,
+            'cost_type': cost_type,
+            'product_id': product_id,
+            'source_po_line_id': source_po_line_id,
+            'source_timesheet_id': source_timesheet_id,
+            'source_invoice_line_id': source_invoice_line_id,
+        }
+        create_vals.update(vals)
+        
+        # Set default name if not provided
+        if not create_vals.get('name') and product_id:
+            product = self.env['product.product'].browse(product_id)
+            create_vals['name'] = product.name
+            
+        new_line = self.create(create_vals)
+        _logger.info(f"Created new cost line {new_line.id} for sheet {cost_sheet_id}")
+        return new_line

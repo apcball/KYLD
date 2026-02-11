@@ -108,3 +108,14 @@ def post_init_hook(env):
         """)
     
     cr.commit()  # Commit the changes to the database
+
+    # Refresh all advance box balances to fix any stale/incorrect values
+    try:
+        advance_boxes = env['employee.advance.box'].search([])
+        if advance_boxes:
+            _logger.info("💰 Refreshing balance for %d advance boxes...", len(advance_boxes))
+            for box in advance_boxes:
+                box._refresh_balance_simple()
+            _logger.info("✅ All advance box balances refreshed successfully")
+    except Exception as e:
+        _logger.warning("⚠️ Advance box balance refresh failed: %s", str(e))

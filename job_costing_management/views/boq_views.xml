@@ -44,7 +44,8 @@
                         <button name="action_debug_wizard_access" string="Debug Wizard Access" 
                                 type="object" class="btn-secondary" groups="base.group_no_one" invisible="1"/>
                         <button name="action_create_job_cost_lines" string="Create Job Cost Lines" 
-                                type="object" invisible="1"/>
+                                type="object" class="btn-primary"
+                                invisible="not job_cost_sheet_id"/>
                         <field name="state" widget="statusbar" statusbar_visible="draft,approved,locked"/>
                     </header>
                     <sheet>
