@@ -222,9 +222,9 @@
                        <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
                            <span t-esc="current_line_number + line_tuple[0]"/>
                        </td>
-                       <!-- รายการ (ชื่อสินค้า) -->
-                       <td style="border: 1px solid black; vertical-align: top; padding: 5px; text-align: left;">
-                           <span t-esc="line_tuple[1].name.replace('\n', ' ') if line_tuple[1].name else ''"/>
+                        <!-- รายการ (ชื่อสินค้า) -->
+                       <td style="border: 1px solid black; vertical-align: middle; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                           <span t-field="line_tuple[1].name"/>
                        </td>
                        <!-- จำนวน -->
                     <td class="qty-col" style="border: 1px solid black; text-align: center; vertical-align: middle; padding: 0 2px; white-space: nowrap;">
