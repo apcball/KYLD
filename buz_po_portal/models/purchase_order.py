@@ -708,7 +708,7 @@ class PurchaseOrder(models.Model):
                         "action": {
                             "type": "uri",
                             "label": "Approve",
-                            "uri": f"{portal_url}?action=approve"
+                            "uri": f"{portal_url}&action=approve"
                         }
                     },
                     {
@@ -717,7 +717,7 @@ class PurchaseOrder(models.Model):
                         "action": {
                             "type": "uri",
                             "label": "Reject",
-                            "uri": f"{portal_url}?action=reject"
+                            "uri": f"{portal_url}&action=reject"
                         }
                     },
                     {
