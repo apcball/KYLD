@@ -31,7 +31,7 @@
     <!-- Main Template -->
     <template id="report_return_document_custom">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="doc">
+            <t t-foreach="docs.sudo()" t-as="doc">
                 <t t-call="web.external_layout">
                     <div class="page">
 <style>
@@ -121,10 +121,22 @@
                         <!-- Company Info Section -->
                         <div class="row mb-2">
                             <div class="col-8">
-                                <div class="company-header mb-1"></div>
-                                <div class="company-info"></div>
-                                <div class="company-info"></div>
-                                <div class="company-info"></div>
+                                <div class="company-header mb-1">
+                                    <span t-field="doc.company_id.name"/>
+                                </div>
+                                <div class="company-info">
+                                    <span t-if="doc.company_id.street" t-field="doc.company_id.street"/>
+                                    <span t-if="doc.company_id.street2" t-esc="' ' + doc.company_id.street2"/>
+                                </div>
+                                <div class="company-info">
+                                    <span t-if="doc.company_id.city" t-field="doc.company_id.city"/>
+                                    <span t-if="doc.company_id.state_id" t-esc="' ' + doc.company_id.state_id.name"/>
+                                    <span t-if="doc.company_id.zip" t-esc="' ' + doc.company_id.zip"/>
+                                </div>
+                                <div class="company-info">
+                                    <t t-if="doc.company_id.phone">Tel: <span t-field="doc.company_id.phone"/></t>
+                                    <t t-if="doc.company_id.vat"> Tax ID: <span t-field="doc.company_id.vat"/></t>
+                                </div>
                             </div>
                             <div class="col-4 text-end">
                                 <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)" 

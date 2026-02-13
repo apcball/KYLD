@@ -31,7 +31,7 @@
     <!-- Main Template -->
     <template id="report_picking_document_custom">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="doc">
+            <t t-foreach="docs.sudo()" t-as="doc">
                 <t t-call="web.external_layout">
                 <div class="page">
                     <style>
@@ -123,8 +123,8 @@
                                     </t>
                                     <!-- Company Info Section -->
                                     <div class="row mb-2">
-                                       <div class="col-4 text-start" style="display: none;">
-                                            <img src="/buz_delivery_report/static/img/LOGO MOGEN.png"
+                                       <div class="col-4 text-start">
+                                            <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)"
                                                  style="width: 150px; height: auto; object-fit: contain;margin-bottom: -30px;"
                                                  alt="Company Logo"/>
                                         </div>

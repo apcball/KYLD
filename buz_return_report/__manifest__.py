@@ -15,7 +15,6 @@
     'website': 'https://www.yourcompany.com',
     'depends': ['stock', 'web'],
     'data': [
-        'security/ir.model.access.csv',
         'report/return_report.xml',
     ],
     'assets': {

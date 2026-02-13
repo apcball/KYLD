@@ -14,7 +14,6 @@
     'website': 'https://www.yourcompany.com',
     'depends': ['stock', 'delivery'],
     'data': [
-        'security/ir.model.access.csv',
         'reports/delivery_report.xml',
         'views/report_menu.xml',
     ],

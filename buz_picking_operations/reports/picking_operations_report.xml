@@ -19,7 +19,7 @@
         <!-- Report Template -->
         <template id="report_picking_operations_custom">
             <t t-call="web.html_container">
-                <t t-foreach="docs" t-as="o">
+                <t t-foreach="docs.sudo()" t-as="o">
                     <t t-call="web.external_layout">
                 <style>
                     @font-face {
@@ -94,16 +94,20 @@
                             <div class="row mb-2">
                                 <div class="col-8">
                                     <div class="company-header mb-1" style="font-size: 20px; font-weight: bold;">
-                                        
+                                        <span t-field="o.company_id.name"/>
                                     </div>
                                     <div class="company-info" style="font-size: 18px;">
-                                     
+                                        <span t-if="o.company_id.street" t-field="o.company_id.street"/>
+                                        <span t-if="o.company_id.street2" t-esc="' ' + o.company_id.street2"/>
                                     </div>
                                     <div class="company-info" style="font-size: 18px;">
-                                      
+                                        <span t-if="o.company_id.city" t-field="o.company_id.city"/>
+                                        <span t-if="o.company_id.state_id" t-esc="' ' + o.company_id.state_id.name"/>
+                                        <span t-if="o.company_id.zip" t-esc="' ' + o.company_id.zip"/>
                                     </div>
                                     <div class="company-info" style="font-size: 18px;">
-                                    
+                                        <t t-if="o.company_id.phone">Tel: <span t-field="o.company_id.phone"/></t>
+                                        <t t-if="o.company_id.vat"> Tax ID: <span t-field="o.company_id.vat"/></t>
                                     </div>
                                 </div>
                                <div class="col-4 text-end">
