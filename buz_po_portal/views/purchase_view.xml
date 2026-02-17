@@ -14,7 +14,7 @@
                     invisible="not can_review"/>
 
                 <button name="action_approve_signature" string="Approve &amp; Sign" type="object" class="oe_highlight"
-                    invisible="not can_approve" groups="purchase.group_purchase_manager"/>
+                    invisible="not can_approve" groups="buz_po_portal.group_purchase_order_approver,purchase.group_purchase_manager"/>
 
 
 
