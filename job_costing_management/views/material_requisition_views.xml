@@ -109,6 +109,9 @@
                                         <field name="boq_remaining_qty" string="BOQ Remaining" readonly="1" invisible="not boq_line_id"/>
                                     </tree>
                                 </field>
+                                <group class="oe_subtotal_footer oe_right" col="2">
+                                    <field name="total_cost" string="Total Amount" widget="monetary" readonly="1" class="oe_subtotal_footer_separator"/>
+                                </group>
                             </page>
                             <page string="Notes">
                                 <field name="notes"/>

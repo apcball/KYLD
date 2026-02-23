@@ -104,6 +104,7 @@ class MaterialRequisition(models.Model):
             
             record.picking_count = len(picking_ids)
     
+    @api.depends("line_ids.total_cost")
     def _compute_total_amount(self):
         """Compute total amount from requisition lines"""
         for record in self:
