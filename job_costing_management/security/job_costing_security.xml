@@ -18,6 +18,7 @@
         <record id="group_material_requisition_user" model="res.groups">
             <field name="name">Material Requisition User</field>
             <field name="category_id" ref="base.module_category_project"/>
+            <field name="implied_ids" eval="[(4, ref('stock.group_stock_user'))]"/>
         </record>
 
         <record id="group_material_requisition_manager" model="res.groups">

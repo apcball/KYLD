@@ -24,11 +24,20 @@
         <field name="implied_ids" eval="[(4, ref('employee_purchase_requisition.employee_requisition_manager'))]"/>
     </record>
 
-    <!-- Multi-company record rule -->
+    <!-- Multi-company bypass for Administrators -->
+    <record id="employee_requisition_company_admin_rule" model="ir.rule">
+        <field name="name">Employee Purchase Requisition: multi-company admin bypass</field>
+        <field name="model_id" ref="model_employee_purchase_requisition"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+    </record>
+
+    <!-- Multi-company record rule for regular users -->
     <record id="employee_requisition_company_rule" model="ir.rule">
         <field name="name">Employee Purchase Requisition: multi-company</field>
         <field name="model_id" ref="model_employee_purchase_requisition"/>
         <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
     </record>
 
     <!-- Delete restriction: Only Purchase group can delete -->

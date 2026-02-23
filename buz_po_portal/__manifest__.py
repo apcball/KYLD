@@ -9,6 +9,7 @@
     """,
     'depends': ['base', 'purchase', 'mail', 'hr','website', 'portal', 'line_portal_notification'], # 'website', 'portal'
     'data': [
+        'security/security.xml',
         'security/ir.model.access.csv',
         'data/mail_template.xml',
         'views/purchase_view.xml',

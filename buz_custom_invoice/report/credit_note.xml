@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <data>
-    <record id="paperformat_cerdit_note" model="report.paperformat">
-        <field name="name">Cerdit Note A4</field>
+    <record id="paperformat_credit_note" model="report.paperformat">
+        <field name="name">Credit Note A4</field>
         <field name="default" eval="True"/>
         <field name="format">A4</field>
         <field name="orientation">Portrait</field>
@@ -17,7 +17,7 @@
 
     
     <!-- Main Template -->
-    <template id="report_cerdit_note">
+    <template id="report_credit_note">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
                 <t t-call="web.external_layout">
@@ -150,14 +150,26 @@
                         <div class="row mb-2" style="padding-top: 0;"> <!-- Remove padding from the top -->
                             <div class="col-8">
                                 <div style="font-size: 20px;">
-                                    <div class="mb-1"><strong>บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</strong></div>
-                                    <div style="font-size: 18px;">9 หมู่ 12 ตําบลบึงคําพร้อย อําเภอลําลูกกา จ.ปทุมธานี 12150</div>
-                                    <div style="font-size: 18px;">เลขที่ประจําตัวผู้เสียภาษี 0105547076103</div>
-                                    <div style="font-size: 18px;">โทร 02 1509710 แฟกซ์ 02 1528803 E-mail: contact@mogen.co.th</div>
+                                    <div class="mb-1"><strong t-field="doc.company_id.name"/></div>
+                                    <div style="font-size: 18px;">
+                                        <t t-if="doc.company_id.street"><span t-field="doc.company_id.street"/> </t>
+                                        <t t-if="doc.company_id.street2"><span t-field="doc.company_id.street2"/> </t>
+                                        <t t-if="doc.company_id.city">ตําบล<span t-field="doc.company_id.city"/> </t>
+                                        <t t-if="doc.company_id.state_id">อําเภอ<span t-field="doc.company_id.state_id.name"/> </t>
+                                        <t t-if="doc.company_id.state_id">จ.<span t-field="doc.company_id.state_id.name"/> </t>
+                                        <t t-if="doc.company_id.zip"><span t-field="doc.company_id.zip"/></t>
+                                    </div>
+                                    <div style="font-size: 18px;">
+                                        <strong>เลขที่ประจําตัวผู้เสียภาษี</strong> <span t-field="doc.company_id.vat"/>
+                                    </div>
+                                    <div style="font-size: 18px;">
+                                        <t t-if="doc.company_id.phone">โทร <span t-field="doc.company_id.phone"/> </t>
+                                        <t t-if="doc.company_id.email">E-mail: <span t-field="doc.company_id.email"/></t>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-4 text-end">
-                                <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)" 
+                                <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)"
                                      style="width: 180px; height: auto; object-fit: contain;" alt="Company Logo"/>
                             </div>
                         </div>
@@ -406,7 +418,7 @@
                                     style="width: 48%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; border: 2px solid #000; padding: 16px; border-radius: 10px; min-height: 140px;">
                                     <div style="text-align: center; font-size: 18px;">
                                         <div style="height:24px;"></div>
-                                        <div>ในนาม บริษัท โมเก้น จำกัด</div>
+                                        <div>ในนาม <span t-field="doc.company_id.name"/></div>
                                         <div>
                                             ผู้มีอำนาจลงนาม____________________________________
                                         </div>
@@ -428,13 +440,13 @@
         </template>
 
 
-    <record id="action_report_cerdit_note" model="ir.actions.report">
+    <record id="action_report_credit_note" model="ir.actions.report">
         <field name="name">ใบลดหนี้ / ใบกำกับภาษี</field>
         <field name="model">account.move</field>
         <field name="report_type">qweb-pdf</field>
-        <field name="report_name">buz_custom_invoice.report_cerdit_note</field>
-        <field name="report_file">buz_custom_invoice.report_cerdit_note</field>
-        <field name="paperformat_id" ref="paperformat_cerdit_note"/>
+        <field name="report_name">buz_custom_invoice.report_credit_note</field>
+        <field name="report_file">buz_custom_invoice.report_credit_note</field>
+        <field name="paperformat_id" ref="paperformat_credit_note"/>
         <field name="binding_model_id" ref="account.model_account_move"/>
         <field name="binding_type">report</field>
     </record>

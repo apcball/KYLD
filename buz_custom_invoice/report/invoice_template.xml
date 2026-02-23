@@ -132,14 +132,26 @@
                     <div class="row mb-2" style="padding-top: 0;"> <!-- Remove padding from the top -->
                         <div class="col-8">
                             <div style="font-size: 20px;">
-                                <div class="mb-1"><strong>บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</strong></div>
-                                <div style="font-size: 18px;">9 หมู่ 12 ตําบลบึงคําพร้อย อําเภอลําลูกกา จ.ปทุมธานี 12150</div>
-                                <div style="font-size: 18px;">เลขที่ประจําตัวผู้เสียภาษี 0105547076103</div>
-                                <div style="font-size: 18px;">โทร 02 1509710 แฟกซ์ 02 1528803 E-mail: contact@mogen.co.th</div>
+                                <div class="mb-1"><strong t-field="doc.company_id.name"/></div>
+                                <div style="font-size: 18px;">
+                                    <t t-if="doc.company_id.street"><span t-field="doc.company_id.street"/> </t>
+                                    <t t-if="doc.company_id.street2"><span t-field="doc.company_id.street2"/> </t>
+                                    <t t-if="doc.company_id.city">ตําบล<span t-field="doc.company_id.city"/> </t>
+                                    <t t-if="doc.company_id.state_id">อําเภอ<span t-field="doc.company_id.state_id.name"/> </t>
+                                    <t t-if="doc.company_id.state_id">จ.<span t-field="doc.company_id.state_id.name"/> </t>
+                                    <t t-if="doc.company_id.zip"><span t-field="doc.company_id.zip"/></t>
+                                </div>
+                                <div style="font-size: 18px;">
+                                    <strong>เลขที่ประจําตัวผู้เสียภาษี</strong> <span t-field="doc.company_id.vat"/>
+                                </div>
+                                <div style="font-size: 18px;">
+                                    <t t-if="doc.company_id.phone">โทร <span t-field="doc.company_id.phone"/> </t>
+                                    <t t-if="doc.company_id.email">E-mail: <span t-field="doc.company_id.email"/></t>
+                                </div>
                             </div>
                         </div>
                         <div class="col-4 text-end">
-                            <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)" 
+                            <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)"
                                  style="width: 180px; height: auto; object-fit: contain;" alt="Company Logo"/>
                         </div>
                     </div>
@@ -359,17 +371,17 @@
 
                                      <!-- Footer Section -->
                                      <div class="footer-section">
-                                         <div class="footer-box" style="font-size: 18px;">
-                                             <div style="text-align: left;">
-                                                 สินค้าตามรายการข้างต้น แม้จะได้ส่งมอบให้แก่ผู้ซื้อแล้วแต่ยังเป็นกรรมสิทธิ์ของผู้ขาย จนกว่า ผู้ซื้อจะได้รับชำระเงินให้แก่ บริษัทฯ ดังกล่าวแล้วเท่านั้น
-                                             </div>
-                                             <div style="text-align: center; margin-top: -2em;">
-                                                 <br/>
-                                                 *กรุณาจ่ายเช็คขีดคร่อมสั่งจ่าย*
-                                                 <br/>
-                                                 *บริษัท โมเก้น จำกัด* และชีดฆ่าหรือผู้ถือ
-                                             </div>
-                                         </div>
+                                          <div class="footer-box" style="font-size: 18px;">
+                                              <div style="text-align: left;">
+                                                  สินค้าตามรายการข้างต้น แม้จะได้ส่งมอบให้แก่ผู้ซื้อแล้วแต่ยังเป็นกรรมสิทธิ์ของผู้ขาย จนกว่า ผู้ซื้อจะได้รับชำระเงินให้แก่ บริษัทฯ ดังกล่าวแล้วเท่านั้น
+                                              </div>
+                                              <div style="text-align: center; margin-top: -2em;">
+                                                  <br/>
+                                                  *กรุณาจ่ายเช็คขีดคร่อมสั่งจ่าย*
+                                                  <br/>
+                                                  *<span t-field="doc.company_id.name"/>* และชีดฆ่าหรือผู้ถือ
+                                              </div>
+                                          </div>
                                          <div class="footer-box" style="text-align: center; font-size: 18px;">
                                              ได้รับสินค้าดังกล่าวใว้ถูกต้องในสภาพเรียบร้อยแล้ว
                                              <br/>
@@ -381,17 +393,17 @@
                                              <br/>
                                              วันที่___/___/___
                                          </div>
-                                         <div class="footer-box" style="text-align: center; font-size: 18px;">
-                                             ในนาม
-                                             <br/>
-                                             บริษัท โมเก้น จำกัด
-                                             <br/>
-                                             ___________________________
-                                             <br/> 
-                                             ผู้มีอำนาจลงนาม
-                                             <br/>
-                                             AUTHORIZED
-                                         </div>
+                                          <div class="footer-box" style="text-align: center; font-size: 18px;">
+                                              ในนาม
+                                              <br/>
+                                              <span t-field="doc.company_id.name"/>
+                                              <br/>
+                                              ___________________________
+                                              <br/>
+                                              ผู้มีอำนาจลงนาม
+                                              <br/>
+                                              AUTHORIZED
+                                          </div>
                                      </div>
 
                            </div>         

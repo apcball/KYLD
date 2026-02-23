@@ -49,9 +49,9 @@
                             class="oe_highlight" 
                             invisible="state != 'posted' or payment_state in ['paid', 'overpaid']"/>
 
-                    <button name="action_reset_to_draft" type="object" string="Reset to Draft" 
-                            invisible="state == 'draft'"
-                            confirm="Are you sure you want to reset this voucher to draft?"/>
+
+                    <!-- Reset to Draft button removed to prevent accidental payment cancellation -->
+
                             
                     <field name="state" widget="statusbar" statusbar_visible="draft,posted"/>
                 </header>

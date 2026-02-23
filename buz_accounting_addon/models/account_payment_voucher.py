@@ -136,7 +136,7 @@ class AccountPaymentVoucher(models.Model):
     @api.depends('name')
     def _compute_payment_count(self):
         for rec in self:
-            rec.payment_count = self.env['account.payment'].search_count([('ref', 'like', f"PV {rec.name}")])
+            rec.payment_count = self.env['account.payment'].search_count([('ref', '=', f"PV {rec.name}")])
 
     def action_open_related_payments(self):
         """
@@ -145,7 +145,7 @@ class AccountPaymentVoucher(models.Model):
         self.ensure_one()
         
         # Get payments linked to this voucher via reference
-        payments = self.env['account.payment'].search([('ref', 'like', f"PV {self.name}")])
+        payments = self.env['account.payment'].search([('ref', '=', f"PV {self.name}")])
         
         action = {
             'name': _('Payments'),
@@ -451,7 +451,7 @@ class AccountPaymentVoucher(models.Model):
         
         # Find payments related to this voucher by looking at the reference
         # Payments are created with ref = f"PV {voucher.name}"
-        payments = self.env['account.payment'].search([('ref', 'like', f"PV {self.name}")])
+        payments = self.env['account.payment'].search([('ref', '=', f"PV {self.name}")])
         
         action = {
             'name': _('Payments'),
@@ -472,71 +472,77 @@ class AccountPaymentVoucher(models.Model):
         return action
 
     def action_reset_to_draft(self):
-        """Reset the voucher to draft and reverse any linked payments"""
+        """Reset the voucher to draft and cancel ONLY payments created by this voucher"""
         for voucher in self:
             if voucher.state == "draft":
                 continue
-                
-            # Find payments related to this voucher by looking at the reference
-            # Payments are created with ref = f"PV {voucher.name}"
-            payments = self.env["account.payment"].search([("ref", "like", f"PV {voucher.name}")])
             
-            # Also find payments linked to voucher lines via payment_ids
-            line_payments = self.env["account.payment"]
-            for line in voucher.line_ids:
-                line_payments |= line.payment_ids
+            # Guard: skip payment cancellation if voucher has no proper name
+            if not voucher.name or voucher.name == '/':
+                _logger.warning("Voucher %s has no proper name, skipping payment cancellation", voucher.id)
+                voucher.write({'state': 'draft'})
+                voucher.message_post(body=_("Voucher reset to draft (no payments to cancel)."))
+                continue
             
-            # Combine both sets of payments
-            all_payments = payments | line_payments
+            pv_ref = f"PV {voucher.name}"
+            _logger.info("=== RESET TO DRAFT: Voucher %s (ref=%s) ===", voucher.name, pv_ref)
+            
+            # Find payments related to this voucher by EXACT reference match
+            all_payments = self.env["account.payment"].search([("ref", "=", pv_ref)])
+            _logger.info("Found %d payment(s) with ref='%s': %s", 
+                        len(all_payments), pv_ref, 
+                        all_payments.mapped('name'))
+            
+            # Extra safety: only cancel payments that also match the voucher's journal
+            payments_to_cancel = all_payments
+            if voucher.destination_journal_id:
+                payments_to_cancel = all_payments.filtered(
+                    lambda p: p.journal_id == voucher.destination_journal_id
+                )
+                _logger.info("After journal filter (%s): %d payment(s) to cancel: %s", 
+                            voucher.destination_journal_id.name,
+                            len(payments_to_cancel), 
+                            payments_to_cancel.mapped('name'))
             
             # Process each payment to unreconcile and cancel it
-            for payment in all_payments:
-                if payment.state == "posted":
-                    # Try to unreconcile first
-                    try:
-                        # Find all move lines that are reconciled with this payment
-                        reconciled_lines = self.env["account.move.line"]
-                        for line in payment.move_id.line_ids:
-                            if line.reconciled:
-                                reconciled_lines |= line
-                                
-                        # Unreconcile if any lines are reconciled
-                        if reconciled_lines:
-                            reconciled_lines.remove_move_reconcile()
-                    except Exception:
-                        # If unreconciliation fails, just continue
-                        pass
+            cancelled_payments = []
+            for payment in payments_to_cancel:
+                if payment.state == 'cancel':
+                    _logger.info("Payment %s already cancelled, skipping", payment.name)
+                    continue
+                try:
+                    _logger.info("Cancelling payment %s (state=%s)", payment.name, payment.state)
                     
-                    # Cancel the payment
-                    try:
-                        # First unreconcile again to ensure we can cancel
-                        for line in payment.move_id.line_ids:
-                            if line.reconciled:
-                                line.remove_move_reconcile()
-                        # Now cancel the move
-                        payment.move_id.button_draft()
-                        payment.move_id.button_cancel()
-                        # Cancel the payment
-                        payment.action_cancel()
-                    except Exception as e:
-                        # Add error message to chatter
-                        voucher.message_post(body=_("Could not cancel payment %s: %s") % (payment.name, str(e)))
+                    # 1. Unreconcile (remove links to invoices)
+                    if payment.move_id:
+                        reconciled_lines = payment.move_id.line_ids.filtered(lambda l: l.reconciled)
+                        if reconciled_lines:
+                            _logger.info("Unreconciling %d line(s) for payment %s", len(reconciled_lines), payment.name)
+                            reconciled_lines.remove_move_reconcile()
+                    
+                    # 2. Reset to Draft (required before cancelling if posted)
+                    if payment.state == 'posted':
+                        payment.action_draft()
+                    
+                    # 3. Cancel
+                    payment.action_cancel()
+                    cancelled_payments.append(payment.name)
+                    _logger.info("Successfully cancelled payment %s", payment.name)
+                    
+                except Exception as e:
+                    _logger.error("Failed to cancel payment %s: %s", payment.name, str(e))
+                    voucher.message_post(body=_("Could not cancel payment %s: %s") % (payment.name, str(e)))
             
-            # Find all related journal entries and cancel them
-            related_moves = self.env["account.move"].search([("ref", "like", f"PV {voucher.name}")])
-            for move in related_moves:
-                if move.state == "posted":
-                    try:
-                        move.button_draft()
-                        move.button_cancel()
-                    except Exception as e:
-                        voucher.message_post(body=_("Could not cancel journal entry %s: %s") % (move.name, str(e)))
-                        
             # Reset voucher state to draft
-            voucher.state = "draft"
+            voucher.write({'state': 'draft'})
             
             # Post a message about the reset
-            voucher.message_post(body=_("Voucher reset to draft. All related payments and journal entries have been cancelled."))
+            if cancelled_payments:
+                voucher.message_post(body=_("Voucher reset to draft. Cancelled payments: %s") % ', '.join(cancelled_payments))
+            else:
+                voucher.message_post(body=_("Voucher reset to draft. No payments found to cancel."))
+            
+            _logger.info("=== RESET TO DRAFT COMPLETE: Voucher %s ===", voucher.name)
         
         return True
 

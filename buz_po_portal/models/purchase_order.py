@@ -317,8 +317,8 @@ class PurchaseOrder(models.Model):
         # 2. Get approvers (Manager)
         # approver = self.approver_id # Old logic
         
-        # Determine eligible approvers
-        company = self.company_id
+        # Determine eligible approvers (use sudo to bypass permissions)
+        company = self.company_id.sudo()
         limit = company.po_approver_limit
         amount = self.amount_total
         
@@ -333,9 +333,9 @@ class PurchaseOrder(models.Model):
                 raise UserError(_("Please assign Approvers (Manager) in Settings before sending LINE notification."))
             return False
 
-        # Loop through all approvers
+        # Loop through all approvers (use sudo to read LINE IDs)
         sent_count = 0
-        for approver in target_approvers:
+        for approver in target_approvers.sudo():
             # 3. Validation LINE ID
             if not approver.line_user_id or not approver.line_user_id.strip():
                 msg = _(
@@ -356,7 +356,7 @@ class PurchaseOrder(models.Model):
             # Check if token already exists for this approver/doc to avoid spamming new tokens? 
             # flexible_token logic usually handles new token generation.
             
-            token_record = self.env['approval.token'].generate_token(
+            token_record = self.env['approval.token'].sudo().generate_token(
                 res_model='purchase.order',
                 res_id=self.id,
                 approver_id=approver.id,
@@ -383,8 +383,8 @@ class PurchaseOrder(models.Model):
             text_message = self._get_line_approval_message(portal_url)
             flex_contents = self._build_po_flex_message(portal_url)
             
-            # 6. Send Messages
-            line_service = self.env['line.api.service']
+            # 6. Send Messages (use sudo to access LINE API service)
+            line_service = self.env['line.api.service'].sudo()
             try:
                 # Try to send Flex message (rich UI) as primary notification
                 try:
@@ -708,7 +708,7 @@ class PurchaseOrder(models.Model):
                         "action": {
                             "type": "uri",
                             "label": "Approve",
-                            "uri": f"{portal_url}?action=approve"
+                            "uri": f"{portal_url}&action=approve"
                         }
                     },
                     {
@@ -717,7 +717,7 @@ class PurchaseOrder(models.Model):
                         "action": {
                             "type": "uri",
                             "label": "Reject",
-                            "uri": f"{portal_url}?action=reject"
+                            "uri": f"{portal_url}&action=reject"
                         }
                     },
                     {
