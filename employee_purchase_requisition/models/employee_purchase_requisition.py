@@ -56,6 +56,12 @@ class PurchaseRequisition(models.Model):
         store=True,
         help='Select an department'
     )
+    dept_name = fields.Char(
+        string='Department Name',
+        compute='_compute_dept_name',
+        store=True,
+        help='Department name (accessible in multi-company reports)'
+    )
     request_plan = fields.Date(
     string="Planned Purchase Date"
     )
@@ -279,6 +285,23 @@ class PurchaseRequisition(models.Model):
             employee = self.user_id.employee_id
             if employee:
                 self.employee_id = employee.id
+
+    @api.depends('dept_id')
+    def _compute_dept_name(self):
+        """Safely compute department name with multi-company access"""
+        for rec in self:
+            if rec.dept_id:
+                try:
+                    # Try to access directly first
+                    rec.dept_name = rec.dept_id.name
+                except Exception:
+                    # Fallback to sudo if access is denied
+                    try:
+                        rec.dept_name = rec.dept_id.sudo().name
+                    except Exception:
+                        rec.dept_name = 'N/A'
+            else:
+                rec.dept_name = 'N/A'
 
     @api.depends('dept_id')
     def _compute_user_is_purchase(self):
