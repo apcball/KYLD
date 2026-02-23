@@ -18,7 +18,8 @@ class AddBillsWizard(models.TransientModel):
         domain = [
             ('partner_id', '=', self.partner_id.id),
             ('state', '=', 'posted'),
-            ('payment_state', '!=', 'paid')
+            ('amount_total', '>', 0),
+            ('company_id', '=', self.billing_note_id.company_id.id),
         ]
 
         if self.note_type == 'receivable':

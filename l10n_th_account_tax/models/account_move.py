@@ -497,8 +497,12 @@ class AccountMove(models.Model):
 
         def handle_withholding_taxes(move):
             # Normal case, create withholding.move only when withholding
-            # Changed: only check wht_tax_id, not wht_account flag
-            wht_movelines = move.line_ids.filtered(lambda line: line.wht_tax_id)
+            # Filter lines that have wht_tax_id AND are in WHT account (wht_account=True)
+            # This prevents duplicate wht_move_ids when multiple lines have wht_tax_id
+            # (e.g., both WHT payable line and AP line might have wht_tax_id set)
+            wht_movelines = move.line_ids.filtered(
+                lambda line: line.wht_tax_id and line.account_id.wht_account
+            )
             withholding_moves = [
                 Command.create(self._prepare_withholding_move(wht_ml))
                 for wht_ml in wht_movelines

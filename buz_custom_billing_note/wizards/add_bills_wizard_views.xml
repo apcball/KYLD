@@ -16,7 +16,6 @@
                                 <field name="invoice_date"/>
                                 <field name="invoice_date_due"/>
                                 <field name="amount_total"/>
-                                <field name="payment_state"/>
                             </tree>
                         </field>
                     </group>

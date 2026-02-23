@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- WHT functionality has been removed from this module -->
+    <!-- Use l10n_th_account_tax module for withholding tax features -->
+</odoo>

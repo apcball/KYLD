@@ -6,11 +6,6 @@ class AccountMove(models.Model):
 
     tax_invoice_number = fields.Char(string='Tax Invoice Number', default='')
     vendor_bill_number = fields.Char(string='Vendor Bill Number')
-    payment_id = fields.Many2one('account.payment', string="Payment Ref")
-    payment_type = fields.Selection(related='payment_id.payment_type', store=True)
-    payment_method_id = fields.Many2one(related='payment_id.payment_method_id', store=True)
-    check_number = fields.Char(related='payment_id.check_number', store=True)
-    partner_bank_id = fields.Many2one(related='payment_id.partner_bank_id', store=True)
     amount = fields.Monetary(string="ยอดเงินทั้งหมด", currency_field='currency_id')
 
     billing_note_ids = fields.Many2many(
@@ -40,7 +35,8 @@ class AccountMove(models.Model):
         # Check if invoice is already in a non-cancelled billing note
         existing_note = self.env['billing.note'].search([
             ('invoice_ids', 'in', self.id),
-            ('state', '!=', 'cancel')
+            ('state', '!=', 'cancel'),
+            ('company_id', '=', self.company_id.id),
         ], limit=1)
         
         if existing_note:

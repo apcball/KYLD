@@ -17,6 +17,7 @@
                     <field name="company_id" groups="base.group_multi_company" optional="show"/>
                     <field name="request_date"/>
                     <field name="required_date"/>
+                    <field name="total_cost" sum="Total Cost" optional="show"/>
                     <field name="state"/>
                     <field name="priority"/>
                 </tree>
@@ -100,7 +101,7 @@
                                         <field name="quantity"/>
                                         <field name="uom_id"/>
                                         <field name="estimated_cost"/>
-                                        <field name="total_cost"/>
+                                        <field name="total_cost" sum="Total Cost"/>
                                         <field name="requisition_action"/>
                                         <field name="vendor_id" invisible="requisition_action != 'purchase'"/>
                                         <field name="boq_line_id"/>
@@ -109,14 +110,14 @@
                                         <field name="boq_remaining_qty" string="BOQ Remaining" readonly="1" invisible="not boq_line_id"/>
                                     </tree>
                                 </field>
-                                <group class="oe_subtotal_footer oe_right" col="2">
-                                    <field name="total_cost" string="Total Amount" widget="monetary" readonly="1" class="oe_subtotal_footer_separator"/>
-                                </group>
                             </page>
                             <page string="Notes">
                                 <field name="notes"/>
                             </page>
                         </notebook>
+                        <group class="oe_subtotal_footer oe_right" colspan="2" name="requisition_total">
+                            <field name="total_cost"/>
+                        </group>
                     </sheet>
                     <div class="oe_chatter">
                         <field name="message_follower_ids" widget="mail_followers"/>

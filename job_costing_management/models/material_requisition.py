@@ -104,7 +104,6 @@ class MaterialRequisition(models.Model):
             
             record.picking_count = len(picking_ids)
     
-    @api.depends("line_ids.total_cost")
     def _compute_total_amount(self):
         """Compute total amount from requisition lines"""
         for record in self:
@@ -307,16 +306,15 @@ class MaterialRequisition(models.Model):
             else:
                 raise ValidationError(_('No source location found.'))
         
-        # Get internal picking type
-        try:
-            picking_type = self.env.ref('stock.picking_type_internal').id
-        except ValueError:
-            # If default internal picking type doesn't exist, find one
-            picking_types = self.env['stock.picking.type'].search([('code', '=', 'internal')], limit=1)
-            if picking_types:
-                picking_type = picking_types[0].id
-            else:
-                raise ValidationError(_('No internal picking type found.'))
+        # Get internal picking type for the correct company (multi-company safe)
+        company = self.company_id or self.env.company
+        picking_type_rec = self.env['stock.picking.type'].search([
+            ('code', '=', 'internal'),
+            ('company_id', '=', company.id),
+        ], limit=1)
+        if not picking_type_rec:
+            raise ValidationError(_('No internal picking type found for company %s.') % company.name)
+        picking_type = picking_type_rec.id
         
         # Create internal transfer
         picking_vals = {

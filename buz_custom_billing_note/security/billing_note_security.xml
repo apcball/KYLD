@@ -29,11 +29,11 @@
             <field name="domain_force">['|',('company_id','=',False),('company_id', 'in', company_ids)]</field>
         </record>
 
-        <record id="billing_note_payment_comp_rule" model="ir.rule">
-            <field name="name">Billing Note Payment Multi-Company</field>
-            <field name="model_id" ref="model_billing_note_payment"/>
+        <record id="billing_note_line_comp_rule" model="ir.rule">
+            <field name="name">Billing Note Line Multi-Company</field>
+            <field name="model_id" ref="model_billing_note_line"/>
             <field name="global" eval="True"/>
-            <field name="domain_force">['|',('company_id','=',False),('company_id', 'in', company_ids)]</field>
+            <field name="domain_force">['|',('billing_note_id.company_id','=',False),('billing_note_id.company_id', 'in', company_ids)]</field>
         </record>
     </data>
 </odoo>
