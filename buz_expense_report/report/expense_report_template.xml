@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_expense_sheet_custom">
+        <t t-call="web.html_container">
+            <t t-foreach="report_data" t-as="data">
+                <t t-set="o" t-value="data['doc']"/>
+                <t t-call="web.basic_layout">
+                    <!-- Standard reset of page layout to mimic the clean image provided -->
+                    <div class="page" style="font-family: 'Sarabun', sans-serif; font-size: 22px; color: #333;">
+                        
+                        <!-- Top Header block -->
+                        <div class="row" style="margin-top: 20px; margin-bottom: 40px;">
+                            <div class="col-6">
+                                <h3 style="color: #1c2b59; font-weight: bold; margin-bottom: 5px;"><span t-out="o.company_id.name"/></h3>
+                                <div style="color: #666; font-size: 18px;">
+                                    <div t-if="o.company_id.street"><span t-out="o.company_id.street"/></div>
+                                    <div>
+                                        <span t-if="o.company_id.city" t-out="o.company_id.city"/>
+                                        <span t-if="o.company_id.state_id">, <span t-out="o.company_id.state_id.code"/></span>
+                                        <span t-if="o.company_id.zip" t-out="o.company_id.zip"/>
+                                    </div>
+                                    <div t-if="o.company_id.phone"><span t-out="o.company_id.phone"/></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Report Title -->
+                        <h1 style="color: #1c2b59; font-weight: 900; font-size: 35px; margin-bottom: 0px;">Expense Report</h1>
+                        <h4 style="color: #38b6d8; font-weight: bold; font-size: 18px; margin-top: 5px; margin-bottom: 30px;">
+                            <span t-out="data['date_str']"/>
+                        </h4>
+
+                        <!-- Top Info Grid -->
+                        <div class="row" style="margin-bottom: 30px;">
+                            <div class="col-4" style="margin-bottom: 15px;">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Name</div>
+                                <div style="color: #666;"><span t-field="o.employee_id.name"/></div>
+                            </div>
+                            <div class="col-4" style="margin-bottom: 15px;">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Email Address</div>
+                                <div style="color: #666;">
+                                    <span t-out="o.employee_id.work_email or o.user_id.email or ''"/>
+                                </div>
+                            </div>
+                            <div class="col-4" style="margin-bottom: 15px;">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Department</div>
+                                <div style="color: #666;"><span t-field="o.department_id.name"/></div>
+                            </div>
+                            <!-- Next Row -->
+                            <div class="col-4">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Approved By</div>
+                                <div style="color: #666;"><span t-field="o.user_id.name"/></div>
+                            </div>
+                            <div class="col-4">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Purpose</div>
+                                <div style="color: #666;"><span t-field="o.name"/></div>
+                            </div>
+                            <div class="col-4">
+                                <div style="font-weight: bold; color: #333; margin-bottom: 3px;">Reimbursement Requested</div>
+                                <div style="color: #666;">
+                                    Yes
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Thin separator line before table -->
+                        <div style="border-top: 1px solid #ccc; margin-bottom: 20px;"></div>
+
+                        <!-- Main Table -->
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #ccc;">
+                                    <th style="text-align: left; padding: 10px 5px; color: #1c2b59; font-size: 18px; width: 15%;">Date</th>
+                                    <th style="text-align: left; padding: 10px 5px; color: #1c2b59; font-size: 18px; width: 35%;">Description</th>
+                                    <th style="text-align: left; padding: 10px 5px; color: #1c2b59; font-size: 18px; width: 35%;">Notes</th>
+                                    <th style="text-align: right; padding: 10px 5px; color: #1c2b59; font-size: 18px; width: 15%;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="data['lines']" t-as="line">
+                                    <t t-set="bg_color" t-value="'#f5f5f5' if line_index % 2 == 0 else 'transparent'" />
+                                    <tr t-att-style="'background-color: ' + bg_color + '; color: #555;'">
+                                        <td style="padding: 8px 5px;"><span t-out="line['date']"/></td>
+                                        <td style="padding: 8px 5px;"><span t-out="line['description']"/></td>
+                                        <td style="padding: 8px 5px;"><span t-out="line['notes']"/></td>
+                                        <td style="text-align: right; padding: 8px 5px;">
+                                            <span t-options='{"widget": "monetary", "display_currency": o.currency_id}' t-out="line['amount']"/>
+                                        </td>
+                                    </tr>
+                                </t>
+                                
+                                <!-- Render a few empty rows to mimic the screenshot if there are very few lines -->
+                                <t t-if="len(data['lines']) &lt; 4">
+                                    <t t-foreach="range(4 - len(data['lines']))" t-as="empty_row">
+                                        <t t-set="bg_color" t-value="'#f5f5f5' if (len(data['lines']) + empty_row) % 2 == 0 else 'transparent'" />
+                                        <tr t-att-style="'background-color: ' + bg_color + '; height: 35px;'">
+                                            <td></td><td></td><td></td><td></td>
+                                        </tr>
+                                    </t>
+                                </t>
+                            </tbody>
+                        </table>
+
+                        <div style="border-top: 1px solid #ccc; margin-bottom: 10px;"></div>
+
+                        <!-- Grand Total -->
+                        <div class="row" style="margin-bottom: 50px;">
+                            <div class="col-12 text-end">
+                                <h3 style="color: #38b6d8; font-weight: bold;">
+                                    <span t-options='{"widget": "monetary", "display_currency": o.currency_id}' t-out="data['total_amount']"/>
+                                </h3>
+                            </div>
+                        </div>
+
+                        <!-- Signature Section -->
+                        <div class="row" style="margin-bottom: 30px;">
+                            <div class="col-8">
+                                <div style="font-weight: bold; color: #1c2b59; font-size: 18px; margin-bottom: 60px;">Signature</div>
+                                <div style="border-top: 1px solid #ccc; width: 80%;"></div>
+                            </div>
+                            <div class="col-4">
+                                <div style="font-weight: bold; color: #1c2b59; font-size: 18px; margin-bottom: 60px;">Date</div>
+                                <div style="border-top: 1px solid #ccc; width: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Attachments Section (Starts on New Page) -->
+                        <t t-if="data.get('image_attachments')">
+                            <div style="page-break-before: always;">
+                                <h3 style="color: #1c2b59; font-weight: bold; margin-bottom: 20px;">Attachments</h3>
+                                <t t-foreach="data['image_attachments']" t-as="att">
+                                    <div style="margin-bottom: 40px; text-align: center; page-break-inside: avoid;">
+                                        <h5 style="margin-bottom: 15px; color: #555;"><span t-out="att['name']"/></h5>
+                                        <img t-att-src="att['data_uri']" style="max-width: 100%; max-height: 900px; border: 1px solid #ddd; border-radius: 4px; padding: 5px;"/>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

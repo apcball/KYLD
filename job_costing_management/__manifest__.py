@@ -55,6 +55,7 @@ Key Benefits:
         'mail',
         'portal',
         'contacts',  # Added dependency for contacts module
+        'report_xlsx',
     ],
     'data': [
         # Security

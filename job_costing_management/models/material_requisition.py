@@ -57,6 +57,7 @@ class MaterialRequisition(models.Model):
     
     # Other fields
     purpose = fields.Text(string='Purpose/Reason')
+    delivery_to = fields.Many2one('stock.picking.type', string='Delivery To')
     notes = fields.Text(string='Notes')
     priority = fields.Selection([
         ('low', 'Low'),
@@ -234,6 +235,8 @@ class MaterialRequisition(models.Model):
                 'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
                 'order_line': []
             }
+            if self.delivery_to:
+                po_vals['picking_type_id'] = self.delivery_to.id
             
             for line in lines:
                 po_line_vals = {

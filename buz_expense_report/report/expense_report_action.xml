@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="paperformat_custom_expense_report" model="report.paperformat">
+            <field name="name">Custom Expense Report A4</field>
+            <field name="default" eval="True"/>
+            <field name="format">A4</field>
+            <field name="orientation">Portrait</field>
+            <field name="margin_top">5</field>
+            <field name="margin_bottom">10</field>
+            <field name="margin_left">6</field>
+            <field name="margin_right">6</field>
+            <field name="header_line" eval="False"/>
+            <field name="header_spacing">8</field>
+            <field name="dpi">90</field>
+        </record>
+
+        <record id="action_report_buz_expense_sheet_custom" model="ir.actions.report">
+            <field name="name">Custom Expense Report</field>
+            <field name="model">hr.expense.sheet</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">buz_expense_report.report_expense_sheet_custom</field>
+            <field name="report_file">buz_expense_report.report_expense_sheet_custom</field>
+            <field name="print_report_name">'Expense_Report_%s' % (object.name).replace('/', '_')</field>
+            <field name="binding_model_id" ref="hr_expense.model_hr_expense_sheet"/>
+            <field name="binding_type">report</field>
+            <field name="paperformat_id" ref="buz_expense_report.paperformat_custom_expense_report"/>
+        </record>
+    </data>
+</odoo>
