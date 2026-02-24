@@ -39,6 +39,7 @@ class AccountPaymentVoucher(models.Model):
         domain="[('type', 'in', ('bank', 'cash')), ('company_id', '=', company_id)]",
         tracking=True
     )
+
     payment_method_line_id = fields.Many2one(
         'account.payment.method.line', 
         string="Payment Method",
@@ -79,16 +80,40 @@ class AccountPaymentVoucher(models.Model):
                 raise UserError(_("All lines in a payment voucher must belong to the same vendor (%s).") % voucher.partner_id.name)
 
     @api.model
+    def _get_next_sequence(self, company, seq_date):
+        """Get next sequence number for payment voucher, auto-creating company sequence if needed."""
+        code = 'buz.account.payment.voucher'
+        seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
+        if not seq:
+            self.env['ir.sequence'].sudo().create({
+                'name': 'buz Account Payment Voucher - %s' % company.name,
+                'code': code,
+                'prefix': 'PV/%(year)s/',
+                'padding': 4,
+                'company_id': company.id,
+            })
+            seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
+        return seq or '/'
+
+    @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.payment.voucher') or '/'
+            company_id = vals.get('company_id') or self.env.company.id
+            company = self.env['res.company'].browse(company_id)
+            seq_date = vals.get('date') or fields.Date.context_today(self)
+            vals['name'] = self._get_next_sequence(company, seq_date)
         if 'date' not in vals or not vals['date']:
             vals['date'] = fields.Date.context_today(self)
         return super().create(vals)
 
     def write(self, vals):
-        if vals.get('name') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.payment.voucher') or '/'
+        for rec in self:
+            if vals.get('name') == '/' or (not rec.name and vals.get('name') == '/'):
+                company = rec.company_id or self.env.company
+                seq_date = vals.get('date') or rec.date or fields.Date.context_today(self)
+                rec.sudo().write({
+                    'name': self._get_next_sequence(company, seq_date)
+                })
         return super().write(vals)
 
     @api.depends("line_ids.amount_to_pay_gross", "line_ids.wht_amount")
@@ -214,6 +239,7 @@ class AccountPaymentVoucher(models.Model):
             'active_model': 'account.move',
             'active_ids': moves.ids,
             'default_group_payment': True,
+            'default_company_id': self.company_id.id,
         }
         
         # Set default journal from voucher
@@ -642,6 +668,7 @@ class AccountPaymentVoucherLine(models.Model):
         string="Bill/Refund", 
         domain="[('partner_id', '=', partner_id), ('move_type', 'in', ['in_invoice', 'in_refund']), ('state', '=', 'posted')]"
     )
+
     
     # Monetary fields (using signed fields for correct handling of refunds)
     amount_total_signed = fields.Monetary(string="Total Amount", currency_field="currency_id", related="move_id.amount_total_signed", readonly=True)
@@ -657,8 +684,7 @@ class AccountPaymentVoucherLine(models.Model):
     # WHT fields (Thailand-specific) - using l10n_th_account_tax module
     wht_tax_id = fields.Many2one(
         'account.withholding.tax',  # Thai localization WHT
-        string="WHT Tax",
-        check_company=True
+        string="WHT Tax"
     )
     wht_base_amount = fields.Monetary(
         string="WHT Base Amount",
@@ -677,7 +703,7 @@ class AccountPaymentVoucherLine(models.Model):
     )
     
     currency_id = fields.Many2one(related="voucher_id.currency_id", store=True, readonly=True)
-    company_id = fields.Many2one(related="voucher_id.company_id", store=True, readonly=True)
+    company_id = fields.Many2one(related="voucher_id.company_id", readonly=True)
     
     # Link to related payments
     payment_ids = fields.Many2many(

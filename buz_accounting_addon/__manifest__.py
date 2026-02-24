@@ -50,7 +50,9 @@
         "data/sequence.xml",
         "data/account_receipt_config_data.xml",
         "security/ir.model.access.csv",
+        "security/ir_rule.xml",
         "reports/account_receipt_report.xml",
+
         "reports/payment_receipt_report.xml",
         "reports/payment_receipt_template.xml",
         "reports/receipt_voucher_report.xml",

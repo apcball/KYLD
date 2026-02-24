@@ -74,7 +74,12 @@
                     <!-- Header -->
                     <div class="row mb-4">
                         <div class="col-4">
-                            <img src="/buz_accounting_addon/static/img/LOGO MOGEN.png" style="max-height: 80px; max-width: 80%;" alt="Logo"/>
+                            <img t-if="o.company_id.logo"
+                                 t-att-src="image_data_uri(o.company_id.logo)"
+                                 style="max-height: 80px; max-width: 80%;" alt="Logo"/>
+                            <img t-else=""
+                                 src="/buz_accounting_addon/static/img/LOGO MOGEN.png"
+                                 style="max-height: 80px; max-width: 80%;" alt="Logo"/>
                         </div>
                         <div class="col-4 text-center">
                             <h4 style="margin-bottom: 0; font-size: 30px;"><strong>ใบโอนเงินระหว่างธนาคาร</strong></h4>

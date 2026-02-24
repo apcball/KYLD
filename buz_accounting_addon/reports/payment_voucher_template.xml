@@ -43,7 +43,11 @@
                         <div class="row mb-2">
                             <!-- Left: Logo -->
                             <div class="col-4">
-                                <img src="/buz_accounting_addon/static/img/LOGO MOGEN.png"
+                                <img t-if="o.company_id.logo"
+                                     t-att-src="image_data_uri(o.company_id.logo)"
+                                     style="max-height: 80px; max-width: 200px;" alt="Company Logo"/>
+                                <img t-else=""
+                                     src="/buz_accounting_addon/static/img/LOGO MOGEN.png"
                                      style="max-height: 80px; max-width: 200px;" alt="Company Logo"/>
                             </div>
                             
@@ -84,7 +88,7 @@
                             <tbody>
                                 <!-- Vendor Info Row (First Row Only) -->
                                 <tr style="height: auto; vertical-align: top;">
-                                    <td class="text-center" style="vertical-align: middle; rowspan: 1">
+                                    <td class="text-center" style="vertical-align: middle;">
                                         <span t-if="o.partner_id.partner_code" t-field="o.partner_id.partner_code"/>
                                         <span t-else="">-</span>
                                     </td>
@@ -149,7 +153,7 @@
                                         <span t-elif="o.payment_type == 'cash'">เงินสด</span>
                                     </td>
                                     <td>
-                                        <span t-field="o.destination_journal_id.name"/>
+                                        <span t-if="o.destination_journal_id" t-field="o.destination_journal_id.name"/>
                                     </td>
                                     <td class="text-center">
                                         <span t-field="o.check_number"/>

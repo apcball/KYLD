@@ -8,8 +8,10 @@ class AccountReceiptConfig(models.Model):
     _description = 'Account Receipt Preprint Configuration'
     
     name = fields.Char(string='Configuration Name', required=True, default='Default')
+    company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
     
     # Page Layout Settings - A4 optimized
+
     margin_top = fields.Float(string='Top Margin (mm)', default=0, 
                              help='Top margin for A4 page (0mm for full coverage)')
     margin_bottom = fields.Float(string='Bottom Margin (mm)', default=0,
@@ -245,20 +247,28 @@ class AccountReceiptConfig(models.Model):
     
     @api.model
     def get_default_config(self):
-        """Get the default configuration"""
-        config = self.search([('is_default', '=', True)], limit=1)
+        """Get the default configuration for the current company"""
+        company_id = self.env.company.id
+        config = self.search([('is_default', '=', True), ('company_id', '=', company_id)], limit=1)
+        if not config:
+            config = self.search([('company_id', '=', company_id)], limit=1)
+        if not config:
+            # Fallback to any default config if company specific not found
+            config = self.search([('is_default', '=', True)], limit=1)
         if not config:
             config = self.search([], limit=1)
         if not config:
             config = self.create({
                 'name': 'Default Letter Receipt',
                 'is_default': True,
+                'company_id': company_id,
                 'margin_top': 0,
                 'margin_bottom': 0,
                 'margin_left': 0,
                 'margin_right': 0,
             })
         return config
+
     
     def action_reset_to_letter_defaults(self):
         """Reset all positions to default Letter full coverage values"""

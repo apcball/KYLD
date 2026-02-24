@@ -175,7 +175,7 @@ class ResPartner(models.Model):
         # Check if auto-post is enabled via configuration
         auto_post_enabled = self.env['ir.config_parameter'].sudo().get_param('buz_accounting_addon.auto_post_receipts', default=True)
         if auto_post_enabled:
-            receipt.action_post()
+            receipt.with_company(receipt.company_id).action_post()
         
         return {
             "type": "ir.actions.act_window",
@@ -250,6 +250,7 @@ class AccountMove(models.Model):
             "date": fields.Date.context_today(self),
             "line_ids": [],
             "delivery_partner_id": delivery_partner.id if delivery_partner else False,
+            "company_id": first_move.company_id.id,
         })
 
         lines_vals = []
@@ -267,7 +268,7 @@ class AccountMove(models.Model):
         # Check if auto-post is enabled via configuration
         auto_post_enabled = self.env['ir.config_parameter'].sudo().get_param('buz_accounting_addon.auto_post_receipts', default=True)
         if auto_post_enabled:
-            receipt.action_post()
+            receipt.with_company(receipt.company_id).action_post()
         
         return {
             "type": "ir.actions.act_window",
@@ -297,6 +298,7 @@ class AccountReceipt(models.Model):
     delivery_partner_id = fields.Many2one('res.partner', string='Delivery Address', help='Delivery address from first invoice used to create this receipt')
 
     line_ids = fields.One2many("account.receipt.line", "receipt_id", string="Lines")
+
     # Amount to collect this round (computed from lines)
     amount_total = fields.Monetary(
         string="Amount to Collect (This Receipt)", 
@@ -433,12 +435,28 @@ class AccountReceipt(models.Model):
                               "All invoices in a receipt must be in the same currency as the receipt.") % 
                              (line.move_id.name, line.move_id.currency_id.name, receipt.currency_id.name))
 
+    @api.model
+    def _get_next_sequence(self, company, seq_date):
+        """Get next sequence number for account receipt, auto-creating company sequence if needed."""
+        code = 'buz.account.receipt'
+        seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
+        if not seq:
+            self.env['ir.sequence'].sudo().create({
+                'name': 'buz Account Receipt - %s' % company.name,
+                'code': code,
+                'prefix': 'REC/%(year)s/',
+                'padding': 4,
+                'company_id': company.id,
+            })
+            seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
+        return seq or '/'
+
     def action_post(self):
         for rec in self:
             if not rec.line_ids:
                 raise UserError(_("No lines to post."))
             if rec.name == "/":
-                rec.name = self.env["ir.sequence"].next_by_code("buz.account.receipt") or "/"
+                rec.name = self._get_next_sequence(rec.company_id, rec.date)
             rec.state = "posted"
         return True
 
@@ -635,7 +653,8 @@ class AccountReceipt(models.Model):
 
         # Create a receipt voucher
         voucher = self.env['account.receipt.voucher'].create({
-            'line_ids': []
+            'line_ids': [],
+            'company_id': valid_receipts[0].company_id.id,
         })
         
         # Add each selected receipt as a line in the voucher
@@ -670,7 +689,7 @@ class AccountReceipt(models.Model):
         # Check if auto-post is enabled via configuration
         auto_post_enabled = self.env['ir.config_parameter'].sudo().get_param('buz_accounting_addon.auto_post_receipts', default=True)
         if auto_post_enabled and rec.line_ids:  # Only auto-post if there are lines
-            rec.action_post()
+            rec.with_company(rec.company_id).action_post()
         
         return rec
 
@@ -682,6 +701,12 @@ class AccountReceipt(models.Model):
                 first_move = rec.line_ids[0].move_id
                 if first_move:
                     rec.delivery_partner_id = first_move.partner_shipping_id or first_move.partner_id
+            
+            # Fix sequence if it's still '/'
+            if (vals.get('name') == '/' or not rec.name or rec.name == '/') and rec.state == 'posted':
+                rec.sudo().write({
+                    'name': self._get_next_sequence(rec.company_id, rec.date)
+                })
         return res
 
     def _compute_used_moves(self):
@@ -748,6 +773,7 @@ class AccountReceipt(models.Model):
             'default_is_multiline_batch': True,
             'buz_receipt_id': self.id,
             'default_buz_receipt_id': self.id,
+            'default_company_id': self.company_id.id,
         }
         
         if journal_id:
@@ -895,6 +921,7 @@ class AccountReceipt(models.Model):
                     # Pass receipt ID to link payments back to receipt. Use default_ so created payments inherit it.
                     'buz_receipt_id': self.id,
                     'default_buz_receipt_id': self.id,
+                    'default_company_id': self.company_id.id,
                 },
             }
             
@@ -1015,6 +1042,7 @@ class AccountReceiptLine(models.Model):
     move_name = fields.Char(string="Invoice Number", related="move_id.name", store=True)
     invoice_date = fields.Date(string="Invoice Date", related="move_id.invoice_date", store=True)
     currency_id = fields.Many2one(related="receipt_id.currency_id", store=True, readonly=True)
+    company_id = fields.Many2one(related="receipt_id.company_id", readonly=True)
 
     # Use signed amounts for proper multi-currency and refund handling
     amount_total_signed = fields.Monetary(
