@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_move_form_analytic" model="ir.ui.view">
+        <field name="name">stock.move.form.analytic</field>
+        <field name="model">stock.move</field>
+        <field name="inherit_id" ref="stock.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="analytic_precision" invisible="1"/>
+                <field name="analytic_distribution" widget="analytic_distribution"
+                       groups="analytic.group_analytic_accounting"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_picking_form_analytic" model="ir.ui.view">
+        <field name="name">stock.picking.form.analytic</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_ids_without_package']//tree//field[@name='product_id']" position="after">
+                <field name="analytic_precision" column_invisible="True"/>
+                <field name="analytic_distribution" widget="analytic_distribution"
+                       groups="analytic.group_analytic_accounting" optional="show"
+                       options="{'product_field': 'product_id'}"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
