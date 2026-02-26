@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Pivot View -->
+    <record id="view_weekly_budget_report_pivot" model="ir.ui.view">
+        <field name="name">weekly.budget.report.pivot</field>
+        <field name="model">weekly.budget.report</field>
+        <field name="arch" type="xml">
+            <pivot string="Budget Analysis" display_quantity="1" sample="1">
+                <field name="budget_line_id" type="row"/>
+                <field name="document_type" type="col"/>
+                <field name="amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- Graph View -->
+    <record id="view_weekly_budget_report_graph" model="ir.ui.view">
+        <field name="name">weekly.budget.report.graph</field>
+        <field name="model">weekly.budget.report</field>
+        <field name="arch" type="xml">
+            <graph string="Budget Analysis" sample="1" type="bar">
+                <field name="budget_line_id"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_weekly_budget_report_tree" model="ir.ui.view">
+        <field name="name">weekly.budget.report.tree</field>
+        <field name="model">weekly.budget.report</field>
+        <field name="arch" type="xml">
+            <tree string="Budget Analysis" create="0" edit="0" delete="0">
+                <field name="date"/>
+                <field name="name"/>
+                <field name="document_type" widget="badge"
+                       decoration-info="document_type == 'po'"
+                       decoration-warning="document_type == 'pr'"
+                       decoration-success="document_type == 'mr'"/>
+                <field name="budget_line_id"/>
+                <field name="amount" sum="Total Amount"/>
+                <field name="state"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <button name="action_open_document" type="object" string="Open" icon="fa-external-link"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_weekly_budget_report_search" model="ir.ui.view">
+        <field name="name">weekly.budget.report.search</field>
+        <field name="model">weekly.budget.report</field>
+        <field name="arch" type="xml">
+            <search string="Budget Analysis Search">
+                <field name="name"/>
+                <field name="budget_line_id"/>
+                <field name="plan_id"/>
+                <filter string="Purchase Orders" name="filter_po" domain="[('document_type', '=', 'po')]"/>
+                <filter string="Employee PR" name="filter_pr" domain="[('document_type', '=', 'pr')]"/>
+                <filter string="Material Requisitions" name="filter_mr" domain="[('document_type', '=', 'mr')]"/>
+                <separator/>
+                <filter string="This Month" name="this_month"
+                        domain="[('date', '&gt;=', context_today().strftime('%%Y-%%m-01'))]"/>
+                <group expand="1" string="Group By">
+                    <filter string="Budget Week" name="group_budget_line" context="{'group_by': 'budget_line_id'}"/>
+                    <filter string="Document Type" name="group_doc_type" context="{'group_by': 'document_type'}"/>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Date" name="group_date" context="{'group_by': 'date:week'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_weekly_budget_report" model="ir.actions.act_window">
+        <field name="name">Budget Analysis</field>
+        <field name="res_model">weekly.budget.report</field>
+        <field name="view_mode">pivot,graph,tree</field>
+        <field name="search_view_id" ref="view_weekly_budget_report_search"/>
+        <field name="context">{'search_default_group_budget_line': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No budget data to analyze.
+            </p>
+            <p>
+                This report shows PO, PR, and MR usage against your weekly budget plans.
+            </p>
+        </field>
+    </record>
+
+</odoo>

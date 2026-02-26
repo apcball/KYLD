@@ -31,6 +31,7 @@
         'wizard/budget_adjustment_wizard_views.xml',
         'views/weekly_budget_plan_views.xml',
         'views/weekly_budget_line_views.xml',
+        'views/weekly_budget_report_views.xml',
         'views/purchase_order_views.xml',
         'views/purchase_requisition_views.xml',
         'views/material_requisition_views.xml',
