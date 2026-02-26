@@ -60,6 +60,9 @@
                 <filter string="Employee PR" name="filter_pr" domain="[('document_type', '=', 'pr')]"/>
                 <filter string="Material Requisitions" name="filter_mr" domain="[('document_type', '=', 'mr')]"/>
                 <separator/>
+                <filter string="Actual Usage (Confirmed POs)" name="filter_actual" domain="[('is_confirmed', '=', True)]"/>
+                <filter string="Planned/Draft" name="filter_planned" domain="[('is_confirmed', '=', False)]"/>
+                <separator/>
                 <filter string="This Month" name="this_month"
                         domain="[('date', '&gt;=', context_today().strftime('%%Y-%%m-01'))]"/>
                 <group expand="1" string="Group By">

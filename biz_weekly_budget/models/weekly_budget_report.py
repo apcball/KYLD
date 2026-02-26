@@ -21,6 +21,7 @@ class WeeklyBudgetReport(models.Model):
     amount = fields.Float(string='Amount', readonly=True)
     date = fields.Date(string='Date', readonly=True)
     state = fields.Char(string='Status', readonly=True)
+    is_confirmed = fields.Boolean(string='Is Confirmed/Actual', readonly=True)
     company_id = fields.Many2one('res.company', string='Company', readonly=True)
 
     def init(self):
@@ -37,7 +38,8 @@ class WeeklyBudgetReport(models.Model):
                         pol.price_subtotal as amount,
                         pol.date_planned::date as date,
                         po.state as state,
-                        po.company_id as company_id
+                        po.company_id as company_id,
+                        (po.state IN ('purchase', 'done')) as is_confirmed
                     FROM purchase_order_line pol
                     JOIN purchase_order po ON pol.order_id = po.id
                     WHERE po.state NOT IN ('cancel')
@@ -53,7 +55,8 @@ class WeeklyBudgetReport(models.Model):
                         rol.price_subtotal as amount,
                         COALESCE(pr.requisition_deadline, pr.request_date) as date,
                         pr.state as state,
-                        pr.company_id as company_id
+                        pr.company_id as company_id,
+                        FALSE as is_confirmed
                     FROM requisition_order rol
                     JOIN employee_purchase_requisition pr ON rol.requisition_product_id = pr.id
                     WHERE pr.state NOT IN ('cancel', 'reject')
@@ -69,7 +72,8 @@ class WeeklyBudgetReport(models.Model):
                         mrl.total_cost as amount,
                         mr.required_date as date,
                         mr.state as state,
-                        mr.company_id as company_id
+                        mr.company_id as company_id,
+                        FALSE as is_confirmed
                     FROM material_requisition_line mrl
                     JOIN material_requisition mr ON mrl.requisition_id = mr.id
                     WHERE mr.state NOT IN ('cancel', 'reject')
@@ -84,6 +88,7 @@ class WeeklyBudgetReport(models.Model):
                     dl.date,
                     dl.state,
                     dl.company_id,
+                    dl.is_confirmed,
                     wbl.id as budget_line_id,
                     wbl.plan_id as plan_id
                 FROM document_lines dl
