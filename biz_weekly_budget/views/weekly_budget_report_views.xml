@@ -7,8 +7,8 @@
         <field name="model">weekly.budget.report</field>
         <field name="arch" type="xml">
             <pivot string="Budget Analysis" display_quantity="1" sample="1">
+                <field name="plan_id" type="row"/>
                 <field name="budget_line_id" type="row"/>
-                <field name="document_type" type="col"/>
                 <field name="amount" type="measure"/>
             </pivot>
         </field>
@@ -34,10 +34,7 @@
             <tree string="Budget Analysis" create="0" edit="0" delete="0">
                 <field name="date"/>
                 <field name="name"/>
-                <field name="document_type" widget="badge"
-                       decoration-info="document_type == 'po'"
-                       decoration-warning="document_type == 'pr'"
-                       decoration-success="document_type == 'mr'"/>
+                <field name="plan_id"/>
                 <field name="budget_line_id"/>
                 <field name="amount" sum="Total Amount"/>
                 <field name="state"/>
@@ -54,23 +51,20 @@
         <field name="arch" type="xml">
             <search string="Budget Analysis Search">
                 <field name="name"/>
-                <field name="budget_line_id"/>
                 <field name="plan_id"/>
-                <filter string="Purchase Orders" name="filter_po" domain="[('document_type', '=', 'po')]"/>
-                <filter string="Employee PR" name="filter_pr" domain="[('document_type', '=', 'pr')]"/>
-                <filter string="Material Requisitions" name="filter_mr" domain="[('document_type', '=', 'mr')]"/>
-                <separator/>
-                <filter string="Actual Usage (Confirmed POs)" name="filter_actual" domain="[('is_confirmed', '=', True)]"/>
-                <filter string="Planned/Draft" name="filter_planned" domain="[('is_confirmed', '=', False)]"/>
+                <field name="budget_line_id"/>
                 <separator/>
                 <filter string="This Month" name="this_month"
                         domain="[('date', '&gt;=', context_today().strftime('%%Y-%%m-01'))]"/>
                 <group expand="1" string="Group By">
+                    <filter string="Budget Plan" name="group_plan" context="{'group_by': 'plan_id'}"/>
                     <filter string="Budget Week" name="group_budget_line" context="{'group_by': 'budget_line_id'}"/>
-                    <filter string="Document Type" name="group_doc_type" context="{'group_by': 'document_type'}"/>
                     <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
                     <filter string="Date" name="group_date" context="{'group_by': 'date:week'}"/>
                 </group>
+                <searchpanel>
+                    <field name="plan_id" string="Budget Plan" icon="fa-filter"/>
+                </searchpanel>
             </search>
         </field>
     </record>
@@ -81,13 +75,13 @@
         <field name="res_model">weekly.budget.report</field>
         <field name="view_mode">pivot,graph,tree</field>
         <field name="search_view_id" ref="view_weekly_budget_report_search"/>
-        <field name="context">{'search_default_group_budget_line': 1}</field>
+        <field name="context">{'search_default_group_plan': 1, 'search_default_group_budget_line': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 No budget data to analyze.
             </p>
             <p>
-                This report shows PO, PR, and MR usage against your weekly budget plans.
+                This report shows confirmed Purchase Orders (Actuals) that have consumed the weekly budget limit.
             </p>
         </field>
     </record>
