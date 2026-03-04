@@ -1,35 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Paper Format -->
-    <record id="paperformat_buz_delivery" model="report.paperformat">
-        <field name="name">BUZ Delivery A4</field>
-        <field name="default" eval="True"/>
-        <field name="format">A4</field>
-        <field name="orientation">Portrait</field>
-        <field name="margin_top">10</field>
-        <field name="margin_bottom">10</field>
-        <field name="margin_left">6</field>
-        <field name="margin_right">6</field>
-        <field name="header_line" eval="False"/>
-        <field name="header_spacing">0</field>
-        <field name="dpi">90</field>
-    </record>
-
     <!-- Report Action -->
-    <record id="action_report_delivery_custom" model="ir.actions.report">
-        <field name="name">ใบโอนสินค้า /Internal Transfers slip</field>
+    <record id="action_report_receipt_custom" model="ir.actions.report">
+        <field name="name">ใบรับสินค้า / Receipt Slip</field>
         <field name="model">stock.picking</field>
         <field name="report_type">qweb-pdf</field>
-        <field name="report_name">buz_delivery_report.report_picking_document_custom</field>
-        <field name="report_file">buz_delivery_report.report_picking_document_custom</field>
-        <field name="paperformat_id" ref="paperformat_buz_delivery"/>
-        <field name="print_report_name">'%s - %s' % (object.picking_type_id.name, object.name)</field>
+        <field name="report_name">buz_delivery_report.report_receipt_document_custom</field>
+        <field name="report_file">buz_delivery_report.report_receipt_document_custom</field>
+        <field name="paperformat_id" ref="buz_delivery_report.paperformat_buz_delivery"/>
+        <field name="print_report_name">'Receipt - %s' % (object.name)</field>
         <field name="binding_model_id" ref="stock.model_stock_picking"/>
         <field name="binding_type">report</field>
     </record>
 
     <!-- Main Template -->
-    <template id="report_picking_document_custom">
+    <template id="report_receipt_document_custom">
         <t t-call="web.html_container">
             <t t-foreach="docs.sudo()" t-as="doc">
                 <t t-call="web.external_layout">
@@ -148,7 +133,7 @@
                                             <div class="row">
                                                 <div class="col-12 text-center" style="margin-bottom: -10px;">
                                                     <div class="doc-title">
-                                                        ใบโอนสินค้า / Transfer Slip
+                                                        ใบรับสินค้า / Receipt Slip
                                                     </div>
                                                 </div>
                                             </div>
@@ -159,15 +144,20 @@
                                         <div class="col-6">
                                             <div class="info-box" style="height: 180px;">
                                                 <div class="mb-2">
-                                                    <strong style="width: 20%; display: inline-block;">ต้นทาง:</strong>
-                                                    <span t-esc="doc.location_id.complete_name"/>
+                                                    <strong style="width: 25%; display: inline-block;">รับจาก:</strong>
+                                                    <t t-if="doc.partner_id">
+                                                        <span t-field="doc.partner_id.name"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <span t-esc="doc.location_id.complete_name"/>
+                                                    </t>
                                                 </div>
                                                 <div class="mb-2">
-                                                    <strong style="width: 20%; display: inline-block;">ผู้รับผิดชอบ:</strong>
+                                                    <strong style="width: 30%; display: inline-block;">ผู้รับผิดชอบ:</strong>
                                                     <span t-esc="doc.user_id.employee_id.name"/>
                                                 </div>
                                                 <div class="mb-2">
-                                                    <strong style="width: 20%; display: inline-block;">เอกสารอ้างอิง:</strong>
+                                                    <strong style="width: 30%; display: inline-block;">เอกสารอ้างอิง:</strong>
                                                     <span t-esc="doc.origin"/>
                                                 </div>
                                             </div>
@@ -175,11 +165,21 @@
                                         <div class="col-6">
                                             <div class="info-box" style="height: 180px;">
                                                 <div class="mb-2">
-                                                    <strong style="width: 20%; display: inline-block;">ปลายทาง:</strong>
-                                                    <span t-field="doc.location_dest_id.name"/>
+                                                    <strong style="width: 25%; display: inline-block;">สถานที่รับ:</strong>
+                                                    <t t-if="doc.move_ids and doc.move_ids[0].analytic_distribution">
+                                                        <t t-foreach="doc.move_ids[0].analytic_distribution" t-as="analytic_distribution_key">
+                                                            <t t-foreach="analytic_distribution_key.split(',')" t-as="analytic_id">
+                                                                <t t-set="analytic_account" t-value="doc.env['account.analytic.account'].browse(int(analytic_id))"/>
+                                                                <span t-if="analytic_account" t-esc="analytic_account.name"/>
+                                                            </t>
+                                                        </t>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <span t-field="doc.location_dest_id.name"/>
+                                                    </t>
                                                 </div>
                                                 <div class="mb-2">
-                                                    <strong style="width: 30%; display: inline-block;">วันที่ต้องการสินค้า:</strong>
+                                                    <strong style="width: 35%; display: inline-block;">วันที่ต้องการสินค้า:</strong>
                                                     <span t-field="doc.scheduled_date" t-options='{"widget": "date"}'/>
                                                 </div>
                                             </div>
@@ -192,7 +192,7 @@
                                                 <th style="width: 5%; text-align: center; padding-top: 4px; padding-bottom: 4px;">ลำดับ</th>
                                                 <th style="width: 65%; text-align: center; padding-top: 4px; padding-bottom: 4px;">สินค้า</th>
                                                 <th style="width: 15%; text-align: center; padding-top: 4px; padding-bottom: 4px;">จำนวนสั่ง</th>
-                                                <th style="width: 15%; text-align: center; padding-top: 4px; padding-bottom: 4px;">จำนวนส่ง</th>
+                                                <th style="width: 15%; text-align: center; padding-top: 4px; padding-bottom: 4px;">จำนวนรับ</th>
                                             </tr>
                                         </thead>
                                         <tbody class="table-content">
@@ -250,13 +250,13 @@
                                 </div>
                             </div>
                         </t>
-                        <!-- Signatures (Internal Transfer Only) -->
+                        <!-- Signatures -->
                         <div class="row mt-4">
                             <div class="col-4">
                                 <div class="text-center signature-section">
                                     <br/><br/><br/>
                                     <p>________________________</p>
-                                    <p>ผู้โอน / Transferred By</p>
+                                    <p>ผู้รับสินค้า / Received By</p>
                                     <p>วันที่ / Date: ___________</p>
                                 </div>
                             </div>
@@ -272,7 +272,7 @@
                                 <div class="text-center signature-section">
                                     <br/><br/><br/>
                                     <p>________________________</p>
-                                    <p>ผู้รับ / Received By</p>
+                                    <p>ผู้ส่งสินค้า / Delivered By</p>
                                     <p>วันที่ / Date: ___________</p>
                                 </div>
                             </div>
@@ -283,5 +283,4 @@
             </t>
         </t>
     </template>
-
 </odoo>
