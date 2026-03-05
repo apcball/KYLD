@@ -15,7 +15,8 @@
                     <group>
                         <group string="Advance Box Information">
                             <field name="box_id" readonly="1" options="{'no_create': True}"/>
-                            <field name="employee_id" readonly="1"/>
+                            <field name="employee_name" readonly="1"/>
+                            <field name="employee_id" invisible="1"/>
                             <field name="current_balance" readonly="1" widget="monetary" 
                                    options="{'currency_field': 'currency_id'}"/>
                             <field name="direction" readonly="1"/>
