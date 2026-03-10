@@ -30,7 +30,8 @@ class EmployeeAdvanceBox(models.Model):
     journal_id = fields.Many2one(
         'account.journal',
         string='Journal',
-        domain=[('type', 'in', ['bank', 'cash'])],
+        domain="[('type', 'in', ['bank', 'cash']), ('company_id', '=', company_id)]",
+        check_company=True,
         help='Journal for top-ups and refunds'
     )
     remember_base_amount = fields.Monetary(
@@ -116,13 +117,14 @@ class EmployeeAdvanceBox(models.Model):
                     ('move_id.state', '=', 'posted'),
                     ('partner_id', '=', partner_id),
                     ('full_reconcile_id', '=', False),  # ไม่นับรายการที่ reconcile แล้ว
+                    ('company_id', '=', record.company_id.id),
                 ]
                 
                 _logger.info("📋 BALANCE DEBUG: Searching account %s (%s) with partner %s", 
                            record.account_id.code, record.account_id.name, partner_id)
                 
-                # ใช้ search แทน read_group เพื่อ debug ง่ายขึ้น
-                lines = self.env['account.move.line'].search(domain)
+                # ใช้ sudo() เพื่อให้อ่านข้ามบริษัทได้ โดยเฉพาะเวลาเก็บค่า balance
+                lines = self.env['account.move.line'].sudo().search(domain)
                 _logger.info("📋 BALANCE DEBUG: Found %d lines", len(lines))
                 
                 total_debit = sum(lines.mapped('debit'))
@@ -132,10 +134,6 @@ class EmployeeAdvanceBox(models.Model):
                 _logger.info("💰 BALANCE DEBUG: Debit: %s, Credit: %s, Balance: %s", 
                            total_debit, total_credit, balance)
                            
-                for line in lines:
-                    _logger.info("  📝 Line: %s | %s | Dr: %s | Cr: %s | Move: %s", 
-                               line.date, line.name, line.debit, line.credit, line.move_id.name)
-                
                 record.balance = balance
             else:
                 _logger.warning("⚠️ BALANCE DEBUG: Missing account or employee")
@@ -270,21 +268,18 @@ class EmployeeAdvanceBox(models.Model):
         """Open the settlement wizard for this advance box"""
         self.ensure_one()
         
-        # Create a wizard record with the current advance box
-        wizard = self.env['advance.settlement.wizard'].create({
-            'box_id': self.id,
-        })
+        # Use sudo() to avoid access errors on employee name
+        employee_name = self.employee_id.sudo().name
         
         return {
             'name': _('Settle Advance'),
             'type': 'ir.actions.act_window',
             'res_model': 'advance.settlement.wizard',
-            'res_id': wizard.id,
             'view_mode': 'form',
             'target': 'new',
             'context': {
                 'default_box_id': self.id,
-                'default_employee_name': self.employee_id.name,
+                'default_employee_name': employee_name,
             }
         }
 

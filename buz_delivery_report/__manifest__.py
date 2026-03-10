@@ -15,6 +15,7 @@
     'depends': ['stock', 'delivery'],
     'data': [
         'reports/delivery_report.xml',
+        'reports/receipt_report.xml',
         'views/report_menu.xml',
     ],
     'images': ['static/description/icon.png'],

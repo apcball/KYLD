@@ -24,6 +24,7 @@ class MaterialRequisition(models.Model):
     analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account')
     boq_id = fields.Many2one('boq.boq', string='BOQ Reference')
     company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
+    company_currency_id = fields.Many2one('res.currency', string='Company Currency', related='company_id.currency_id', readonly=True, store=True)
     employee_id = fields.Many2one('hr.employee', string='Requested by', 
                                  default=lambda self: self.env.user.employee_id)
     department_id = fields.Many2one('hr.department', string='Department',
@@ -57,6 +58,7 @@ class MaterialRequisition(models.Model):
     
     # Other fields
     purpose = fields.Text(string='Purpose/Reason')
+    delivery_to = fields.Many2one('stock.picking.type', string='Delivery To')
     notes = fields.Text(string='Notes')
     priority = fields.Selection([
         ('low', 'Low'),
@@ -104,6 +106,7 @@ class MaterialRequisition(models.Model):
             
             record.picking_count = len(picking_ids)
     
+    @api.depends('line_ids.total_cost')
     def _compute_total_amount(self):
         """Compute total amount from requisition lines"""
         for record in self:
@@ -234,6 +237,8 @@ class MaterialRequisition(models.Model):
                 'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
                 'order_line': []
             }
+            if self.delivery_to:
+                po_vals['picking_type_id'] = self.delivery_to.id
             
             for line in lines:
                 po_line_vals = {
@@ -403,6 +408,7 @@ class MaterialRequisitionLine(models.Model):
 
     requisition_id = fields.Many2one('material.requisition', string='Requisition', required=True, ondelete='cascade')
     company_id = fields.Many2one('res.company', related='requisition_id.company_id', string='Company', store=True, readonly=True)
+    company_currency_id = fields.Many2one('res.currency', string='Company Currency', related='company_id.currency_id', readonly=True, store=True)
     sequence = fields.Integer(string='Sequence', default=10)
     
     # Product information

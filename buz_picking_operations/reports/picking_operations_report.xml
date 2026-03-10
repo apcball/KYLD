@@ -227,24 +227,31 @@
 
                             <!-- Signatures -->
                             <div class="row mt-5">
-                                <div class="col-4">
+                                <div class="col-3">
                                     <div class="text-center">
                                         <p style="border-top: 1px solid black; margin-top: 50px; font-size: 20px;">
                                             ผู้จัดทำ by
                                         </p>
                                     </div>
                                 </div>
-                                <div class="col-4">
+                                <div class="col-3">
                                     <div class="text-center">
                                         <p style="border-top: 1px solid black; margin-top: 50px; font-size: 20px;">
                                             ผู้ตรวจ by
                                         </p>
                                     </div>
                                 </div>
-                                <div class="col-4">
+                                <div class="col-3">
                                     <div class="text-center">
                                         <p style="border-top: 1px solid black; margin-top: 50px; font-size: 20px;">
                                             ผู้อนุมัติ by
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="text-center">
+                                        <p style="border-top: 1px solid black; margin-top: 50px; font-size: 20px;">
+                                            ผู้รับสินค้า by
                                         </p>
                                     </div>
                                 </div>

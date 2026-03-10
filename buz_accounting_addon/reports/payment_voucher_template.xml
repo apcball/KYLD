@@ -41,14 +41,9 @@
 
                         <!-- Header Area -->
                         <div class="row mb-2">
-                            <!-- Left: Logo -->
+                            <!-- Left: Company Name Only -->
                             <div class="col-4">
-                                <img t-if="o.company_id.logo"
-                                     t-att-src="image_data_uri(o.company_id.logo)"
-                                     style="max-height: 80px; max-width: 200px;" alt="Company Logo"/>
-                                <img t-else=""
-                                     src="/buz_accounting_addon/static/img/LOGO MOGEN.png"
-                                     style="max-height: 80px; max-width: 200px;" alt="Company Logo"/>
+                                <div style="font-weight: bold; font-size: 30px; margin-top: 5px;" t-field="o.company_id.name"/>
                             </div>
                             
                             <!-- Center: Title -->

@@ -14,9 +14,11 @@
         - Budget check on Purchase Orders and Purchase Requisitions
         - Budget adjustment wizard with audit trail
         - Company-wide or all-companies budget scope
+        - Modern OWL Smart Dashboard with Chart.js
     """,
     'author': 'KYLD',
     'depends': [
+        'web',
         'purchase',
         'mail',
         'employee_purchase_requisition',
@@ -31,11 +33,20 @@
         'wizard/budget_adjustment_wizard_views.xml',
         'views/weekly_budget_plan_views.xml',
         'views/weekly_budget_line_views.xml',
+        'views/weekly_budget_report_views.xml',
+        'views/dashboard_views.xml',
         'views/purchase_order_views.xml',
         'views/purchase_requisition_views.xml',
         'views/material_requisition_views.xml',
         'views/menu_views.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'biz_weekly_budget/static/src/scss/budget_dashboard.scss',
+            'biz_weekly_budget/static/src/js/budget_dashboard.js',
+            'biz_weekly_budget/static/src/xml/budget_dashboard.xml',
+        ],
+    },
     'installable': True,
     'application': False,
     'auto_install': False,

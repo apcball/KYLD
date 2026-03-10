@@ -19,4 +19,10 @@
               action="action_weekly_budget_line"
               sequence="20"/>
 
+    <menuitem id="menu_weekly_budget_report"
+              name="Budget Analysis"
+              parent="menu_budget_control_root"
+              action="action_weekly_budget_report"
+              sequence="30"/>
+
 </odoo>
