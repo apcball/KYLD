@@ -5,3 +5,4 @@ from . import purchase_order
 from . import purchase_requisition
 from . import material_requisition
 from . import weekly_budget_report
+from . import account_move

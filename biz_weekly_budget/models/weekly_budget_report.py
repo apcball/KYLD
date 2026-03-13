@@ -49,27 +49,26 @@ class WeeklyBudgetReport(models.Model):
 
                     UNION ALL
 
-                    -- Actual entries
+                    -- Actual entries (Based on Vendor Bill Due Date)
                     SELECT 
                         'actual' as entry_type,
-                        po.name as name,
-                        pol.price_subtotal as amount,
+                        am.name as name,
+                        am.amount_total as amount,
                         0.0 as budget_amt,
-                        pol.price_subtotal as actual_amt,
-                        -pol.price_subtotal as remaining_amt,
+                        am.amount_total as actual_amt,
+                        -am.amount_total as remaining_amt,
                         100.0 as utilization,
-                        pol.date_planned::date as date,
-                        po.company_id as company_id,
+                        am.invoice_date_due as date,
+                        am.company_id as company_id,
                         wbl.id as budget_line_id,
                         wbl.plan_id as plan_id
-                    FROM purchase_order_line pol
-                    JOIN purchase_order po ON pol.order_id = po.id
+                    FROM account_move am
                     JOIN weekly_budget_line wbl ON 
-                        pol.date_planned::date >= wbl.date_from AND 
-                        pol.date_planned::date <= wbl.date_to
+                        am.invoice_date_due >= wbl.date_from AND 
+                        am.invoice_date_due <= wbl.date_to
                     JOIN weekly_budget_plan wbp ON wbl.plan_id = wbp.id
-                    WHERE po.state IN ('purchase', 'done')
-                      AND (wbp.all_companies = TRUE OR wbp.company_id = po.company_id)
+                    WHERE am.move_type = 'in_invoice' AND am.state = 'posted'
+                      AND (wbp.all_companies = TRUE OR wbp.company_id = am.company_id)
                       AND wbp.state = 'confirmed'
                 )
                 SELECT
@@ -97,10 +96,10 @@ class WeeklyBudgetReport(models.Model):
         return years
 
     @api.model
-    def get_dashboard_data(self, domain=[], year=None):
+    def get_dashboard_data(self, domain=[], year=None, month=None):
         """Fetch summarized data for the OWL dashboard component."""
         data = self.search_read(domain)
-        
+
         # Apply year filter at Python level (filter by plan's year)
         if year:
             plan_ids = self.env['weekly.budget.plan'].search([
@@ -109,12 +108,42 @@ class WeeklyBudgetReport(models.Model):
             ]).ids
             data = [d for d in data if d.get('plan_id') and d['plan_id'][0] in plan_ids]
 
+        if month:
+            # Filter by the exact date falling within the target month.
+            try:
+                month_int = int(month)
+                filtered_data = []
+                for d in data:
+                    if d.get('date'):
+                        date_val = fields.Date.to_date(d['date'])
+                        if date_val and date_val.month == month_int:
+                            filtered_data.append(d)
+                data = filtered_data
+            except (ValueError, TypeError):
+                pass
+
         # Summary calculations
         total_budget = sum(d['budget_amt'] for d in data)
         total_actual = sum(d['actual_amt'] for d in data)
         remaining = total_budget - total_actual
         utilization = (total_actual / total_budget * 100) if total_budget else 0.0
-        
+
+        # Get reserved amounts from budget lines — force LIVE recompute first
+        budget_line_ids = [
+            d['budget_line_id'][0] for d in data
+            if d.get('budget_line_id')
+        ]
+        budget_lines = self.env['weekly.budget.line'].sudo().browse(
+            list(set(budget_line_ids))
+        )
+        # Force live recompute so dashboard always shows current reserved value
+        if budget_lines:
+            budget_lines._compute_amount_reserved()
+            budget_lines._compute_remaining()
+
+        reserved_by_line = {bl.id: bl.amount_reserved for bl in budget_lines}
+        total_reserved = sum(reserved_by_line.values())
+
         # Weekly grouping for bar chart
         weeks = {}
         for d in data:
@@ -125,20 +154,27 @@ class WeeklyBudgetReport(models.Model):
                     'name': week_name,
                     'budget': 0.0,
                     'actual': 0.0,
+                    'reserved': reserved_by_line.get(week_id, 0.0),
                 }
             weeks[week_id]['budget'] += d['budget_amt']
             weeks[week_id]['actual'] += d['actual_amt']
 
-        # Pie chart: Spent vs Remaining
+        # Pie chart: Used / Reserved / Available
+        available = max(total_budget - total_actual - total_reserved, 0.0)
         pie_data = {
-            'labels': ['Actual Spending', 'Remaining Budget'],
-            'values': [round(total_actual, 2), round(max(remaining, 0.0), 2)],
+            'labels': ['Actual Used', 'Reserved', 'Available Budget'],
+            'values': [
+                round(total_actual, 2),
+                round(total_reserved, 2),
+                round(available, 2),
+            ],
         }
-            
+
         return {
             'summary': {
                 'total_budget': total_budget,
                 'total_actual': total_actual,
+                'total_reserved': total_reserved,
                 'remaining': remaining,
                 'utilization': utilization,
             },

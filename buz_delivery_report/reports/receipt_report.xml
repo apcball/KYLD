@@ -252,28 +252,15 @@
                         </t>
                         <!-- Signatures -->
                         <div class="row mt-4">
-                            <div class="col-4">
+                            <div class="col-4 offset-8">
                                 <div class="text-center signature-section">
-                                    <br/><br/><br/>
+                                    <br/><br/>
                                     <p>________________________</p>
-                                    <p>ผู้รับสินค้า / Received By</p>
-                                    <p>วันที่ / Date: ___________</p>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="text-center signature-section">
-                                    <br/><br/><br/>
-                                    <p>________________________</p>
+                                    <p t-if="doc.write_uid">( <span t-esc="doc.write_uid.employee_id.name or doc.write_uid.name"/> )</p>
+                                    <p t-else="">( ________________________ )</p>
                                     <p>ผู้ตรวจสอบ / Checked By</p>
-                                    <p>วันที่ / Date: ___________</p>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="text-center signature-section">
-                                    <br/><br/><br/>
-                                    <p>________________________</p>
-                                    <p>ผู้ส่งสินค้า / Delivered By</p>
-                                    <p>วันที่ / Date: ___________</p>
+                                    <p t-if="doc.date_done">วันที่ / Date: <span t-field="doc.date_done" t-options='{"widget": "date"}'/></p>
+                                    <p t-else="">วันที่ / Date: ___________</p>
                                 </div>
                             </div>
                         </div>

@@ -8,15 +8,23 @@
         <field name="arch" type="xml">
             <tree string="Budget Lines"
                   decoration-danger="status == 'exceeded'"
-                  decoration-success="status == 'normal' and amount_used > 0">
+                  decoration-warning="amount_available &lt; 0 and status != 'exceeded'"
+                  decoration-success="status == 'normal' and amount_used &gt; 0">
                 <field name="plan_id"/>
                 <field name="name"/>
                 <field name="week_number"/>
                 <field name="date_from"/>
                 <field name="date_to"/>
-                <field name="amount_limit"/>
-                <field name="amount_used"/>
-                <field name="amount_remaining"/>
+                <field name="amount_limit" string="Budget Limit"/>
+                <field name="amount_reserved" string="Reserved"
+                       decoration-warning="amount_reserved &gt; 0"
+                       optional="show"/>
+                <field name="amount_used" string="Used"/>
+                <field name="amount_available" string="Available"
+                       decoration-danger="amount_available &lt; 0"
+                       decoration-warning="amount_available &gt;= 0 and amount_available &lt; (amount_limit * 0.1)"
+                       optional="show"/>
+                <field name="amount_remaining" string="Remaining (vs Used)" optional="hide"/>
                 <field name="usage_percentage" widget="progressbar"/>
                 <field name="status"
                        decoration-danger="status == 'exceeded'"
@@ -50,8 +58,12 @@
                         </group>
                         <group>
                             <field name="amount_limit"/>
+                            <field name="amount_reserved"
+                                   decoration-warning="amount_reserved &gt; 0"/>
                             <field name="amount_used"/>
-                            <field name="amount_remaining"/>
+                            <field name="amount_available"
+                                   decoration-danger="amount_available &lt; 0"/>
+                            <field name="amount_remaining" string="Remaining (vs Used)"/>
                             <field name="usage_percentage" widget="progressbar"/>
                             <field name="status" widget="badge"
                                    decoration-danger="status == 'exceeded'"

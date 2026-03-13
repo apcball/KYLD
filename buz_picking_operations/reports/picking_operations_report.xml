@@ -194,7 +194,7 @@
                     </td>
                     <td style="text-align: center;"><span t-field="move.lot_ids"/></td>
                     <td><span t-field="move.location_id"/></td>
-                    <td><span t-field="move.location_dest_id"/></td>
+                    <td><span t-field="move.custom_analytic_account_names"/></td>
                 </tr>
                 <t t-set="line_number" t-value="line_number + 1"/>
             </t>

@@ -13,7 +13,7 @@
     """,
     'author': 'Your Company',
     'website': 'https://www.yourcompany.com',
-    'depends': ['stock'],
+    'depends': ['stock', 'stock_analytic_connector'],
     'data': [
         'security/ir.model.access.csv',
         'reports/picking_operations_report.xml',

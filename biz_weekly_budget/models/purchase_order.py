@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 from collections import defaultdict
+from datetime import timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -10,6 +11,46 @@ _logger = logging.getLogger(__name__)
 
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
+
+    payment_date = fields.Date(
+        string='Expected Payment',
+        compute='_compute_payment_date',
+        store=True,
+        readonly=False,
+        help="Expected date of cash outflow. Default is calculated based on payment terms or Order Date + 30 days."
+    )
+
+    billed_amount = fields.Float(
+        string='Billed Amount',
+        compute='_compute_billed_amount',
+        store=True,
+    )
+    remaining_to_bill = fields.Float(
+        string='Remaining to Bill',
+        compute='_compute_billed_amount',
+        store=True,
+    )
+
+    @api.depends('invoice_ids.state', 'invoice_ids.amount_total', 'amount_total')
+    def _compute_billed_amount(self):
+        for order in self:
+            posted_bills = order.invoice_ids.filtered(
+                lambda m: m.move_type == 'in_invoice' and m.state == 'posted'
+            )
+            # Use invoice lines related to this purchase order to calculate the actual billed amount against this PO
+            # Sometimes billed_amount is calculated directly by sum(posted_bills.mapped('amount_total'))
+            # but standard odoo approach might be better. Let's stick to simple sum for now as we just need total.
+            # But wait, a bill could cover multiple POs.
+            amount = 0.0
+            for bill in posted_bills:
+                # Calculate proportion of this bill that belongs to this PO
+                for line in bill.invoice_line_ids:
+                    if line.purchase_line_id and line.purchase_line_id.order_id.id == order.id:
+                        amount += line.price_total
+            
+            # Simple approach if standard invoice_ids contains only bills for this PO
+            order.billed_amount = sum(posted_bills.mapped('amount_total')) if not amount else amount
+            order.remaining_to_bill = max(0.0, order.amount_total - order.billed_amount)
 
     # Budget info fields (computed on demand via button)
     budget_check_result = fields.Html(
@@ -21,22 +62,70 @@ class PurchaseOrder(models.Model):
         compute='_compute_budget_check_result',
     )
 
+    @api.depends('date_order', 'payment_term_id', 'partner_id')
+    def _compute_payment_date(self):
+        for order in self:
+            if order.payment_date:  # Keep manual override
+                continue
+            
+            base_date = fields.Date.to_date(order.date_order) or fields.Date.context_today(order)
+            
+            if order.payment_term_id:
+                # Use the first line of the payment term to estimate
+                pterm = order.payment_term_id
+                if pterm.line_ids:
+                    line = pterm.line_ids[0]
+                    if line.delay_type == 'days_after_end_of_month':
+                        # Simplification for estimation
+                        order.payment_date = base_date + timedelta(days=line.nb_days + 30)
+                    else:
+                        order.payment_date = base_date + timedelta(days=line.nb_days)
+                else:
+                    order.payment_date = base_date + timedelta(days=30)
+            else:
+                order.payment_date = base_date + timedelta(days=30)
+
+    def write(self, vals):
+        """Trigger budget reserved recompute when PO state or payment_date changes."""
+        old_data = {rec.id: {'state': rec.state, 'payment_date': rec.payment_date} for rec in self}
+        result = super().write(vals)
+        
+        if 'state' in vals or 'payment_date' in vals:
+            BudgetLine = self.env['weekly.budget.line'].sudo()
+            for rec in self:
+                # Recompute for both old and new dates to ensure totals are correct
+                dates_to_update = set()
+                if old_data[rec.id]['payment_date']:
+                    dates_to_update.add(old_data[rec.id]['payment_date'])
+                if rec.payment_date:
+                    dates_to_update.add(rec.payment_date)
+                
+                for target_date in dates_to_update:
+                    budget_lines = BudgetLine.search([
+                        ('plan_state', '=', 'confirmed'),
+                        ('date_from', '<=', target_date),
+                        ('date_to', '>=', target_date),
+                        '|',
+                        ('all_companies', '=', True),
+                        ('company_id', '=', rec.company_id.id),
+                    ])
+                    if budget_lines:
+                        budget_lines._compute_amount_used()
+                        budget_lines._compute_amount_reserved()
+        return result
+
     def _get_weekly_budget_lines_for_po(self):
-        """Return dict: {budget_line: po_line_amount} for this PO's lines grouped by week."""
+        """Return dict: {budget_line: po_amount} based on PO Payment Date."""
         self.ensure_one()
         result = defaultdict(float)
 
-        for po_line in self.order_line:
-            scheduled_date = po_line.date_planned
-            if not scheduled_date:
-                continue
+        target_date = self.payment_date or fields.Date.to_date(self.date_order)
+        if not target_date:
+            return result
 
-            line_date = scheduled_date.date() if hasattr(scheduled_date, 'date') else scheduled_date
-
-            # Find matching budget line
-            budget_line = self._find_budget_line_for_date(line_date)
-            if budget_line:
-                result[budget_line] += po_line.price_subtotal
+        budget_line = self._find_budget_line_for_date(target_date)
+        if budget_line:
+            result[budget_line] = self.amount_total
 
         return result
 
@@ -60,7 +149,7 @@ class PurchaseOrder(models.Model):
         )
         return budget_lines[:1] if budget_lines else False
 
-    @api.depends('order_line.date_planned', 'order_line.price_subtotal')
+    @api.depends('amount_total', 'payment_date', 'state')
     def _compute_budget_check_result(self):
         for order in self:
             if not order.order_line:
@@ -72,7 +161,7 @@ class PurchaseOrder(models.Model):
             if not week_amounts:
                 order.budget_check_result = _(
                     '<div class="alert alert-info">'
-                    'No active weekly budget plan found for the scheduled dates.'
+                    'No active weekly budget plan found for the expected payment date.'
                     '</div>'
                 )
                 order.budget_warning = False
@@ -82,17 +171,15 @@ class PurchaseOrder(models.Model):
             has_warning = False
 
             for budget_line, po_amount in week_amounts.items():
+                # Get the actual used and reserved from the system
                 used = budget_line.amount_used
+                reserved = budget_line.amount_reserved
                 limit_amt = budget_line.amount_limit
-                # Exclude current PO if already confirmed (re-check scenario)
-                if order.state in ('purchase', 'done'):
-                    # Subtract this PO's contribution that's already counted
-                    current_po_in_used = self._get_po_amount_in_budget_line(
-                        order, budget_line
-                    )
-                    used -= current_po_in_used
 
-                total_after = used + po_amount
+                po_unbilled = order.remaining_to_bill if order.state in ['purchase', 'done'] else order.amount_total
+                other_reserved = max(0.0, reserved - po_unbilled)
+
+                total_after = used + reserved
                 remaining = limit_amt - total_after
                 is_over = remaining < 0
 
@@ -114,6 +201,7 @@ class PurchaseOrder(models.Model):
                     '<tr><td>%s</td><td class="text-end">%s</td></tr>'
                     '<tr><td>%s</td><td class="text-end">%s</td></tr>'
                     '<tr><td>%s</td><td class="text-end">%s</td></tr>'
+                    '<tr><td>%s</td><td class="text-end text-primary">%s</td></tr>'
                     '<tr class="border-top"><td><strong>%s</strong></td>'
                     '<td class="text-end"><strong>%s</strong></td></tr>'
                     '<tr><td><strong>%s</strong></td>'
@@ -125,13 +213,15 @@ class PurchaseOrder(models.Model):
                         budget_line.name,
                         _('Weekly Budget'),
                         '{:,.2f}'.format(limit_amt),
-                        _('Already Used (Other POs)'),
+                        _('Used (Billed)'),
                         '{:,.2f}'.format(used),
-                        _('This PO Amount'),
-                        '{:,.2f}'.format(po_amount),
-                        _('Total After Confirm'),
+                        _('Other Reserved (PR/MR/PO)'),
+                        '{:,.2f}'.format(other_reserved),
+                        _('This PO (Unbilled)'),
+                        '{:,.2f}'.format(po_unbilled),
+                        _('Projected Total'),
                         '{:,.2f}'.format(total_after),
-                        _('Remaining After Confirm'),
+                        _('Remaining Available'),
                         status_class,
                         '{:,.2f}'.format(remaining),
                         status_text,
@@ -142,15 +232,8 @@ class PurchaseOrder(models.Model):
             order.budget_warning = has_warning
 
     def _get_po_amount_in_budget_line(self, po, budget_line):
-        """Get how much of this PO is already counted in the budget line's used amount."""
-        total = 0.0
-        for po_line in po.order_line:
-            if not po_line.date_planned:
-                continue
-            line_date = po_line.date_planned.date() if hasattr(po_line.date_planned, 'date') else po_line.date_planned
-            if budget_line.date_from <= line_date <= budget_line.date_to:
-                total += po_line.price_subtotal
-        return total
+        """Deprecated: Logic is now handled by observing the budget line natively."""
+        return 0.0
 
     def action_check_budget(self):
         """Button action to trigger budget check recomputation."""
@@ -182,8 +265,9 @@ class PurchaseOrder(models.Model):
         violations = []
         for budget_line, po_amount in week_amounts.items():
             used = budget_line.amount_used
+            reserved = budget_line.amount_reserved
             limit_amt = budget_line.amount_limit
-            total_after = used + po_amount
+            total_after = used + reserved
             overage = total_after - limit_amt
 
             if overage > 0:
@@ -191,6 +275,7 @@ class PurchaseOrder(models.Model):
                     'line': budget_line,
                     'limit': limit_amt,
                     'used': used,
+                    'reserved': reserved,
                     'po_amount': po_amount,
                     'overage': overage,
                 })
@@ -208,13 +293,13 @@ class PurchaseOrder(models.Model):
             msg_parts.append(
                 _('Week: %s\n'
                   '  - Budget Limit: %s\n'
-                  '  - Already Used: %s\n'
-                  '  - This PO: %s\n'
+                  '  - Used (Billed): %s\n'
+                  '  - Reserved (Unbilled/PR/MR): %s\n'
                   '  - Over by: %s\n') % (
                     v['line'].name,
                     '{:,.2f}'.format(v['limit']),
                     '{:,.2f}'.format(v['used']),
-                    '{:,.2f}'.format(v['po_amount']),
+                    '{:,.2f}'.format(v['reserved']),
                     '{:,.2f}'.format(v['overage']),
                 )
             )
@@ -231,14 +316,14 @@ class PurchaseOrder(models.Model):
                     'PO: <strong>%s</strong><br/>'
                     'User: %s<br/>'
                     'Week: %s<br/>'
-                    'Budget: %s | Used: %s | PO Amount: %s | Over by: %s'
+                    'Budget: %s | Used: %s | Reserved: %s | Over by: %s'
                 ) % (
                     self.name,
                     self.env.user.name,
                     v['line'].name,
                     '{:,.2f}'.format(v['limit']),
                     '{:,.2f}'.format(v['used']),
-                    '{:,.2f}'.format(v['po_amount']),
+                    '{:,.2f}'.format(v['reserved']),
                     '{:,.2f}'.format(v['overage']),
                 ),
                 message_type='notification',
@@ -271,6 +356,7 @@ class PurchaseOrder(models.Model):
                 'week_name': v['line'].name,
                 'limit': '{:,.2f}'.format(v['limit']),
                 'used': '{:,.2f}'.format(v['used']),
+                'reserved': '{:,.2f}'.format(v['reserved']),
                 'po_amount': '{:,.2f}'.format(v['po_amount']),
                 'overage': '{:,.2f}'.format(v['overage']),
                 'plan_name': v['line'].plan_id.name,

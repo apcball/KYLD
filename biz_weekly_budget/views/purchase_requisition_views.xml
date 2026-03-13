@@ -8,6 +8,9 @@
         <field name="inherit_id" ref="employee_purchase_requisition.employee_purchase_requisition_view_form"/>
         <field name="priority">100</field>
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='requisition_deadline']" position="after">
+                <field name="payment_date" string="Expected Payment"/>
+            </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Budget Check" name="budget_check">
                     <group>
