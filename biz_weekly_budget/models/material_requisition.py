@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import logging
-from datetime import timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -8,44 +7,13 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
-def _find_budget_lines_for_date(env, target_date, company_id):
-    """Helper: find confirmed budget lines covering target_date."""
-    if not target_date:
-        return env['weekly.budget.line']
-    domain = [
-        ('plan_state', '=', 'confirmed'),
-        ('date_from', '<=', target_date),
-        ('date_to', '>=', target_date),
-        '|',
-        ('all_companies', '=', True),
-        ('company_id', '=', company_id),
-    ]
-    return env['weekly.budget.line'].sudo().search(domain)
-
-
 class MaterialRequisition(models.Model):
     _inherit = 'material.requisition'
-
-    payment_date = fields.Date(
-        string='Expected Payment',
-        compute='_compute_payment_date',
-        store=True,
-        readonly=False,
-        help="Expected date of cash outflow. Default is Required Date + 30 days."
-    )
 
     budget_check_result = fields.Html(
         string='Budget Check Result',
         compute='_compute_budget_check_result',
     )
-
-    @api.depends('required_date')
-    def _compute_payment_date(self):
-        for req in self:
-            if req.payment_date:
-                continue
-            base_date = req.required_date or fields.Date.today()
-            req.payment_date = base_date + timedelta(days=30)
 
     def _find_budget_line_for_date(self, target_date):
         """Find the confirmed budget line that covers the given date."""
@@ -64,30 +32,10 @@ class MaterialRequisition(models.Model):
         )
         return budget_lines[:1] if budget_lines else False
 
-    def write(self, vals):
-        """Trigger budget reserved recompute when state or payment_date changes."""
-        old_data = {rec.id: {'state': rec.state, 'payment_date': rec.payment_date} for rec in self}
-        result = super().write(vals)
-        if 'state' in vals or 'payment_date' in vals:
-            for rec in self:
-                dates_to_update = set()
-                if old_data[rec.id]['payment_date']:
-                    dates_to_update.add(old_data[rec.id]['payment_date'])
-                if rec.payment_date:
-                    dates_to_update.add(rec.payment_date)
-                
-                for target_date in dates_to_update:
-                    budget_lines = _find_budget_lines_for_date(
-                        self.env, target_date, rec.company_id.id
-                    )
-                    if budget_lines:
-                        budget_lines._compute_amount_reserved()
-        return result
-
-    @api.depends('line_ids.total_cost', 'payment_date')
+    @api.depends('line_ids.total_cost', 'required_date')
     def _compute_budget_check_result(self):
         for req in self:
-            target_date = req.payment_date
+            target_date = req.required_date
             if not target_date or not req.line_ids:
                 req.budget_check_result = ''
                 continue
@@ -96,7 +44,7 @@ class MaterialRequisition(models.Model):
             if not budget_line:
                 req.budget_check_result = _(
                     '<div class="alert alert-info">'
-                    'No active weekly budget plan found for the expected payment date.'
+                    'No active weekly budget plan found for the required date.'
                     '</div>'
                 )
                 continue
@@ -164,7 +112,7 @@ class MaterialRequisition(models.Model):
     def _check_weekly_budget(self):
         """Check if this MR would exceed any weekly budget."""
         self.ensure_one()
-        target_date = self.payment_date
+        target_date = self.required_date
         if not target_date or not self.line_ids:
             return
 

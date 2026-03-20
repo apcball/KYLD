@@ -8,9 +8,6 @@
         <field name="inherit_id" ref="purchase.purchase_order_form"/>
         <field name="priority">100</field>
         <field name="arch" type="xml">
-            <xpath expr="//div[@name='date_planned_div']" position="after">
-                <field name="payment_date" string="Expected Payment"/>
-            </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Budget Check" name="budget_check">
                     <group>

@@ -2,7 +2,7 @@
 
 ## ภาพรวม (Overview)
 
-**biz_weekly_budget** เป็นโมดูล Odoo 17 สำหรับควบคุมงบประมาณรายสัปดาห์สำหรับใบสั่งซื้อ (Purchase Orders), ใบขอซื้อ (Purchase Requisitions), และใบเบิกวัสดุ (Material Requisitions) โดยมีฟีเจอร์หลักคือการควบคุมยอดการใช้งาน (Used), ยอดจอง (Reserved), และการบล็อกการดำเนินการเมื่องบประมาณรายสัปดาห์ถูกใช้เกินกำหนด พร้อมระบบแดชบอร์ด (Dashboard) และการแจ้งเตือน
+**biz_weekly_budget** เป็นโมดูล Odoo 17 สำหรับควบคุมงบประมาณรายสัปดาห์สำหรับใบสั่งซื้อ (Purchase Orders) และใบขอซื้อ (Purchase Requisitions) โดยมีฟีเจอร์หลักคือการบล็อกการดำเนินการเมื่องบประมาณรายสัปดาห์ถูกใช้เกินกำหนด พร้อมระบบแจ้งเตือนและการติดตามการปรับเปลี่ยนงบประมาณ
 
 ## คุณสมบัติหลัก (Key Features)
 
@@ -12,34 +12,32 @@
 - สร้างรหัสอ้างอิงอัตโนมัติ (WB/YYYY/NNNN)
 - สถานะเวิร์คโฟลว์: Draft → Confirmed → Done/Cancelled
 
-### 2. การคำนวณงบประมาณแบบ 3 ส่วน (Budget Calculation: Used & Reserved)
-- **ยอดงบประมาณทั้งหมด (Budget Limit):** งบประมาณที่ตั้งไว้ประจำสัปดาห์
-- **ยอดใช้งานจริง (Used Amount):** คำนวณจาก Purchase Orders (PO) ที่ยืนยันแล้ว (สถานะ `purchase` หรือ `done`)
-- **ยอดจองงบประมาณ (Reserved Amount):** คำนวณล่วงหน้าจาก:
-  1. Purchase Requisitions (PR) ที่ไม่ใช่สถานะ draft
-  2. Material Requisitions (MR) ที่ไม่ใช่สถานะ draft
-  3. Standalone RFQs (PO สถานะ draft ที่ไม่ได้เชื่อมโยงกับ PR หรือ MR)
-- **งบประมาณคงเหลือ (Available Amount):** คำนวณจาก `Budget Limit - Used Amount - Reserved Amount`
+### 2. การสร้างงบประมาณรายสัปดาห์อัตโนมัติ (Auto-generate Weekly Lines)
+- สร้างงบประมาณรายสัปดาห์อัตโนมัติจากช่วงวันที่ (Monday-Sunday)
+- กำหนดงบประมาณเริ่มต้นรายสัปดาห์ได้
+- แสดงสถานะ: Normal / Exceeded
+- คำนวณยอดใช้งานจริงจาก PO ที่ยืนยันแล้ว
 
-### 3. แดชบอร์ดสรุปข้อมูลงบประมาณ (OWL Smart Dashboard)
-- แดชบอร์ดแบบโต้ตอบ (Interactive Dashboard) พัฒนาด้วยเทคโนโลยี OWL และ Chart.js
-- แสดงกราฟเปรียบเทียบงบประมาณที่ตั้งไว้ ยอดใช้งาน ยอดจอง และยอดคงเหลือ (Limit vs Used vs Reserved)
-
-### 4. การบล็อกการดำเนินการเมื่องบเกิน (Budget Exceed Blocking)
+### 3. การบล็อกการดำเนินการเมื่องบเกิน (Budget Exceed Blocking)
 - **Purchase Orders**: บล็อกตอนกด "Send for Review" และ "Confirm"
 - **Purchase Requisitions**: บล็อกตอนกด "Head Approve"
 - **Material Requisitions**: บล็อกตอนกด "Submit"
-- ระบบจะตรวจสอบทั้งยอด Used และยอดที่กำลังจะทำรายการ เพื่อป้องกันการใช้งบเกินกำหนด
+- แสดงข้อความแจ้งเตือนพร้อมรายละเอียดการเกินงบ
 
-### 5. ระบบแจ้งเตือน (Notification System)
+### 4. ระบบแจ้งเตือน (Notification System)
 - ส่งอีเมลแจ้งเตือนเมื่องบประมาณเกินกำหนด
 - โพสต์ข้อความใน chatter ของแผนงบประมาณ
 - กำหนดผู้รับแจ้งเตือนได้ในแผนงบประมาณ
 
-### 6. การปรับงบประมาณและประวัติ (Budget Adjustment & History)
+### 5. การปรับงบประมาณ (Budget Adjustment)
 - Wizard สำหรับปรับงบประมาณรายสัปดาห์
-- บันทึกประวัติการปรับเปลี่ยน (Adjustment History) พร้อมเหตุผลและผู้ทำรายการ
+- บันทึกประวัติการปรับเปลี่ยนพร้อมเหตุผล
 - สิทธิ์: Budget Manager เท่านั้นที่ปรับได้
+
+### 6. การแสดงข้อมูลงบประมาณ (Budget Information Display)
+- แสดงข้อมูลงบประมาณในฟอร์ม PO, PR, และ MR
+- ปุ่ม "Check Budget" สำหรับตรวจสอบงบประมาณ
+- แสดงผลเป็น HTML Card พร้อมสถานะและสี
 
 ## โครงสร้างโมดูล (Module Structure)
 
@@ -47,11 +45,10 @@
 biz_weekly_budget/
 ├── models/
 │   ├── weekly_budget_plan.py      # โมเดลแผนงบประมาณรายสัปดาห์
-│   ├── weekly_budget_line.py      # โมเดลรายการงบประมาณรายสัปดาห์และการคำนวณยอด (Used/Reserved)
+│   ├── weekly_budget_line.py      # โมเดลรายการงบประมาณรายสัปดาห์
 │   ├── purchase_order.py          # ส่วนขยาย PO (ตรวจสอบงบ)
-│   ├── purchase_requisition.py    # ส่วนขยาย PR (ตรวจสอบและแสดงงบ)
-│   ├── material_requisition.py    # ส่วนขยาย MR (ตรวจสอบและแสดงงบ)
-│   └── weekly_budget_report.py    # โมเดลสำหรับรายงาน
+│   ├── purchase_requisition.py    # ส่วนขยาย PR (แสดงงบ)
+│   └── material_requisition.py    # ส่วนขยาย MR (แสดงงบ)
 ├── wizard/
 │   └── budget_adjustment_wizard.py # Wizard ปรับงบประมาณ
 ├── views/
@@ -60,13 +57,7 @@ biz_weekly_budget/
 │   ├── purchase_order_views.xml
 │   ├── purchase_requisition_views.xml
 │   ├── material_requisition_views.xml
-│   ├── dashboard_views.xml        # วิวสำหรับแสดง Dashboard
-│   ├── weekly_budget_report_views.xml
 │   └── menu_views.xml
-├── static/src/                    # โค้ดสำหรับ OWL Dashboard
-│   ├── js/budget_dashboard.js
-│   ├── scss/budget_dashboard.scss
-│   └── xml/budget_dashboard.xml
 ├── security/
 │   ├── budget_security.xml       # กลุ่มผู้ใช้และ Record Rules
 │   └── ir.model.access.csv       # สิทธิ์การเข้าถึง
@@ -78,7 +69,6 @@ biz_weekly_budget/
 ## การติดตั้ง (Installation)
 
 ### Dependencies
-- `web` - สำหรับ OWL Dashboard
 - `purchase` - ใบสั่งซื้อ
 - `mail` - ระบบอีเมลและการแจ้งเตือน
 - `employee_purchase_requisition` - ใบขอซื้อพนักงาน
@@ -89,62 +79,169 @@ biz_weekly_budget/
 1. คัดลอกโฟลเดอร์ `biz_weekly_budget` ไปยัง `custom-addons/`
 2. รีสตาร์ท Odoo service
 3. อัปเดตรายการแอป: Settings > Apps > Update Apps List
-4. ค้นหา "Weekly Budget Control" และกด Install หรือ Upgrade
+4. ค้นหา "Weekly Budget Control" และกด Install
 
 ## การใช้งาน (Usage Guide)
 
-### 1. ดูภาพรวมงบประมาณผ่าน Dashboard
-**เส้นทาง:** Purchase > Budget Control > Dashboard
-- ตรวจสอบสถานะการใช้งบประมาณรายสัปดาห์ผ่านกราฟ (Chart.js)
-- ดูเปรียบเทียบยอด Limit, Used, และ Reserved ได้ในมุมมองเดียว
+### 1. สร้างแผนงบประมาณรายสัปดาห์
 
-### 2. สร้างและจัดการแผนงบประมาณรายสัปดาห์
 **เส้นทาง:** Purchase > Budget Control > Weekly Budget Plans
+
 1. กด **Create** เพื่อสร้างแผนงบประมาณใหม่
-2. กรอกข้อมูลช่วงวันที่ (Date From/To), บริษัท (Company/All Companies) และ Default Weekly Amount
-3. กำหนด **Notify Users** ที่จะได้รับอีเมลแจ้งเตือน
-4. กด **Generate Weeks** เพื่อสร้างงบประมาณรายสัปดาห์ย่อย (จันทร์ - อาทิตย์)
-5. กด **Confirm** เพื่อเปิดใช้งานแผน
+2. กรอกข้อมูล:
+   - **Date From/To**: ช่วงวันที่ของแผนงบประมาณ
+   - **Company**: เลือกบริษัท หรือเว้นว่างสำหรับทุกบริษัท
+   - **Default Weekly Amount**: งบประมาณเริ่มต้นรายสัปดาห์
+   - **Notify Users**: เลือกผู้ที่จะได้รับอีเมลแจ้งเตือน
+3. กด **Generate Weeks** เพื่อสร้างงบประมาณรายสัปดาห์อัตโนมัติ
+4. กด **Confirm** เพื่อเปิดใช้งานแผนงบประมาณ
 
-### 3. ตรวจสอบการใช้งานและยอดจอง (Used & Reserved)
+### 2. ตรวจสอบและปรับงบประมาณรายสัปดาห์
+
 **เส้นทาง:** Purchase > Budget Control > Budget Lines
-- ดูรายการงบย่อยรายสัปดาห์ พร้อมสถานะ (Normal / Exceeded)
-- ระบบจำแนกยอดค่าใช้จ่ายเป็น:
-  - **Used Amount**: ยืนยัน PO แล้ว
-  - **Reserved Amount**: ติดสถานะดำเนินการใน PR, MR, หรือ RFQ
-  - **Available**: ยอดคงเหลือที่ใช้งานได้จริง
-- ปรับเพิ่ม/ลดงบประมาณรายสัปดาห์ (เฉพาะ Budget Manager) โดยกดปุ่ม **Adjust**
 
-### 4. การทำงานร่วมกับระบบจัดซื้อ (PO, PR, MR)
-ระบบจะตรวจสอบจาก **Expected Payment (Payment Date)** ที่สัมพันธ์กับสัปดาห์นั้นๆ:
-- **ในหน้าแบบฟอร์ม (Form View):** สามารถกดแท็บ **Budget Check** เพื่อประเมินยอดก่อนยืนยันระบบได้
-- **การดำเนินการ (Action Validation):**
-  - **PO** (Send for Review / Confirm): จะนำยอดไปคำนวณหักลบกับงบประมาณที่เหลือ หากเกินจะถูกบล็อก
-  - **PR** (Head Approve): ตรวจสอบยอด Reserved งบประมาณ หากการอนุมัติทำให้ยอดจองงบประมาณเกิน จะถูกบล็อก
-  - **MR** (Submit): ตรวจสอบงบประมาณในลักษณะเดียวกับ PR
+1. ดูรายการงบประมาณรายสัปดาห์ทั้งหมด
+2. ตรวจสอบสถานะ:
+   - 🟢 **Normal**: ยอดใช้งานไม่เกินงบ
+   - 🔴 **Exceeded**: ยอดใช้งานเกินงบ
+3. ปรับงบประมาณ (เฉพาะ Budget Manager):
+   - กดปุ่ม **Adjust** ในแถวที่ต้องการปรับ
+   - กรอกยอดใหม่และเหตุผล
+   - กด **Confirm**
 
-## การตั้งค่า (Configuration)
+### 3. การใช้งานกับ Purchase Orders
 
-### วันที่ที่ใช้ในการดึงงบประมาณ (Payment Date)
-โมดูลนี้ใช้แนวคิด **Expected Payment** หรือ `payment_date` เป็นหลักในการคำนวณจับคู่กับสัปดาห์ของงบประมาณ:
-- **Purchase Orders**: ประเมินจากรอบเครดิตการจ่ายเงิน หรืออิงจากคาดการณ์ +30 วัน
-- **Purchase Requisitions**: อิงจาก Requisition Deadline หรือวันที่ขอซื้อ +30 วัน
-- **Material Requisitions**: อิงจาก Required Date +30 วัน
+**เมื่อสร้าง PO:**
+1. ในฟอร์ม PO ไปที่แท็บ **Budget Check**
+2. กด **Check Budget** เพื่อตรวจสอบงบประมาณ
+3. ระบบจะแสดง:
+   - งบประมาณรายสัปดาห์ที่เกี่ยวข้อง
+   - ยอดที่ใช้ไปแล้ว (PO ที่ยืนยันแล้ว)
+   - ยอด PO ปัจจุบัน
+   - ยอดคงเหลือหลังจากยืนยัน PO
+
+**เมื่อกด Send for Review หรือ Confirm:**
+- หากงบประมาณเกิน → แสดงข้อผิดพลาดและบล็อกการดำเนินการ
+- หากงบประมาณไม่เกิน → ดำเนินการตามปกติ
+
+### 4. การใช้งานกับ Purchase Requisitions
+
+**เมื่อสร้าง PR:**
+1. ในฟอร์ม PR ไปที่แท็บ **Budget Check**
+2. กด **Check Budget** เพื่อตรวจสอบงบประมาณ
+3. ระบบจะแสดงข้อมูลงบประมาณ (แบบประมาณเท่านั้น)
+
+**เมื่อกด Head Approve:**
+- หากงบประมาณเกิน → แสดงข้อผิดพลาดและบล็อกการอนุมัติ
+- หากงบประมาณไม่เกิน → ดำเนินการตามปกติ
+
+### 5. การใช้งานกับ Material Requisitions
+
+**เมื่อสร้าง MR:**
+1. ในฟอร์ม MR ไปที่แท็บ **Budget Check**
+2. กด **Check Budget** เพื่อตรวจสอบงบประมาณ
+3. ระบบจะแสดงข้อมูลงบประมาณ (แบบประมาณเท่านั้น)
+
+**เมื่อกด Submit:**
+- หากงบประมาณเกิน → แสดงข้อผิดพลาดและบล็อกการส่ง
+- หากงบประมาณไม่เกิน → ดำเนินการตามปกติ
 
 ## สิทธิ์การใช้งาน (User Permissions)
 
-- **Budget User**: ดูข้อมูลงบประมาณและ Dashboard ได้ แต่แก้ไขไม่ได้
-- **Budget Manager**: สร้างแผน, ดู Dashboard, และมีปุ่มปรับงบประมาณ (Adjust Budget) พร้อมเขียนคำอธิบาย
-- **Purchase Users**: มีสิทธิ์ดูข้อมูล budget lines เพื่อให้ทำงานร่วมกับ PO/PR/MR ได้
+### กลุ่มผู้ใช้ (User Groups)
+- **Budget User**: ดูข้อมูลงบประมาณได้อย่างเดียว
+- **Budget Manager**: จัดการงบประมาณได้ทุกอย่าง
+- **Purchase Users**: ดูข้อมูลงบประมาณได้ (สำหรับตรวจสอบ)
+
+### สิทธิ์การเข้าถึง (Access Rights)
+- Budget User: อ่านข้อมูลทั้งหมด ไม่สามารถแก้ไข
+- Budget Manager: อ่าน/เขียน/สร้าง/ลบ ข้อมูลทั้งหมด
+- Purchase Users: อ่านข้อมูลงบประมาณสำหรับตรวจสอบ
+
+## การตั้งค่า (Configuration)
+
+### 1. กำหนดผู้รับแจ้งเตือน
+ในแผนงบประมาณ > เลือก **Notify Users** ที่จะได้รับอีเมลเมื่องบเกิน
+
+### 2. กำหนดงบประมาณรายสัปดาห์
+- ใช้ **Default Weekly Amount** สำหรับทุกสัปดาห์
+- หรือปรับแต่ละสัปดาห์แยกกันหลังจาก Generate Weeks
+
+### 3. กำหนดขอบเขตบริษัท
+- **Single Company**: เลือกบริษัทในช่อง Company
+- **All Companies**: ติ๊ก **All Companies** checkbox
+
+## การทำงานของระบบ (How It Works)
+
+### การคำนวณงบประมาณที่ใช้ไป
+ระบบจะคำนวณยอดใช้งานจาก:
+- **Purchase Orders** ที่มีสถานะ `purchase` หรือ `done`
+- ใช้ `date_planned` ของ PO line เพื่อจัดกลุ่มตามสัปดาห์
+- รวมเฉพาะ PO ที่อยู่ในขอบเขตบริษัทเดียวกัน
+
+### การตรวจสอบงบประมาณ
+ระบบจะ:
+1. หา Budget Line ที่ครอบคลุมวันที่ของเอกสาร
+2. คำนวณ: `ยอดใช้ไป + ยอดเอกสารปัจจุบัน`
+3. ตรวจสอบว่าเกินงบประมาณหรือไม่
+4. ถ้าเกิน → บล็อกการดำเนินการและแจ้งเตือน
+
+### การแจ้งเตือนเมื่องบเกิน
+เมื่อมีการพยายามดำเนินการที่ทำให้งบเกิน:
+1. ส่งอีเมลไปยัง Notify Users ในแผนงบประมาณ
+2. โพสต์ข้อความใน chatter ของแผนงบประมาณ
+3. แสดงข้อผิดพลาดแก่ผู้ใช้
+
+## ข้อควรทราบ (Important Notes)
+
+### วันที่ที่ใช้ในการตรวจสอบ
+- **Purchase Orders**: `date_planned` ของ PO line
+- **Purchase Requisitions**: `requisition_deadline` หรือ `request_date`
+- **Material Requisitions**: `required_date`
+
+### สัปดาห์ที่ใช้ในระบบ
+- ระบบใช้สัปดาห์จันทรุษัย (Monday - Sunday)
+- Generate Weeks จะสร้างตั้งแต่วันจันทร์แรกของช่วง Date From
+
+### การบล็อกการดำเนินการ
+- **PO**: บล็อกทั้ง Send for Review และ Confirm
+- **PR**: บล็อกเฉพาะ Head Approve (ไม่บล็อกการสร้าง)
+- **MR**: บล็อกเฉพาะ Submit (ไม่บล็อกการสร้าง)
+
+### การปรับงบประมาณ
+- ต้องมีสิทธิ์ Budget Manager เท่านั้น
+- บันทึกประวัติการปรับเปลี่ยนทุกครั้ง
+- สามารถปรับได้เฉพาะในสถานะ Confirmed
 
 ## การแก้ไขปัญหา (Troubleshooting)
 
-### ยอดงบประมาณไม่อัปเดตชั่วคราว
-ในบางกรณีที่ข้อมูลมีการแก้ไขย้อนหลังจากระบบภายนอก สามารถกดปุ่ม **Recompute Used** ใน Weekly Budget Plan เพื่อบังคับให้ระบบคำนวณยอด Used และ Reserved ใหม่ 100%
+### ไม่พบงบประมาณ
+- ตรวจสอบว่ามีแผนงบประมาณที่ Confirmed แล้ว
+- ตรวจสอบวันที่ของเอกสารอยู่ในช่วงของแผนงบประมาณ
+- ตรวจสอบขอบเขตบริษัท (Company/All Companies)
 
-### สร้าง PO แล้วไม่พบงบประมาณ
-- ตรวจสอบฟิลด์ `Expected Payment` ของเอกสาร ว่าอยู่ในช่วงวันที่ของแผนงบประมาณ (Weekly Budget Plan) ที่ Confirmed แล้วหรือไม่
-- ตรวจสอบ Company ตรงกับเอกสาร หรือเลือกแผนงานเป็น All Companies หรือยัง
+### งบประมาณไม่อัปเดต
+- กดปุ่ม **Recompute Used** ในแผนงบประมาณ
+- ตรวจสอบว่า PO มีสถานะ purchase/done แล้ว
+- ตรวจสอบวันที่ date_planned ของ PO line
+
+### ไม่สามารถปรับงบประมาณ
+- ตรวจสอบว่าอยู่ในกลุ่ม Budget Manager
+- ตรวจสอบว่าแผนงบประมาณอยู่ในสถานะ Confirmed
+
+## เวอร์ชันและความเข้ากันได้ (Version & Compatibility)
+
+- **Odoo Version**: 17.0
+- **Module Version**: 17.0.1.0.0
+- **License**: LGPL-3
+- **Author**: KYLD
+
+## การอัปเดตและบำรุงรักษา (Updates & Maintenance)
+
+- อัปเดตโมดูลผ่าน Apps > Upgrade
+- สำรองข้อมูลก่อนอัปเดต
+- ตรวจสอบความเข้ากันได้กับโมดูลอื่นหลังอัปเดต
 
 ---
-**หมายเหตุ**: โมดูลนี้พัฒนาขึ้นสำหรับระบบควบคุมงบประมาณ (KYLD) เน้นแนวคิดการแบ่งงบออกเป็นรายสัปดาห์และคำนวณ Expected Cash Outflow ผ่าน `payment_date` (Expected Payment).
+
+**หมายเหตุ**: โมดูลนี้พัฒนาขึ้นสำหรับระบบงานเฉพาะที่ KYLD และอาจต้องปรับแต่งให้เข้ากับการใช้งานจริงขององค์กร

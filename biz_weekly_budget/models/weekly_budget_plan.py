@@ -203,8 +203,6 @@ class WeeklyBudgetPlan(models.Model):
         self.write({'state': 'draft'})
 
     def action_recompute_used(self):
-        """Recompute used and reserved amounts for all budget lines."""
+        """Recompute used amounts for all budget lines."""
         for rec in self:
             rec.line_ids._compute_amount_used()
-            rec.line_ids._compute_amount_reserved()
-            rec.line_ids._compute_remaining()
