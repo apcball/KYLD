@@ -150,5 +150,31 @@
             <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
+        <!-- Procurement Pool Rules -->
+        <record id="rule_procurement_pool_user" model="ir.rule">
+            <field name="name">Procurement Pool: User Access</field>
+            <field name="model_id" ref="model_procurement_pool"/>
+            <field name="groups" eval="[(4, ref('group_material_requisition_user'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="rule_procurement_pool_multi_company" model="ir.rule">
+            <field name="name">Procurement Pool: Multi Company</field>
+            <field name="model_id" ref="model_procurement_pool"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_procurement_pool_line_multi_company" model="ir.rule">
+            <field name="name">Procurement Pool Line: Multi Company</field>
+            <field name="model_id" ref="model_procurement_pool_line"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_purchase_allocation_multi_company" model="ir.rule">
+            <field name="name">Purchase Allocation: Multi Company</field>
+            <field name="model_id" ref="model_purchase_allocation"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
     </data>
 </odoo>

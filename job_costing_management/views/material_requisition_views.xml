@@ -41,6 +41,8 @@
                                 groups="job_costing_management.group_material_requisition_manager"/>
                         <button name="action_create_purchase_order" string="Create Purchase Orders" type="object" 
                                 class="oe_highlight" invisible="state != 'approved'"/>
+                        <button name="action_add_to_pool" string="Add to Procurement Pool" type="object" 
+                                class="btn-secondary" invisible="state != 'approved'"/>
                         <button name="action_create_picking" string="Create Internal Transfer" type="object" 
                                 class="oe_highlight" invisible="state != 'approved'"/>
                         <button name="action_received" string="Mark as Received" type="object" 
@@ -62,6 +64,11 @@
                             <button name="action_view_pickings" type="object"
                                     class="oe_stat_button" icon="fa-truck">
                                 <field name="picking_count" widget="statinfo" string="Pickings"/>
+                            </button>
+                            <button name="action_view_pools" type="object"
+                                    class="oe_stat_button" icon="fa-cubes"
+                                    invisible="pool_count == 0">
+                                <field name="pool_count" widget="statinfo" string="Pools"/>
                             </button>
                         </div>
                         <widget name="web_ribbon" title="Rejected" bg_color="text-bg-danger" 
@@ -109,6 +116,8 @@
                                         <field name="boq_total_qty" string="BOQ Total" readonly="1" invisible="not boq_line_id"/>
                                         <field name="boq_requisitioned_qty" string="BOQ Requisitioned" readonly="1" invisible="not boq_line_id"/>
                                         <field name="boq_remaining_qty" string="BOQ Remaining" readonly="1" invisible="not boq_line_id"/>
+                                        <field name="is_pooled" string="Pooled" readonly="1" widget="boolean" optional="show"/>
+                                        <field name="allocated_qty" string="Allocated" readonly="1" optional="hide"/>
                                     </tree>
                                 </field>
                             </page>

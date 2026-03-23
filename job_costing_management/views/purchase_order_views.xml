@@ -27,9 +27,19 @@
                 <!-- Hide job costing fields from header -->
                 <xpath expr="//field[@name='partner_ref']" position="after">
                     <field name="material_requisition_id" readonly="1" invisible="1"/>
+                    <field name="procurement_pool_id" readonly="1" invisible="not procurement_pool_id"/>
                     <field name="job_cost_sheet_id" readonly="1" invisible="1"/>
                     <field name="project_id" readonly="1" invisible="1"/>
                     <field name="job_order_id" readonly="1" invisible="1"/>
+                </xpath>
+                
+                <!-- Add Allocations smart button -->
+                <xpath expr="//div[@name='button_box']" position="inside">
+                    <button name="action_view_allocations" type="object"
+                            class="oe_stat_button" icon="fa-link"
+                            invisible="allocation_count == 0">
+                        <field name="allocation_count" widget="statinfo" string="Allocations"/>
+                    </button>
                 </xpath>
                 
                 <!-- Add Job Cost fields to purchase order lines -->

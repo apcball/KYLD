@@ -7,9 +7,28 @@ class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
     material_requisition_id = fields.Many2one('material.requisition', string='Material Requisition')
+    procurement_pool_id = fields.Many2one('procurement.pool', string='Procurement Pool', index=True)
     job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Sheet', index=True)
     project_id = fields.Many2one('project.project', string='Project', index=True)
     job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
+    allocation_count = fields.Integer(string='Allocations', compute='_compute_allocation_count')
+
+    def _compute_allocation_count(self):
+        for record in self:
+            record.allocation_count = self.env['purchase.allocation'].search_count(
+                [('po_line_id.order_id', '=', record.id)])
+
+    def action_view_allocations(self):
+        """Smart button to view purchase allocations."""
+        allocations = self.env['purchase.allocation'].search(
+            [('po_line_id.order_id', '=', self.id)])
+        return {
+            'name': 'Purchase Allocations',
+            'type': 'ir.actions.act_window',
+            'res_model': 'purchase.allocation',
+            'view_mode': 'tree,form',
+            'domain': [('id', 'in', allocations.ids)],
+        }
     
     @api.model
     def create(self, vals):
@@ -54,12 +73,22 @@ class PurchaseOrder(models.Model):
         return result
     
     def button_confirm(self):
-        """Override button_confirm to update job cost sheet actual costs"""
+        """Override button_confirm to update job cost sheet actual costs and pool state."""
         result = super(PurchaseOrder, self).button_confirm()
         
         # Update job cost sheet actual costs
         if self.job_cost_sheet_id:
             self._update_job_cost_sheet_actual_costs()
+
+        # Update procurement pool state if linked
+        if self.procurement_pool_id and self.procurement_pool_id.state == 'rfq_created':
+            # Check if all POs for this pool are confirmed
+            pool_pos = self.env['purchase.order'].search([
+                ('procurement_pool_id', '=', self.procurement_pool_id.id),
+                ('state', '=', 'draft'),
+            ])
+            if not pool_pos:
+                self.procurement_pool_id.action_mark_ordered()
             
         return result
     
@@ -73,10 +102,36 @@ class PurchaseOrder(models.Model):
                 # Update the specific job cost line
                 po_line.job_cost_line_id.update_actual_costs_from_purchases()
             else:
-                # Try to find matching job cost line by product
-                cost_lines = self.job_cost_sheet_id.material_cost_ids.filtered(
-                    lambda l: l.product_id == po_line.product_id
-                )
+                # Determine which cost type to search based on product type
+                product = po_line.product_id
+                cost_lines = False
+
+                if product and product.detailed_type == 'service':
+                    # Service product → search Labour tab first, then Overhead
+                    cost_lines = self.job_cost_sheet_id.labour_cost_ids.filtered(
+                        lambda l: l.product_id == product
+                    )
+                    if not cost_lines:
+                        cost_lines = self.job_cost_sheet_id.overhead_cost_ids.filtered(
+                            lambda l: l.product_id == product
+                        )
+                else:
+                    # Storable/consumable product → search Material tab first
+                    cost_lines = self.job_cost_sheet_id.material_cost_ids.filtered(
+                        lambda l: l.product_id == product
+                    )
+
+                # Fallback: search all cost types if not found
+                if not cost_lines:
+                    all_cost_lines = (
+                        self.job_cost_sheet_id.material_cost_ids
+                        | self.job_cost_sheet_id.labour_cost_ids
+                        | self.job_cost_sheet_id.overhead_cost_ids
+                    )
+                    cost_lines = all_cost_lines.filtered(
+                        lambda l: l.product_id == product
+                    )
+
                 if cost_lines:
                     # Link the purchase order line to the first matching cost line
                     po_line.job_cost_line_id = cost_lines[0].id
@@ -103,6 +158,8 @@ class PurchaseOrderLine(models.Model):
     job_cost_sheet_id = fields.Many2one('job.cost.sheet', string='Job Cost Center', index=True)
     job_cost_line_id = fields.Many2one('job.cost.line', string='Job Cost Line', index=True)
     analytic_account_id = fields.Many2one('account.analytic.account', string='Analytic Account', index=True)
+    allocation_ids = fields.One2many(
+        'purchase.allocation', 'po_line_id', string='Allocations')
     
     @api.model
     def create(self, vals):

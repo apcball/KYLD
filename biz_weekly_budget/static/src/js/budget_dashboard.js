@@ -14,8 +14,24 @@ export class WeeklyBudgetDashboard extends Component {
             plans: [],
             pieData: { labels: [], values: [] },
             years: [],
+            months: [
+                {id: 'all', name: 'All Months'},
+                {id: 1, name: 'January'},
+                {id: 2, name: 'February'},
+                {id: 3, name: 'March'},
+                {id: 4, name: 'April'},
+                {id: 5, name: 'May'},
+                {id: 6, name: 'June'},
+                {id: 7, name: 'July'},
+                {id: 8, name: 'August'},
+                {id: 9, name: 'September'},
+                {id: 10, name: 'October'},
+                {id: 11, name: 'November'},
+                {id: 12, name: 'December'}
+            ],
             selectedPlanId: "all",
             selectedYear: "all",
+            selectedMonth: "all",
             loaded: false,
         });
         this.chartRef = useRef("chart");
@@ -86,12 +102,13 @@ export class WeeklyBudgetDashboard extends Component {
             }
 
             const year = this.state.selectedYear !== "all" ? this.state.selectedYear : null;
+            const month = this.state.selectedMonth !== "all" ? parseInt(this.state.selectedMonth) : null;
 
             const data = await this.rpc("/web/dataset/call_kw/weekly.budget.report/get_dashboard_data", {
                 model: "weekly.budget.report",
                 method: "get_dashboard_data",
                 args: [domain],
-                kwargs: { year: year },
+                kwargs: { year: year, month: month },
             });
             this.state.summary = data.summary || {};
             this.state.weeks = data.weeks || [];
@@ -115,6 +132,13 @@ export class WeeklyBudgetDashboard extends Component {
         this.renderPieChart();
     }
 
+    async onMonthChange(ev) {
+        this.state.selectedMonth = ev.target.value;
+        await this.loadData();
+        this.renderChart();
+        this.renderPieChart();
+    }
+
     renderChart() {
         if (!this.chartRef.el) return;
 
@@ -133,6 +157,7 @@ export class WeeklyBudgetDashboard extends Component {
 
         const labels = this.state.weeks.map(w => w.name);
         const budgetData = this.state.weeks.map(w => w.budget);
+        const reservedData = this.state.weeks.map(w => w.reserved || 0);
         const actualData = this.state.weeks.map(w => w.actual);
 
         const ctx = this.chartRef.el.getContext('2d');
@@ -150,7 +175,15 @@ export class WeeklyBudgetDashboard extends Component {
                         borderRadius: 4,
                     },
                     {
-                        label: 'Actual Spending',
+                        label: 'Reserved',
+                        data: reservedData,
+                        backgroundColor: 'rgba(255, 159, 64, 0.7)',
+                        borderColor: 'rgb(255, 159, 64)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                    },
+                    {
+                        label: 'Actual Used (Billed)',
                         data: actualData,
                         backgroundColor: 'rgba(255, 99, 132, 0.7)',
                         borderColor: 'rgb(255, 99, 132)',
@@ -229,10 +262,12 @@ export class WeeklyBudgetDashboard extends Component {
                     data: values,
                     backgroundColor: [
                         'rgba(255, 99, 132, 0.85)',
+                        'rgba(255, 159, 64, 0.85)',
                         'rgba(54, 162, 235, 0.85)',
                     ],
                     borderColor: [
                         'rgb(255, 99, 132)',
+                        'rgb(255, 159, 64)',
                         'rgb(54, 162, 235)',
                     ],
                     borderWidth: 2,

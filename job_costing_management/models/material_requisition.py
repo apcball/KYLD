@@ -67,13 +67,28 @@ class MaterialRequisition(models.Model):
         ('urgent', 'Urgent')
     ], string='Priority', default='normal')
     
+    # Procurement Pool
+    is_pooled = fields.Boolean(
+        string='In Procurement Pool', compute='_compute_is_pooled', store=True)
+    
     # Smart buttons
     purchase_order_count = fields.Integer(string='Purchase Orders', compute='_compute_purchase_order_count')
     picking_count = fields.Integer(string='Pickings', compute='_compute_picking_count')
+    pool_count = fields.Integer(string='Procurement Pools', compute='_compute_pool_count')
     
     # Total cost computation
     total_cost = fields.Float(string='Total Cost', compute='_compute_total_amount', store=True)
     
+    @api.depends('line_ids.pool_line_ids')
+    def _compute_is_pooled(self):
+        for record in self:
+            record.is_pooled = any(line.pool_line_ids for line in record.line_ids)
+
+    def _compute_pool_count(self):
+        for record in self:
+            pool_ids = record.line_ids.mapped('pool_line_ids.pool_id').ids
+            record.pool_count = len(set(pool_ids))
+
     @api.onchange('project_id')
     def _onchange_project_id(self):
         if self.project_id:
@@ -366,6 +381,42 @@ class MaterialRequisition(models.Model):
     
     def action_received(self):
         self.write({'state': 'received'})
+
+    def action_add_to_pool(self):
+        """Open wizard to add approved MR lines to a procurement pool."""
+        self.ensure_one()
+        if self.state != 'approved':
+            raise ValidationError(_('Only approved MRs can be added to a procurement pool.'))
+
+        purchase_lines = self.line_ids.filtered(
+            lambda l: l.requisition_action == 'purchase' and not l.pool_line_ids)
+        if not purchase_lines:
+            raise ValidationError(
+                _('No purchase lines available to add to pool. '
+                  'Lines may already be in a pool.'))
+
+        return {
+            'name': _('Add to Procurement Pool'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'add.to.pool.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_requisition_id': self.id,
+                'default_mr_line_ids': [(6, 0, purchase_lines.ids)],
+            },
+        }
+
+    def action_view_pools(self):
+        """Smart button action to view related procurement pools."""
+        pool_ids = self.line_ids.mapped('pool_line_ids.pool_id').ids
+        return {
+            'name': _('Procurement Pools'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'procurement.pool',
+            'view_mode': 'tree,form',
+            'domain': [('id', 'in', list(set(pool_ids)))],
+        }
     
     def action_view_purchase_orders(self):
         # Search for purchase orders by origin since we don't have direct linking
@@ -449,8 +500,31 @@ class MaterialRequisitionLine(models.Model):
     boq_total_qty = fields.Float(string='BOQ Total Qty', related='boq_line_id.adjusted_quantity', readonly=True)
     boq_requisitioned_qty = fields.Float(string='BOQ Requisitioned Qty', related='boq_line_id.total_requisitioned_qty', readonly=True)
     
+    # Procurement Pool
+    pool_line_ids = fields.Many2many(
+        'procurement.pool.line',
+        'procurement_pool_mr_line_rel',
+        'mr_line_id', 'pool_line_id',
+        string='Pool Lines')
+    is_pooled = fields.Boolean(
+        string='In Pool', compute='_compute_is_pooled', store=True)
+    allocated_qty = fields.Float(
+        string='Allocated Qty', compute='_compute_allocated_qty')
+    
     # Notes
     notes = fields.Text(string='Notes')
+    
+    @api.depends('pool_line_ids')
+    def _compute_is_pooled(self):
+        for record in self:
+            record.is_pooled = bool(record.pool_line_ids)
+    
+    def _compute_allocated_qty(self):
+        Allocation = self.env['purchase.allocation']
+        for record in self:
+            allocations = Allocation.search([
+                ('mr_line_id', '=', record.id)])
+            record.allocated_qty = sum(allocations.mapped('qty'))
     
     @api.depends('quantity', 'estimated_cost')
     def _compute_total_cost(self):
