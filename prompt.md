@@ -1,252 +1,207 @@
-# Weekly Budget Control — สรุป Design สำหรับตรวจสอบ
+# 🧠 Prompt: RFQ Lock Control Module (Odoo)
 
-**Module:** `biz_weekly_budget`
-**Odoo Version:** 17
-**วันที่:** 16 กุมภาพันธ์ 2026
+## 🎯 Objective
 
----
+Develop an Odoo module to **restrict manual RFQ (Request for Quotation) creation**.
 
-## 1. ภาพรวมระบบ
+RFQs must only be created from:
 
-ระบบควบคุมวงเงินจัดซื้อรายสัปดาห์ โดยอิงจาก **วันกำหนดส่งของ (Scheduled Date)** ใน PR/PO/MR (module Purchase, job_costing_management, employee_purchase_requisition )
+* Purchase Request (PR)
+* Material Request (MR)
+* Automated Procurement (Reordering Rules / Scheduler / MTO)
+* Other approved modules via context control
 
-เมื่อผู้ใช้สร้าง Purchase Order และกด Confirm → ระบบจะตรวจสอบว่ายอดเงินรวมของสัปดาห์นั้นเกินวงเงินที่กำหนดหรือไม่ ถ้าเกิน → **Block ไม่ให้ Confirm** พร้อม **ส่ง Email แจ้งเตือน**
-
----
-
-## 2. แนวคิดเรื่องวงเงิน
-
-### 2.1 การตั้งวงเงิน
-
-ผู้ดูแลสร้าง **"แผนงบรายสัปดาห์"** โดยกำหนด:
-
-- **ช่วงเวลา** — เช่น 1 ม.ค. 2026 ถึง 31 มี.ค. 2026
-- **ขอบเขตบริษัท** — เลือกได้ว่าจะใช้กับ **บริษัทใดบริษัทหนึ่ง** หรือ **ทุกบริษัท (All Companies)**
-- **วงเงินเริ่มต้นต่อสัปดาห์** — เช่น 500,000 บาท/สัปดาห์
-
-จากนั้นกดปุ่ม **"สร้างสัปดาห์อัตโนมัติ"** → ระบบจะแบ่งช่วงเวลาเป็นรายสัปดาห์ (จันทร์–อาทิตย์) พร้อมใส่วงเงินเริ่มต้นให้ทุกสัปดาห์
-
-### 2.2 ขอบเขตบริษัท (Company Scope)
-
-| ตัวเลือก | ความหมาย |
-|----------|-----------|
-| **เลือกบริษัทเดียว** | วงเงินใช้เฉพาะ PO ของบริษัทนั้น |
-| **ทุกบริษัท (All Companies)** | วงเงินรวมทุกบริษัท — PO จากบริษัทไหนก็ตัดจากวงเงินเดียวกัน |
-
-> **ตัวอย่าง:** ตั้งวงเงินสัปดาห์ที่ 1 = 1,000,000 บาท แบบ All Companies
-> - บริษัท A สร้าง PO 400,000 → เหลือ 600,000
-> - บริษัท B สร้าง PO 500,000 → เหลือ 100,000
-> - บริษัท C สร้าง PO 200,000 → **Block! เกินวงเงิน**
-
-### 2.3 การปรับวงเงิน
-
-แต่ละสัปดาห์สามารถ **ปรับเพิ่มหรือลดวงเงินได้** ผ่าน Wizard โดยต้องระบุ:
-
-- จำนวนเงินใหม่
-- เหตุผลในการปรับ
-
-ระบบจะบันทึกประวัติการปรับทุกครั้ง (ใครปรับ, เมื่อไหร่, จากเท่าไหร่เป็นเท่าไหร่, เหตุผล)
+Manual creation from UI, import, or API must be blocked.
 
 ---
 
-## 3. การทำงานเมื่อ Confirm PO
+## 🏗️ Module Name
 
-### ขั้นตอน (อัตโนมัติ):
-
-```
-ผู้ใช้กด Confirm PO
-       ↓
-ระบบดูวันกำหนดส่งของ (Scheduled Date) ของแต่ละรายการ
-       ↓
-จัดกลุ่มยอดเงินตามสัปดาห์
-       ↓
-ตรวจสอบว่าแต่ละสัปดาห์ ยอดรวม (เดิม + PO ใหม่) เกินวงเงินหรือไม่
-       ↓
-┌─────────────────┬──────────────────────────┐
-│  ไม่เกิน         │  เกินวงเงิน               │
-│  → Confirm ปกติ  │  → Block ไม่ให้ Confirm    │
-│                  │  → แสดงข้อความแจ้งเตือน     │
-│                  │  → ส่ง Email แจ้งผู้รับผิดชอบ │
-└─────────────────┴──────────────────────────┘
-```
-
-### ข้อความแจ้งเตือนเมื่อ Block:
-
-> ❌ ไม่สามารถยืนยัน Purchase Order ได้!
->
-> วงเงินสัปดาห์ที่ 5 (27/01 - 02/02) เกินงบ
-> - วงเงิน: 500,000.00
-> - ใช้ไปแล้ว: 450,000.00
-> - PO นี้: 100,000.00
-> - เกินไป: 50,000.00
+`buz_purchase_rfq_lock`
 
 ---
 
-## 4. การแจ้งเตือน Email
+## ⚙️ Functional Requirements
 
-เมื่อ PO ถูก Block → ระบบส่ง Email อัตโนมัติไปยัง **ผู้ที่กำหนดไว้ในแผนงบ** (Notify Users) โดยมีรายละเอียด:
+### 1. Block Manual RFQ Creation
 
-- ชื่อ PO ที่ถูก Block
-- ผู้ที่พยายาม Confirm
-- รายละเอียดวงเงินที่เกิน
-- Link ไปยังหน้า Budget Management
+Override `purchase.order.create()`:
 
-นอกจาก Email แล้ว ระบบยังบันทึกลงใน Chatter ของแผนงบด้วย
+* If context does NOT include `allow_create_rfq=True`
+* AND not from automated procurement
+  → Raise Error
 
----
-
-## 5. หน้าจอในระบบ
-
-### 5.1 หน้ารายการแผนงบ (List View)
-
-แสดงรายการแผนงบทั้งหมด พร้อมสถานะ:
-- **Draft** — กำลังร่าง
-- **Confirmed** — ใช้งานอยู่ (ระบบจะตรวจสอบวงเงินเฉพาะแผนที่ Confirmed)
-- **Done** — เสร็จสิ้น
-- **Cancelled** — ยกเลิก
-
-### 5.2 หน้าจอแผนงบ (Form View)
-
-**ส่วนหัว:**
-- เลขอ้างอิง (สร้างอัตโนมัติ เช่น WB/2026/0001)
-- ปี
-- ช่วงเวลา (จาก - ถึง)
-- บริษัท หรือ ทุกบริษัท
-- วงเงินเริ่มต้นต่อสัปดาห์
-- ผู้รับแจ้งเตือน
-
-**ตารางรายสัปดาห์:**
-
-| สัปดาห์ | ช่วงวันที่ | วงเงิน | ใช้ไปแล้ว | คงเหลือ | ใช้ไป % | สถานะ |
-|---------|-----------|--------|----------|---------|--------|-------|
-| W1 (01/01 - 07/01) | 1-7 ม.ค. | 500,000 | 320,000 | 180,000 | 64% | ปกติ |
-| W2 (08/01 - 14/01) | 8-14 ม.ค. | 500,000 | 510,000 | -10,000 | 102% | ⚠️ เกิน |
-
-**สรุปรวม:**
-- งบรวมทั้งหมด
-- ใช้ไปแล้วทั้งหมด
-- คงเหลือทั้งหมด
-- เปอร์เซ็นต์การใช้
-
-**ปุ่มการทำงาน:**
-- 🔄 สร้างสัปดาห์อัตโนมัติ
-- ✅ ยืนยัน
-- 🔃 คำนวณยอดใช้ใหม่
-
-### 5.3 หน้าจอปรับวงเงิน (Wizard)
-
-เมื่อกดปรับวงเงินที่สัปดาห์ใดสัปดาห์หนึ่ง จะเปิดหน้าต่าง:
-- แสดงวงเงินปัจจุบัน
-- ให้กรอกวงเงินใหม่
-- ให้กรอกเหตุผล
-- กด Confirm เพื่อบันทึก
-
-### 5.4 หน้าจอ Purchase Order — ส่วนเช็ควงเงิน
-
-บนหน้า PO จะมีส่วนแสดงข้อมูลวงเงินสัปดาห์ ให้ผู้ใช้เห็นสถานะก่อนกด Confirm:
-
-**ปุ่ม "🔍 เช็ควงเงิน"** — กดเพื่อคำนวณและแสดงข้อมูลวงเงินแบบ real-time
-
-เมื่อกดแล้ว ระบบจะแสดง **กล่องสรุปวงเงิน** (Budget Info Box) บน PO:
-
-```
-┌─────────────────────────────────────────────────────┐
-│  📊 สรุปวงเงินสัปดาห์ตามกำหนดส่ง                      │
-│─────────────────────────────────────────────────────│
-│  สัปดาห์: W5 (27/01 - 02/02)                        │
-│                                                     │
-│  วงเงินสัปดาห์        :    500,000.00               │
-│  ใช้ไปแล้ว (PO อื่น)   :    320,000.00               │
-│  ยอด PO นี้            :    150,000.00               │
-│  ─────────────────────────────────                  │
-│  รวมวงเงิน + ยอด PO   :    470,000.00               │
-│  คงเหลือหลังยืนยัน     :     30,000.00   ✅ ผ่าน     │
-└─────────────────────────────────────────────────────┘
-```
-
-**กรณีเกินวงเงิน** จะแสดงเป็นสีแดง:
-
-```
-┌─────────────────────────────────────────────────────┐
-│  📊 สรุปวงเงินสัปดาห์ตามกำหนดส่ง                      │
-│─────────────────────────────────────────────────────│
-│  สัปดาห์: W5 (27/01 - 02/02)                        │
-│                                                     │
-│  วงเงินสัปดาห์        :    500,000.00               │
-│  ใช้ไปแล้ว (PO อื่น)   :    450,000.00               │
-│  ยอด PO นี้            :    100,000.00               │
-│  ─────────────────────────────────────              │
-│  รวมวงเงิน + ยอด PO   :    550,000.00               │
-│  คงเหลือหลังยืนยัน     :    -50,000.00   ❌ เกิน!    │
-└─────────────────────────────────────────────────────┘
-```
-
-> **หมายเหตุ:** หาก PO มีรายการที่กำหนดส่งคนละสัปดาห์ ระบบจะแสดง **แยกเป็นแต่ละสัปดาห์** ให้เห็นทุกสัปดาห์ที่เกี่ยวข้อง
-
-### 5.5 หน้าจอ Purchase Requisition (PR) — ส่วนเช็ควงเงิน
-
-บนหน้า PR จะมี **ปุ่ม "🔍 เช็ควงเงิน"** เช่นเดียวกัน แสดงข้อมูลเหมือน PO:
-
-```
-┌─────────────────────────────────────────────────────┐
-│  📊 สรุปวงเงินสัปดาห์ตามกำหนดส่ง (PR)                │
-│─────────────────────────────────────────────────────│
-│  สัปดาห์: W3 (13/01 - 19/01)                        │
-│                                                     │
-│  วงเงินสัปดาห์        :    500,000.00               │
-│  ใช้ไปแล้ว (PO ที่ Confirm) :  200,000.00            │
-│  ยอด PR นี้ (ประมาณการ)  :    180,000.00             │
-│  ─────────────────────────────────────              │
-│  รวมวงเงิน + ยอด PR   :    380,000.00               │
-│  คงเหลือ (ประมาณการ)   :    120,000.00   ✅ ผ่าน     │
-└─────────────────────────────────────────────────────┘
-```
-
-> **ข้อแตกต่าง PR vs PO:**
-> - PR แสดงเป็น **"ประมาณการ"** เพราะยอดอาจเปลี่ยนเมื่อสร้าง PO จริง
-> - PR **ไม่ Block** — แค่แสดงข้อมูลเพื่อให้ผู้ใช้ตัดสินใจ (Block เฉพาะตอน Confirm PO เท่านั้น)
+Example error:
+"You are not allowed to create RFQ manually. Please use Purchase Request or approved process."
 
 ---
 
-## 6. สิทธิ์การใช้งาน
+### 2. Allow Controlled Creation via Context
 
-| กลุ่มผู้ใช้ | สิทธิ์ |
-|------------|--------|
-| **Budget User** (ผู้ใช้ทั่วไป) | ดูแผนงบ, ดูรายสัปดาห์ |
-| **Budget Manager** (ผู้จัดการ) | สร้าง/แก้ไข/ลบแผนงบ, ปรับวงเงิน, กำหนดผู้รับแจ้งเตือน |
+Allowed flows must pass:
+
+```python
+with_context(allow_create_rfq=True)
+```
+
+Also allow:
+
+```python
+context.get('from_procurement')
+```
 
 ---
 
-## 7. จุดตรวจสอบ / ข้อควรพิจารณา
+### 3. Add Source Tracking (Important)
 
-กรุณาตรวจสอบและ Confirm ประเด็นต่อไปนี้:
+Add field in `purchase.order`:
 
-### ✅ ยืนยันแล้ว
-- [x] วงเงินเป็น Company-wide
-- [x] เมื่อเกินวงเงิน → Block + Email
-- [x] Odoo 17
+```python
+source_type = fields.Selection([
+    ('pr', 'Purchase Request'),
+    ('mr', 'Material Request'),
+    ('auto', 'Auto Procurement'),
+    ('manual_allowed', 'Manual (Special Permission)')
+], required=True)
+```
 
-### ❓ ต้องการ Feedback
+Validation:
 
-1. **สัปดาห์เริ่มวันไหน?** — ปัจจุบัน design ให้เริ่มวันจันทร์ ต้องการเปลี่ยนเป็นวันอื่นหรือไม่?
-
-2. **PR ต้อง Block ด้วยหรือไม่?** — ปัจจุบัน design ให้ PR แค่ **แสดงข้อมูลวงเงิน** (ไม่ Block) ส่วน Block เฉพาะ PO เท่านั้น ต้องการให้ PR Block ด้วยหรือแค่ดูข้อมูลพอ?
-
-3. **สกุลเงิน** — กรณี All Companies ที่ใช้สกุลเงินต่างกัน จะใช้สกุลเงินอะไรเป็นตัวหลักในการคำนวณ?
-
-4. **PO ที่ Cancel** — หาก PO ที่เคย Confirm แล้วถูก Cancel ต้องการให้คืนวงเงินกลับอัตโนมัติหรือไม่?
-
-5. **รายงาน** — ต้องการรายงานสรุปเพิ่มเติมหรือไม่? เช่น รายงานเปรียบเทียบวงเงินรายเดือน หรือ Export Excel
+* RFQ must always have `source_type`
+* Reject creation if missing
 
 ---
 
-## 8. เมนูในระบบ
+### 4. UI Restriction
 
+Modify views:
+
+* Disable Create button in:
+
+  * tree view
+  * form view
+
+```xml
+<attribute name="create">false</attribute>
 ```
-📁 จัดซื้อ (Purchase)
-  └── 📁 Budget Control
-        ├── 📋 Weekly Budget Plans    ← รายการแผนงบ
-        └── 📊 Budget Lines           ← ดูรายสัปดาห์ทั้งหมด (สำหรับ overview)
-```
 
+---
 
+### 5. Admin Bypass
+
+System Admin (group_system):
+
+* Can create RFQ without restriction
+* Must still set `source_type = manual_allowed`
+
+---
+
+### 6. Compatibility
+
+Must NOT break:
+
+* Reordering Rules
+* MTO
+* Scheduler
+* Dropshipping
+* Existing purchase workflows
+
+---
+
+### 7. Error Handling
+
+Raise `UserError` when:
+
+* RFQ created without proper context
+* Missing source_type
+
+---
+
+## 🧩 Technical Requirements
+
+### Python
+
+* Inherit: `purchase.order`
+* Override: `create()`
+
+### XML
+
+* Inherit purchase views
+* Disable create
+
+---
+
+## 🧪 Test Cases
+
+### ❌ Should Fail
+
+* User clicks "Create RFQ" manually
+* Import RFQ without context
+* API create without context
+
+### ✅ Should Pass
+
+* PR → RFQ
+* MR → RFQ
+* Scheduler creates RFQ
+* Reordering Rule creates RFQ
+* Admin creates RFQ
+
+---
+
+## 🔐 Security Considerations
+
+* Prevent bypass via RPC/API
+* Context must be explicitly validated
+* Do NOT rely only on UI restriction
+
+---
+
+## 🚀 Optional Enhancements
+
+### 1. Audit Trail
+
+* Log source document reference (PR/MR ID)
+
+### 2. Approval Layer
+
+* Require approval before RFQ confirmation
+
+### 3. Configurable Mode
+
+* Toggle strict mode ON/OFF via settings
+
+---
+
+## 📦 Deliverables
+
+* Full Odoo module structure:
+
+  * `__manifest__.py`
+  * `models/purchase_order.py`
+  * `views/purchase_order_views.xml`
+  * `security/ir.model.access.csv`
+
+* Clean, production-ready code
+
+---
+
+## 🧠 Notes for AI / Developer
+
+* This module enforces **Procurement Governance**
+* Must ensure **data integrity + auditability**
+* Avoid breaking standard Odoo flows
+* Prefer clean override with minimal side effects
+
+---
+
+## ✅ Expected Outcome
+
+After installation:
+
+* Users cannot create RFQ manually
+* All RFQs are traceable to a source
+* Procurement flow is fully controlled
+* System is audit-ready (ISO 9001 aligned)
+
+---

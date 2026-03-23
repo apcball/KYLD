@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="purchase_order_form_inherit_buz_rfq_lock" model="ir.ui.view">
+        <field name="name">purchase.order.form.inherit.buz.rfq.lock</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="attributes">
+                <attribute name="create">false</attribute>
+                <attribute name="duplicate">false</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_rfq_send']" position="before">
+                <button name="buz_action_duplicate" string="Duplicate" type="object" class="btn-secondary"/>
+            </xpath>
+            <xpath expr="//field[@name='partner_ref']" position="after">
+                <field name="buz_source_type" readonly="1" force_save="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="purchase_order_kpis_tree_inherit_buz_rfq_lock" model="ir.ui.view">
+        <field name="name">purchase.order.kpis.tree.inherit.buz.rfq.lock</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_kpis_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="attributes">
+                <attribute name="create">false</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="purchase_order_tree_inherit_buz_rfq_lock" model="ir.ui.view">
+        <field name="name">purchase.order.tree.inherit.buz.rfq.lock</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="attributes">
+                <attribute name="create">false</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>
