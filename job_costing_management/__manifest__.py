@@ -73,6 +73,7 @@ Key Benefits:
         'wizard/create_rfq_from_job_cost_view.xml',
         'wizard/job_cost_line_wizard_view.xml',
         'wizard/boq_material_requisition_wizard_view.xml',
+        'wizard/add_to_pool_wizard_view.xml',
         
         # Views (load after wizards to ensure actions are defined)
         'views/job_type_views.xml',
@@ -88,6 +89,8 @@ Key Benefits:
         'views/purchase_order_views.xml',
         'views/account_move_views.xml',
         'views/hr_timesheet_views.xml',
+        'views/procurement_pool_views.xml',
+        'views/purchase_allocation_views.xml',
         
         # Menu (load after actions are defined)
         'views/job_costing_menu.xml',

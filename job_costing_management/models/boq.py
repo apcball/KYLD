@@ -40,6 +40,12 @@ class BOQ(models.Model):
     
     # BOQ Lines
     line_ids = fields.One2many('boq.line', 'boq_id', string='BOQ Lines')
+    material_line_ids = fields.One2many(
+        'boq.line', 'boq_id', string='Material Lines',
+        domain=[('line_type', '=', 'material')])
+    labour_line_ids = fields.One2many(
+        'boq.line', 'boq_id', string='Labour Lines',
+        domain=[('line_type', '=', 'labour')])
     
     # Categories
     category_ids = fields.One2many('boq.category', 'boq_id', string='Categories')
@@ -296,10 +302,18 @@ class BOQ(models.Model):
                 skipped_lines.append(f"{line.description} (linked to existing)")
                 continue
             
+            # Determine cost_type based on product type
+            # Service products → labour, storable/consumable → material
+            product = line.product_id
+            if product.detailed_type == 'service':
+                cost_type = 'labour'
+            else:
+                cost_type = 'material'
+
             cost_line_vals = {
                 'cost_sheet_id': self.job_cost_sheet_id.id,
-                'cost_type': 'material',
-                'product_id': line.product_id.id,
+                'cost_type': cost_type,
+                'product_id': product.id,
                 'name': line.description,
                 'planned_qty': line.quantity,
                 'uom_id': line.uom_id.id,
@@ -517,6 +531,12 @@ class BOQLine(models.Model):
     description = fields.Text(string='Description', required=True)
     specification = fields.Text(string='Specification')
     
+    # Line type: auto-determined by product type
+    line_type = fields.Selection([
+        ('material', 'Material'),
+        ('labour', 'Labour'),
+    ], string='Type', compute='_compute_line_type', store=True)
+    
     # Quantity and Unit
     quantity = fields.Float(string='Quantity', default=1.0, required=True)
     uom_id = fields.Many2one('uom.uom', string='Unit of Measure', required=True)
@@ -556,6 +576,14 @@ class BOQLine(models.Model):
     # Notes
     notes = fields.Text(string='Notes')
     
+    @api.depends('product_id', 'product_id.detailed_type')
+    def _compute_line_type(self):
+        for record in self:
+            if record.product_id and record.product_id.detailed_type == 'service':
+                record.line_type = 'labour'
+            else:
+                record.line_type = 'material'
+
     @api.depends('quantity', 'unit_cost')
     def _compute_total_cost(self):
         for record in self:

@@ -309,35 +309,129 @@ class JobCostSheet(models.Model):
         }
     
     def action_sync_actual_costs(self):
-        """Manually sync actual costs from all linked POs and Invoices"""
+        """Manually sync actual costs from all linked POs and Invoices.
+        
+        Step 1: Find ALL related POs (direct link, from MRs, from Pool allocations)
+        Step 2: Link unlinked PO lines to matching cost lines
+        Step 3: Link unlinked invoice lines to matching cost lines
+        Step 4: Force recompute all actual cost fields
+        """
         import logging
         _logger = logging.getLogger(__name__)
         
         _logger.info(f"=== Syncing actual costs for Job Cost Sheet: {self.name} ===")
         
-        for cost_line in self.material_cost_ids + self.labour_cost_ids + self.overhead_cost_ids:
-            _logger.info(f"Processing cost line: {cost_line.name} (type: {cost_line.cost_type})")
-            
+        # --- Step 1: Find ALL related Purchase Orders ---
+        po_ids = set()
+        
+        # 1a. POs directly linked to this job cost sheet
+        direct_pos = self.env['purchase.order'].search([
+            ('job_cost_sheet_id', '=', self.id)
+        ])
+        po_ids.update(direct_pos.ids)
+        
+        # 1b. POs linked via PO lines' job_cost_sheet_id
+        po_lines_linked = self.env['purchase.order.line'].search([
+            ('job_cost_sheet_id', '=', self.id)
+        ])
+        po_ids.update(po_lines_linked.mapped('order_id').ids)
+        
+        # 1c. POs linked via purchase allocations
+        allocations = self.env['purchase.allocation'].search([
+            ('job_cost_sheet_id', '=', self.id)
+        ])
+        po_ids.update(allocations.mapped('po_line_id.order_id').ids)
+        
+        # 1d. POs linked via MR lines in this cost sheet's MRs
+        if self.project_id:
+            mr_pos = self.env['purchase.order'].search([
+                ('project_id', '=', self.project_id.id),
+                ('state', 'in', ['purchase', 'done']),
+            ])
+            po_ids.update(mr_pos.ids)
+        
+        all_pos = self.env['purchase.order'].browse(list(po_ids))
+        _logger.info(f"Found {len(all_pos)} related POs: {all_pos.mapped('name')}")
+        
+        # --- Step 2: Link unlinked PO lines to cost lines ---
+        all_cost_lines = (
+            self.material_cost_ids | self.labour_cost_ids | self.overhead_cost_ids
+        )
+        
+        linked_count = 0
+        for po in all_pos.filtered(lambda p: p.state in ('purchase', 'done')):
+            # Set job_cost_sheet_id on PO if not set
+            if not po.job_cost_sheet_id:
+                po.job_cost_sheet_id = self.id
+                
+            for po_line in po.order_line:
+                # Check if already linked to a cost line IN THIS job cost sheet
+                if po_line.job_cost_line_id and po_line.job_cost_line_id.cost_sheet_id.id == self.id:
+                    continue  # Correctly linked to this JCS
+                
+                product = po_line.product_id
+                if not product:
+                    continue
+                
+                # Find matching cost line in THIS JCS
+                matching = all_cost_lines.filtered(lambda l: l.product_id == product)
+                if matching:
+                    po_line.write({
+                        'job_cost_line_id': matching[0].id,
+                        'job_cost_sheet_id': self.id,
+                    })
+                    linked_count += 1
+                    _logger.info(f"  Linked PO line {po.name}/{product.name} → cost line {matching[0].name} (id={matching[0].id})")
+        
+        # --- Step 3: Link unlinked Invoice lines ---
+        invoice_linked = 0
+        invoices = self.env['account.move'].search([
+            '|',
+            ('job_cost_sheet_id', '=', self.id),
+            ('invoice_origin', 'in', all_pos.mapped('name')),
+            ('move_type', 'in', ['in_invoice', 'in_refund']),
+        ])
+        
+        for inv in invoices:
+            if not inv.job_cost_sheet_id:
+                inv.job_cost_sheet_id = self.id
+                
+            for inv_line in inv.invoice_line_ids:
+                # Check if correctly linked to a cost line in THIS JCS
+                if inv_line.job_cost_line_id and inv_line.job_cost_line_id.cost_sheet_id.id == self.id:
+                    continue
+                
+                product = inv_line.product_id
+                if not product:
+                    continue
+                
+                matching = all_cost_lines.filtered(lambda l: l.product_id == product)
+                if matching:
+                    inv_line.write({'job_cost_line_id': matching[0].id})
+                    invoice_linked += 1
+        
+        # --- Step 4: Force recompute ---
+        for cost_line in all_cost_lines:
             if cost_line.cost_type == 'labour':
-                # Force recomputation for labour costs
                 cost_line._compute_actual_qty()
                 cost_line._compute_actual_unit_cost()
                 cost_line._compute_actual_cost()
-                _logger.info(f"  Labour line after sync: actual_qty={cost_line.actual_qty}, actual_cost={cost_line.actual_cost}")
             else:
                 cost_line.update_actual_costs_from_purchases()
+                # Also force recompute computed fields
+                cost_line._compute_actual_qty()
+                cost_line._compute_actual_unit_cost()
+                cost_line._compute_actual_cost()
                 
-        # Force recomputation of job cost sheet totals
+        # Force recompute job cost sheet totals
         self._compute_actual_costs()
         
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Success',
-                'message': f'Actual costs have been synchronized. Labour: {self.actual_labour_cost}, Material: {self.actual_material_cost}, Overhead: {self.actual_overhead_cost}',
-                'type': 'success',
-            }
+            'type': 'ir.actions.act_window',
+            'res_model': 'job.cost.sheet',
+            'res_id': self.id,
+            'view_mode': 'form',
+            'target': 'current',
         }
     
     def action_recalculate_active_costs(self):
@@ -605,18 +699,11 @@ class JobCostLine(models.Model):
                 po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
                 record.actual_qty = sum(po_lines.mapped('qty_received'))
             elif record.cost_type == 'labour':
-                # Sum all timesheet unit amounts
+                # Labour: combine timesheets + PO lines (for subcontracted labour)
                 timesheet_qty = sum(record.timesheet_ids.mapped('unit_amount'))
-                record.actual_qty = timesheet_qty
-                
-                # Debug logging
-                import logging
-                _logger = logging.getLogger(__name__)
-                _logger.info(f"Labour actual_qty calculation for {record.name}:")
-                _logger.info(f"  - Timesheet count: {len(record.timesheet_ids)}")
-                _logger.info(f"  - Total unit_amount: {timesheet_qty}")
-                for ts in record.timesheet_ids:
-                    _logger.info(f"  - Timesheet: {ts.name}, unit_amount={ts.unit_amount}, amount={ts.amount}")
+                po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
+                po_qty = sum(po_lines.mapped('qty_received'))
+                record.actual_qty = timesheet_qty + po_qty
                     
             else:  # overhead
                 # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
@@ -653,38 +740,31 @@ class JobCostLine(models.Model):
                     total_cost += line.price_subtotal
                     total_qty += line.product_qty
             elif record.cost_type == 'labour':
-                # Use timesheets - amount is negative in Odoo, so use abs()
+                # Labour: combine timesheets + PO lines (for subcontracted labour)
                 for line in record.timesheet_ids:
-                    # In Odoo, timesheet amount is negative (cost), so we use abs()
                     cost_amount = abs(line.amount) if line.amount else 0
                     total_cost += cost_amount
                     total_qty += line.unit_amount
-                    
-                    # Debug logging
-                    import logging
-                    _logger = logging.getLogger(__name__)
-                    _logger.info(f"Timesheet line: unit_amount={line.unit_amount}, amount={line.amount}, abs_amount={cost_amount}")
-                    
+                for line in record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done']):
+                    total_cost += line.price_subtotal
+                    total_qty += line.product_qty
             else:  # overhead
-                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
+                # Prevent double counting - use invoice lines OR purchase orders, not both
                 invoice_cost = 0
                 invoice_qty = 0
                 po_cost = 0
                 po_qty = 0
                 
-                # Calculate from invoice lines first (preferred source)
                 if record.invoice_line_ids:
                     for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
                         invoice_cost += line.price_subtotal
                         invoice_qty += line.quantity
                 
-                # Calculate from purchase orders (fallback)
                 if record.purchase_order_line_ids:
                     for line in record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done']):
                         po_cost += line.price_subtotal
                         po_qty += line.product_qty
                 
-                # Use invoice data if available, otherwise use PO data
                 if invoice_cost > 0 and invoice_qty > 0:
                     total_cost = invoice_cost
                     total_qty = invoice_qty
@@ -693,26 +773,11 @@ class JobCostLine(models.Model):
                     total_qty = po_qty
             
             record.actual_unit_cost = total_cost / total_qty if total_qty else 0
-            
-            # Debug logging for labour
-            if record.cost_type == 'labour':
-                import logging
-                _logger = logging.getLogger(__name__)
-                _logger.info(f"Labour cost line {record.name}: total_cost={total_cost}, total_qty={total_qty}, actual_unit_cost={record.actual_unit_cost}")
     
     @api.depends('actual_qty', 'actual_unit_cost')
     def _compute_actual_cost(self):
         for record in self:
             record.actual_cost = record.actual_qty * record.actual_unit_cost
-            
-            # Debug logging for labour
-            if record.cost_type == 'labour':
-                import logging
-                _logger = logging.getLogger(__name__)
-                _logger.info(f"Labour actual_cost calculation for {record.name}:")
-                _logger.info(f"  - actual_qty: {record.actual_qty}")
-                _logger.info(f"  - actual_unit_cost: {record.actual_unit_cost}")
-                _logger.info(f"  - actual_cost: {record.actual_cost}")
     
     @api.depends('actual_qty', 'planned_qty', 'actual_cost', 'total_cost')
     def _compute_variance(self):
@@ -855,7 +920,7 @@ class JobCostLine(models.Model):
     def update_actual_costs_from_purchases(self):
         """Method to manually update actual costs from purchase orders"""
         for record in self:
-            if record.cost_type == 'material':
+            if record.cost_type in ('material', 'labour', 'overhead'):
                 # Get confirmed purchase order lines
                 po_lines = record.purchase_order_line_ids.filtered(
                     lambda l: l.order_id.state in ['purchase', 'done']
@@ -863,6 +928,11 @@ class JobCostLine(models.Model):
                 if po_lines:
                     total_cost = sum(po_lines.mapped('price_subtotal'))
                     total_qty = sum(po_lines.mapped(lambda l: l.qty_received or l.product_qty))
+                    
+                    # For labour, also add timesheet data
+                    if record.cost_type == 'labour' and record.timesheet_ids:
+                        total_cost += sum(abs(ts.amount) for ts in record.timesheet_ids if ts.amount)
+                        total_qty += sum(record.timesheet_ids.mapped('unit_amount'))
                     
                     record.actual_qty = total_qty
                     record.actual_unit_cost = total_cost / total_qty if total_qty else 0
