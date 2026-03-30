@@ -23,11 +23,18 @@ class PurchaseOrder(models.Model):
         is_admin = self.env.user.has_group('base.group_system')
 
         for vals in vals_list:
-            if not (from_procurement or allow_create_rfq or is_admin):
+            is_from_pr = bool(vals.get('requisition_order')) or bool(vals.get('pr_number'))
+            is_from_mr = bool(vals.get('material_requisition_id'))
+
+            if not (from_procurement or allow_create_rfq or is_admin or is_from_pr or is_from_mr):
                 raise UserError(_("You are not allowed to create RFQ manually. Please use Purchase Request or approved process."))
             
             if not vals.get('buz_source_type'):
-                if from_procurement:
+                if is_from_pr:
+                    vals['buz_source_type'] = 'pr'
+                elif is_from_mr:
+                    vals['buz_source_type'] = 'mr'
+                elif from_procurement:
                     vals['buz_source_type'] = 'auto'
                 elif is_admin:
                     vals['buz_source_type'] = 'manual_allowed'

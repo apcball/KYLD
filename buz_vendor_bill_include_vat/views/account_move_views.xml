@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_move_form_inherit_include_vat" model="ir.ui.view">
+        <field name="name">account.move.form.inherit.include.vat</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_include_vat_into_price"
+                        type="object"
+                        string="Include VAT in Price"
+                        class="btn-primary"
+                        invisible="state != 'draft' or move_type not in ('in_invoice', 'in_refund')"/>
+            </xpath>
+            <xpath expr="//field[@name='payment_reference']" position="after">
+                <field name="is_vat_included" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

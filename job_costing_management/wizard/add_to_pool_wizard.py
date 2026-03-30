@@ -89,6 +89,7 @@ class AddToPoolWizard(models.TransientModel):
                 PoolLine.create(vals)
 
         # Post message on the MR
+        self.requisition_id.write({'state': 'ordered'})
         self.requisition_id.message_post(
             body=_('Lines added to Procurement Pool: <a href="#" '
                    'data-oe-model="procurement.pool" data-oe-id="%d">%s</a>')

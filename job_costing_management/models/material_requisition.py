@@ -297,6 +297,8 @@ class MaterialRequisition(models.Model):
         if not internal_lines:
             raise ValidationError(_('No internal transfer lines found.'))
         
+        company = self.company_id or self.env.company
+        
         # Get destination location
         dest_location = None
         if hasattr(self.employee_id, 'dest_location_id') and self.employee_id.dest_location_id:
@@ -304,31 +306,30 @@ class MaterialRequisition(models.Model):
         elif hasattr(self.department_id, 'dest_location_id') and self.department_id.dest_location_id:
             dest_location = self.department_id.dest_location_id.id
         else:
-            # Default to stock location if no specific destination is set
-            try:
-                dest_location = self.env.ref('stock.stock_location_stock').id
-            except ValueError:
-                # If stock location doesn't exist, find the first available location
-                locations = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+            # Default to warehouse stock location for this company
+            warehouse = self.env['stock.warehouse'].sudo().search([('company_id', '=', company.id)], limit=1)
+            if warehouse and warehouse.lot_stock_id:
+                dest_location = warehouse.lot_stock_id.id
+            else:
+                locations = self.env['stock.location'].sudo().search([('usage', '=', 'internal'), ('company_id', 'in', [company.id, False])], limit=1)
                 if locations:
                     dest_location = locations[0].id
                 else:
-                    raise ValidationError(_('No destination location found. Please configure a destination location for the employee or department.'))
+                    raise ValidationError(_('No destination location found for company %s. Please configure a destination location for the employee or department.') % company.name)
         
         # Get source location
-        try:
-            source_location = self.env.ref('stock.stock_location_stock').id
-        except ValueError:
-            # If stock location doesn't exist, find the first available location
-            locations = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+        warehouse = self.env['stock.warehouse'].sudo().search([('company_id', '=', company.id)], limit=1)
+        if warehouse and warehouse.lot_stock_id:
+            source_location = warehouse.lot_stock_id.id
+        else:
+            locations = self.env['stock.location'].sudo().search([('usage', '=', 'internal'), ('company_id', 'in', [company.id, False])], limit=1)
             if locations:
                 source_location = locations[0].id
             else:
-                raise ValidationError(_('No source location found.'))
+                raise ValidationError(_('No source location found for company %s.') % company.name)
         
         # Get internal picking type for the correct company (multi-company safe)
-        company = self.company_id or self.env.company
-        picking_type_rec = self.env['stock.picking.type'].search([
+        picking_type_rec = self.env['stock.picking.type'].sudo().search([
             ('code', '=', 'internal'),
             ('company_id', '=', company.id),
         ], limit=1)
@@ -358,14 +359,16 @@ class MaterialRequisition(models.Model):
             picking_vals['move_ids'].append((0, 0, move_vals))
         
         if picking_vals['move_ids']:
-            picking = self.env['stock.picking'].create(picking_vals)
+            picking = self.env['stock.picking'].sudo().create(picking_vals)
             
             # Link the picking to the requisition lines
             for line in internal_lines:
-                line.picking_ids = [(4, picking.id)]
+                line.sudo().write({'picking_ids': [(4, picking.id)]})
             
-            picking.action_confirm()
-            picking.action_assign()
+            picking.sudo().action_confirm()
+            picking.sudo().action_assign()
+            
+            self.write({'state': 'ordered'})
             
             # Return action to show the created picking
             return {

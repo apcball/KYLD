@@ -69,11 +69,20 @@
                     <!-- Header Section -->
                     <div class="row">
                         <div class="col-8">
-                            <div class="company-header">บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</div>
+                            <div class="company-header"><t t-esc="o.company_id.name"/></div>
                             <div class="company-info">
-                                <div>9 หมู่ 12 ตําบลบึงคําพร้อย อําเภอลําลูกกา จ.ปทุมธานี 12150</div>
-                                <div>เลขที่ประจําตัวผู้เสียภาษี 0105547076103</div>
-                                <div>โทร 02 1509710 แฟกซ์ 02 1528803 E-mail: contact@mogen.co.th</div>
+                                <div>
+                                    <t t-if="o.company_id.street"><t t-esc="o.company_id.street"/> </t>
+                                    <t t-if="o.company_id.street2"><t t-esc="o.company_id.street2"/> </t>
+                                    <t t-if="o.company_id.city"><t t-esc="o.company_id.city"/> </t>
+                                    <t t-if="o.company_id.state_id"><t t-esc="o.company_id.state_id.name"/> </t>
+                                    <t t-if="o.company_id.zip"><t t-esc="o.company_id.zip"/></t>
+                                </div>
+                                <div t-if="o.company_id.vat">เลขที่ประจําตัวผู้เสียภาษี <t t-esc="o.company_id.vat"/></div>
+                                <div>
+                                    <t t-if="o.company_id.phone">โทร <t t-esc="o.company_id.phone"/> </t>
+                                    <t t-if="o.company_id.email">E-mail: <t t-esc="o.company_id.email"/></t>
+                                </div>
                             </div>
                         </div>
                         <div class="col-4 text-end">
@@ -173,7 +182,7 @@
 
         <template id="journal_entry_report_template_id">
             <t t-call="web.html_container">
-                <t t-foreach="docs" t-as="o">
+                <t t-foreach="docs.sudo()" t-as="o">
                     <t t-call="bi_print_journal_entries.journal_entry_template_report_view" t-lang="o.partner_id.lang"/>
                 </t>
             </t>
