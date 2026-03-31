@@ -46,8 +46,11 @@
     'assets': {
         'web.assets_backend': [
             'biz_weekly_budget/static/src/scss/budget_dashboard.scss',
+            'biz_weekly_budget/static/src/scss/budget_matrix_planner.scss',
             'biz_weekly_budget/static/src/js/budget_dashboard.js',
+            'biz_weekly_budget/static/src/js/budget_matrix_planner.js',
             'biz_weekly_budget/static/src/xml/budget_dashboard.xml',
+            'biz_weekly_budget/static/src/xml/budget_matrix_planner.xml',
         ],
     },
     'installable': True,

@@ -96,19 +96,10 @@ export class WeeklyBudgetDashboard extends Component {
 
     async loadData() {
         try {
-            let domain = [];
-            if (this.state.selectedPlanId !== "all") {
-                domain = [['plan_id', '=', parseInt(this.state.selectedPlanId)]];
-            }
-
-            const year = this.state.selectedYear !== "all" ? this.state.selectedYear : null;
-            const month = this.state.selectedMonth !== "all" ? parseInt(this.state.selectedMonth) : null;
-
-            const data = await this.rpc("/web/dataset/call_kw/weekly.budget.report/get_dashboard_data", {
-                model: "weekly.budget.report",
-                method: "get_dashboard_data",
-                args: [domain],
-                kwargs: { year: year, month: month },
+            const data = await this.rpc("/budget/api/dashboard_data", {
+                selectedPlanId: this.state.selectedPlanId,
+                selectedYear: this.state.selectedYear,
+                selectedMonth: this.state.selectedMonth
             });
             this.state.summary = data.summary || {};
             this.state.weeks = data.weeks || [];
@@ -172,15 +163,17 @@ export class WeeklyBudgetDashboard extends Component {
                         backgroundColor: 'rgba(54, 162, 235, 0.7)',
                         borderColor: 'rgb(54, 162, 235)',
                         borderWidth: 1,
-                        borderRadius: 4,
+                        borderRadius: 6,
+                        barPercentage: 0.6,
                     },
                     {
-                        label: 'Reserved',
+                        label: 'Reserved (PR/MR/RFQ)',
                         data: reservedData,
                         backgroundColor: 'rgba(255, 159, 64, 0.7)',
                         borderColor: 'rgb(255, 159, 64)',
                         borderWidth: 1,
-                        borderRadius: 4,
+                        borderRadius: 6,
+                        barPercentage: 0.6,
                     },
                     {
                         label: 'Actual Used (Billed)',
@@ -188,7 +181,8 @@ export class WeeklyBudgetDashboard extends Component {
                         backgroundColor: 'rgba(255, 99, 132, 0.7)',
                         borderColor: 'rgb(255, 99, 132)',
                         borderWidth: 1,
-                        borderRadius: 4,
+                        borderRadius: 6,
+                        barPercentage: 0.6,
                     }
                 ]
             },

@@ -10,62 +10,122 @@ class AccountMove(models.Model):
     _inherit = 'account.move'
 
     def action_post(self):
-        """Override to update amount_used in budget when vendor bill is posted."""
+        """Override to write budget moves when vendor bill is posted."""
         res = super().action_post()
-        self._trigger_budget_recompute()
+        self._update_budget_moves()
         return res
 
     def button_cancel(self):
-        """Override to update amount_used in budget when vendor bill is canceled."""
+        """Override to clear budget moves when vendor bill is canceled."""
         res = super().button_cancel()
-        self._trigger_budget_recompute()
+        self._clear_budget_moves()
+        self._trigger_linked_po_recompute() # Cancelled bill un-bills the PO
         return res
 
     def button_draft(self):
-        """Override to update budget when vendor bill is reset to draft."""
+        """Override to clear budget moves when vendor bill is reset to draft."""
         res = super().button_draft()
-        self._trigger_budget_recompute()
+        self._clear_budget_moves()
+        self._trigger_linked_po_recompute()
         return res
 
     def write(self, vals):
-        """Trigger budget recompute if due date changes on a posted bill."""
-        old_dates = {rec.id: rec.invoice_date_due for rec in self if rec.move_type in ('in_invoice', 'in_refund') and rec.state == 'posted'}
+        """Update budget moves if due date changes on a posted bill."""
         res = super().write(vals)
         if 'invoice_date_due' in vals or 'amount_total' in vals or 'state' in vals:
-            self._trigger_budget_recompute(old_dates=old_dates)
+            self.filtered(lambda m: m.state == 'posted' and m.move_type in ('in_invoice', 'in_refund'))._update_budget_moves()
+            self.filtered(lambda m: m.state != 'posted')._clear_budget_moves()
         return res
 
-    def _trigger_budget_recompute(self, old_dates=None):
-        """Trigger budget recompute for affected budget lines."""
-        BudgetLine = self.env['weekly.budget.line'].sudo()
-        vendor_bills = self.filtered(lambda m: m.move_type in ('in_invoice', 'in_refund'))
-        if not vendor_bills:
-            return
+    def _clear_budget_moves(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        for bill in self:
+            moves = BudgetMove.search([('source_model', '=', 'account.move'), ('source_id', '=', bill.id)])
+            if moves:
+                moves.unlink()
 
-        dates_to_update = set()
-        for bill in vendor_bills:
-            if bill.invoice_date_due:
-                dates_to_update.add(bill.invoice_date_due)
-            if old_dates and old_dates.get(bill.id):
-                dates_to_update.add(old_dates[bill.id])
-            # For POs linked to these bills, we also might need to recompute amount_reserved
-            # because remaining_to_bill changes
+    def _trigger_linked_po_recompute(self):
+        """When a bill is cancelled or draft, the PO might need to re-reserve its unbilled amount."""
+        for bill in self:
             for line in bill.invoice_line_ids:
-                if line.purchase_line_id and line.purchase_line_id.order_id:
-                    po = line.purchase_line_id.order_id
-                    if po.payment_date:
-                        dates_to_update.add(po.payment_date)
-                    elif po.date_order:
-                        dates_to_update.add(fields.Date.to_date(po.date_order))
+                po_line = getattr(line, 'purchase_line_id', False)
+                if po_line and po_line.order_id:
+                    po = po_line.order_id
+                    po._update_budget_moves()
 
-        for target_date in dates_to_update:
-            # We don't have company specific filter easily from here without checking each company
-            # so we just recompute all active lines covering this date.
-            budget_lines = BudgetLine.search([
-                ('plan_state', '=', 'confirmed'),
-                ('date_from', '<=', target_date),
-                ('date_to', '>=', target_date),
-            ])
-            if budget_lines:
-                budget_lines._compute_amount_used()
-                budget_lines._compute_amount_reserved()
+    def _update_budget_moves(self):
+        """Generate budget.move entries for posted Vendor Bills AND Vendor Credit Notes."""
+        BudgetMove = self.env['budget.move'].sudo()
+        BudgetLine = self.env['weekly.budget.line'].sudo()
+        
+        self._clear_budget_moves() # Clear existing to rebuild
+
+        for bill in self.filtered(lambda m: m.move_type in ('in_invoice', 'in_refund') and m.state == 'posted'):
+            budget_date = bill.invoice_date_due or bill.date
+            if not budget_date:
+                continue
+
+            # Need to figure out the budget line
+            # It must match date, company (if plan is specific). 
+            # We'll map each invoice_line to a budget move
+            for line in bill.invoice_line_ids:
+                if line.display_type not in (False, 'product'):
+                    continue
+                
+                amount = line.price_subtotal
+                if bill.move_type == 'in_refund':
+                    amount = -amount
+                
+                # Fetch distributions
+                dists = BudgetMove.extract_analytic_distribution(line)
+                
+                for dist in dists:
+                    dist_amount = amount * dist['percentage']
+                    if dist_amount == 0:
+                        continue
+                        
+                    acc_id = dist['analytic_account_id']
+                    dept_id = dist['department_id']
+                    
+                    # Find budget line
+                    domain = [
+                        ('plan_state', '=', 'confirmed'),
+                        ('date_from', '<=', budget_date),
+                        ('date_to', '>=', budget_date),
+                        ('analytic_account_id', '=', acc_id),
+                        ('department_id', '=', dept_id),
+                        '|',
+                        ('all_companies', '=', True),
+                        ('company_id', '=', bill.company_id.id),
+                    ]
+                    bline = BudgetLine.search(domain, limit=1)
+                    if not bline:
+                        # Fallback to general line for that date without analytic account constraint if strictly needed
+                        # But analytic budget engine requires precise matching
+                        bline = BudgetLine.search([
+                            ('plan_state', '=', 'confirmed'),
+                            ('date_from', '<=', budget_date),
+                            ('date_to', '>=', budget_date),
+                            ('analytic_account_id', '=', False),
+                            ('department_id', '=', False),
+                            '|',
+                            ('all_companies', '=', True),
+                            ('company_id', '=', bill.company_id.id),
+                        ], limit=1)
+                        
+                    if bline:
+                        BudgetMove.create({
+                            'name': f"{bill.name} - {line.name or 'Line'}",
+                            'line_id': bline.id,
+                            'source_model': 'account.move',
+                            'source_id': bill.id,
+                            'source_line_id': line.id,
+                            'analytic_account_id': acc_id,
+                            'department_id': dept_id,
+                            'amount': dist_amount,
+                            'move_type': 'used',
+                            'date': budget_date,
+                        })
+
+            # Also update the POs reserved amount since this bill changes their 'unbilled' amount
+            self._trigger_linked_po_recompute()

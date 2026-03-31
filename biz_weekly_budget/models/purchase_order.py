@@ -130,33 +130,106 @@ class PurchaseOrder(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
-        """Trigger budget reserved recompute when PO state or payment_date changes."""
-        old_data = {rec.id: {'state': rec.state, 'payment_date': rec.payment_date} for rec in self}
-        result = super().write(vals)
+        """Trigger budget reserved moves update when state or payment_date changes."""
+        res = super().write(vals)
+        if 'state' in vals or 'payment_date' in vals or 'qty_invoiced' in vals or 'order_line' in vals:
+            self._update_budget_moves()
+        return res
+
+    def _clear_budget_moves(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        for po in self:
+            moves = BudgetMove.search([('source_model', '=', 'purchase.order'), ('source_id', '=', po.id)])
+            if moves:
+                moves.unlink()
+
+    def _trigger_linked_docs_recompute(self):
+        """Recompute PR/MR budget moves to clear their reservation if PO takes over."""
+        for po in self:
+            if getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False):
+                name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
+                if name:
+                    pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', name)], limit=1)
+                    if pr: pr._update_budget_moves()
+            if getattr(po, 'material_requisition_id', False):
+                po.material_requisition_id._update_budget_moves()
+            if po.origin:
+                mr = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1)
+                if mr: mr._update_budget_moves()
+
+    def _update_budget_moves(self):
+        self._clear_budget_moves()
+        self._trigger_linked_docs_recompute()
         
-        if 'state' in vals or 'payment_date' in vals:
-            BudgetLine = self.env['weekly.budget.line'].sudo()
-            for rec in self:
-                # Recompute for both old and new dates to ensure totals are correct
-                dates_to_update = set()
-                if old_data[rec.id]['payment_date']:
-                    dates_to_update.add(old_data[rec.id]['payment_date'])
-                if rec.payment_date:
-                    dates_to_update.add(rec.payment_date)
+        BudgetMove = self.env['budget.move'].sudo()
+        BudgetLine = self.env['weekly.budget.line'].sudo()
+        
+        for po in self.filtered(lambda p: p.state not in ('cancel',)):
+            budget_date = po.payment_date or fields.Date.to_date(po.date_order)
+            if not budget_date:
+                continue
                 
-                for target_date in dates_to_update:
-                    budget_lines = BudgetLine.search([
+            # If draft, check if linked to PR/MR. If linked, don't reserve (PR/MR does).
+            if po.state in ('draft', 'sent', 'to approve'):
+                pr_name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
+                mr1 = getattr(po, 'material_requisition_id', False)
+                if pr_name:
+                    pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1)
+                else:
+                    pr = False
+                mr2 = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1) if po.origin else False
+                if pr or mr1 or mr2:
+                    continue # PR/MR reserves
+                    
+            for line in po.order_line:
+                if line.display_type not in (False, 'product', ''):
+                    continue
+                    
+                amount = line.price_subtotal
+                if po.state in ('purchase', 'done'):
+                    qty_unbilled = line.product_qty - line.qty_invoiced
+                    if qty_unbilled <= 0:
+                        continue
+                    amount = (qty_unbilled / line.product_qty) * line.price_subtotal if line.product_qty else 0
+                    
+                if amount <= 0:
+                    continue
+                    
+                dists = BudgetMove.extract_analytic_distribution(line)
+                for dist in dists:
+                    dist_amount = amount * dist['percentage']
+                    if dist_amount == 0: continue
+                    
+                    bline = BudgetLine.search([
                         ('plan_state', '=', 'confirmed'),
-                        ('date_from', '<=', target_date),
-                        ('date_to', '>=', target_date),
-                        '|',
-                        ('all_companies', '=', True),
-                        ('company_id', '=', rec.company_id.id),
-                    ])
-                    if budget_lines:
-                        budget_lines._compute_amount_used()
-                        budget_lines._compute_amount_reserved()
-        return result
+                        ('date_from', '<=', budget_date),
+                        ('date_to', '>=', budget_date),
+                        ('analytic_account_id', '=', dist['analytic_account_id']),
+                        ('department_id', '=', dist['department_id']),
+                        '|', ('all_companies', '=', True), ('company_id', '=', po.company_id.id),
+                    ], limit=1)
+                    if not bline:
+                        bline = BudgetLine.search([
+                            ('plan_state', '=', 'confirmed'),
+                            ('date_from', '<=', budget_date),
+                            ('date_to', '>=', budget_date),
+                            ('analytic_account_id', '=', False),
+                            ('department_id', '=', False),
+                            '|', ('all_companies', '=', True), ('company_id', '=', po.company_id.id),
+                        ], limit=1)
+                    if bline:
+                        BudgetMove.create({
+                            'name': f"{po.name} - {line.name or 'Line'}",
+                            'line_id': bline.id,
+                            'source_model': 'purchase.order',
+                            'source_id': po.id,
+                            'source_line_id': line.id,
+                            'analytic_account_id': dist['analytic_account_id'],
+                            'department_id': dist['department_id'],
+                            'amount': dist_amount,
+                            'move_type': 'reserved',
+                            'date': budget_date,
+                        })
 
     def _get_weekly_budget_lines_for_po(self):
         """Return dict: {budget_line: po_amount} based on PO Payment Date."""

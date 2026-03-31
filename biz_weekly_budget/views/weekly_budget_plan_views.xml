@@ -49,9 +49,13 @@
                     </div>
                     <group>
                         <group>
-                            <field name="year"/>
-                            <field name="date_from" readonly="state != 'draft'"/>
-                            <field name="date_to" readonly="state != 'draft'"/>
+                            <label for="month" string="Period"/>
+                            <div class="o_row">
+                                <field name="month" readonly="state != 'draft'" class="oe_inline w-50"/>
+                                <field name="year" readonly="state != 'draft'" class="oe_inline w-50"/>
+                            </div>
+                            <field name="date_from" readonly="1"/>
+                            <field name="date_to" readonly="1"/>
                             <field name="currency_id" readonly="state != 'draft'"/>
                         </group>
                         <group>
@@ -59,6 +63,10 @@
                             <field name="company_id"
                                    readonly="state != 'draft'"
                                    invisible="all_companies"/>
+                            <label for="total_monthly_budget" string="Total Plan Budget"/>
+                            <div class="o_row">
+                                <field name="total_monthly_budget" readonly="state != 'draft'" class="oe_inline font-weight-bold text-success"/>
+                            </div>
                             <field name="default_weekly_amount" readonly="state != 'draft'"/>
                         </group>
                     </group>
@@ -81,6 +89,19 @@
 
                     <!-- Weekly Lines -->
                     <notebook>
+                        <page string="Analytic Allocations" name="allocations">
+                            <field name="allocation_ids" readonly="state in ('done', 'cancelled')">
+                                <tree editable="bottom">
+                                    <field name="department_id" options="{'no_create': True}"/>
+                                    <field name="analytic_account_id" required="1" options="{'no_create': True}"/>
+                                    <field name="percentage" sum="Total %"/>
+                                    <field name="allocated_amount" sum="Total Allocated"/>
+                                </tree>
+                            </field>
+                            <p class="text-muted mt-2">
+                                <i class="fa fa-info-circle"/> Allocations are divided by the total number of weeks spanned by (Date From - Date To).
+                            </p>
+                        </page>
                         <page string="Weekly Budget Lines" name="lines">
                             <field name="line_ids" readonly="state in ('done', 'cancelled')">
                                 <tree editable="bottom"
@@ -135,11 +156,13 @@
                   decoration-success="state == 'confirmed'"
                   decoration-muted="state in ('done', 'cancelled')">
                 <field name="name"/>
+                <field name="month"/>
                 <field name="year"/>
-                <field name="date_from"/>
-                <field name="date_to"/>
+                <field name="date_from" optional="hide"/>
+                <field name="date_to" optional="hide"/>
                 <field name="company_id" optional="show"/>
                 <field name="all_companies"/>
+                <field name="total_monthly_budget" sum="Total Block Funds"/>
                 <field name="default_weekly_amount"/>
                 <field name="total_budget"/>
                 <field name="total_used"/>
@@ -161,6 +184,7 @@
         <field name="arch" type="xml">
             <search string="Search Budget Plans">
                 <field name="name"/>
+                <field name="month"/>
                 <field name="year"/>
                 <field name="company_id"/>
                 <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
@@ -170,6 +194,7 @@
                 <filter name="filter_all_companies" string="All Companies" domain="[('all_companies', '=', True)]"/>
                 <group expand="0" string="Group By">
                     <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_month" string="Month" context="{'group_by': 'month'}"/>
                     <filter name="group_year" string="Year" context="{'group_by': 'year'}"/>
                     <filter name="group_company" string="Company" context="{'group_by': 'company_id'}"/>
                 </group>

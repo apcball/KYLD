@@ -89,24 +89,76 @@ class EmployeePurchaseRequisition(models.Model):
         return budget_lines[:1] if budget_lines else False
 
     def write(self, vals):
-        """Trigger budget reserved recompute when state or payment_date changes."""
-        old_data = {rec.id: {'state': rec.state, 'payment_date': rec.payment_date} for rec in self}
-        result = super().write(vals)
+        """Trigger budget reserved moves recompute when state or payment_date changes."""
+        res = super().write(vals)
         if 'state' in vals or 'payment_date' in vals:
-            for rec in self:
-                dates_to_update = set()
-                if old_data[rec.id]['payment_date']:
-                    dates_to_update.add(old_data[rec.id]['payment_date'])
-                if rec.payment_date:
-                    dates_to_update.add(rec.payment_date)
+            self._update_budget_moves()
+        return res
+
+    def _clear_budget_moves(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        for req in self:
+            moves = BudgetMove.search([('source_model', '=', 'employee.purchase.requisition'), ('source_id', '=', req.id)])
+            if moves:
+                moves.unlink()
+
+    def _update_budget_moves(self):
+        self._clear_budget_moves()
+        BudgetMove = self.env['budget.move'].sudo()
+        BudgetLine = self.env['weekly.budget.line'].sudo()
+        
+        for req in self.filtered(lambda r: r.state != 'draft'):
+            # Skip if linked to confirmed PO
+            confirmed_pos = self.env['purchase.order'].sudo().search([
+                ('state', 'in', ('purchase', 'done')),
+                '|', ('requisition_order', '=', req.name),
+                     ('pr_number', '=', req.name)
+            ], limit=1)
+            
+            if confirmed_pos:
+                continue
                 
-                for target_date in dates_to_update:
-                    budget_lines = _find_budget_lines_for_date(
-                        self.env, target_date, rec.company_id.id
-                    )
-                    if budget_lines:
-                        budget_lines._compute_amount_reserved()
-        return result
+            budget_date = req.payment_date
+            if not budget_date:
+                continue
+                
+            for line in req.requisition_order_ids:
+                amount = line.price_subtotal
+                dists = BudgetMove.extract_analytic_distribution(line)
+                for dist in dists:
+                    dist_amount = amount * dist['percentage']
+                    if dist_amount == 0: continue
+                    
+                    bline = BudgetLine.search([
+                        ('plan_state', '=', 'confirmed'),
+                        ('date_from', '<=', budget_date),
+                        ('date_to', '>=', budget_date),
+                        ('analytic_account_id', '=', dist['analytic_account_id']),
+                        ('department_id', '=', dist['department_id']),
+                        '|', ('all_companies', '=', True), ('company_id', '=', req.company_id.id),
+                    ], limit=1)
+                    if not bline:
+                        bline = BudgetLine.search([
+                            ('plan_state', '=', 'confirmed'),
+                            ('date_from', '<=', budget_date),
+                            ('date_to', '>=', budget_date),
+                            ('analytic_account_id', '=', False),
+                            ('department_id', '=', False),
+                            '|', ('all_companies', '=', True), ('company_id', '=', req.company_id.id),
+                        ], limit=1)
+                    if bline:
+                        BudgetMove.create({
+                            'name': f"{req.name} - {line.product_id.name or 'Line'}",
+                            'line_id': bline.id,
+                            'source_model': 'employee.purchase.requisition',
+                            'source_id': req.id,
+                            'source_line_id': line.id,
+                            'analytic_account_id': dist['analytic_account_id'],
+                            'department_id': dist['department_id'],
+                            'amount': dist_amount,
+                            'move_type': 'reserved',
+                            'date': budget_date,
+                        })
 
     @api.depends('requisition_order_ids.price_subtotal', 'payment_date')
     def _compute_budget_check_result(self):
