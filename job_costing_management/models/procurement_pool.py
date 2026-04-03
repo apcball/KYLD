@@ -206,6 +206,9 @@ class ProcurementPool(models.Model):
                 elif analytic_account_id:
                     po_line_vals['analytic_account_id'] = analytic_account_id
 
+                if line.department_id:
+                    po_line_vals['department_id'] = line.department_id.id
+
                 po_vals['order_line'].append((0, 0, po_line_vals))
 
             if po_vals['order_line']:
@@ -345,6 +348,8 @@ class ProcurementPoolLine(models.Model):
     vendor_id = fields.Many2one(
         'res.partner', string='Vendor',
         domain="[('is_company', '=', True), ('supplier_rank', '>', 0)]")
+    department_id = fields.Many2one(
+        'hr.department', string='Department')
     analytic_distribution = fields.Json(string='Analytic Distribution')
     price_unit = fields.Float(string='Unit Price', digits='Product Price')
 

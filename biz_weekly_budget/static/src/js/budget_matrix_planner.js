@@ -28,8 +28,8 @@ export class BudgetMatrixPlanner extends Component {
 
     async loadPlans() {
         try {
-            const plans = await this.rpc("/web/dataset/call_kw/weekly.budget.plan/search_read", {
-                model: "weekly.budget.plan",
+            const plans = await this.rpc("/web/dataset/call_kw/monthly.budget.plan/search_read", {
+                model: "monthly.budget.plan",
                 method: "search_read",
                 args: [[['state', 'in', ['draft', 'confirmed']]], ['id', 'name']],
                 kwargs: {},
@@ -64,23 +64,33 @@ export class BudgetMatrixPlanner extends Component {
         await this.loadMatrixData();
     }
 
-    async updateCell(lineId, ev) {
+    async updateCellLimit(lineId, ev) {
         const newLimit = parseFloat(ev.target.value);
         if (isNaN(newLimit)) return;
+        await this._updateCell(lineId, { amount_limit: newLimit });
+    }
 
+    async updateCellForecast(lineId, ev) {
+        const newForecast = parseFloat(ev.target.value);
+        if (isNaN(newForecast)) return;
+        await this._updateCell(lineId, { forecast_amount: newForecast });
+    }
+
+    async _updateCell(lineId, vals) {
         try {
             const res = await this.rpc("/budget/api/update_cell", {
                 line_id: lineId,
-                amount_limit: newLimit
+                amount_limit: vals.amount_limit,
+                forecast_amount: vals.forecast_amount
             });
             if (res.status === 'success') {
                 this.notification.add("Saved", { type: "success" });
-                // We update local state to reflect change without full reload
                 for (const row of this.state.rows) {
                     for (const week in row.cells) {
                         if (row.cells[week].line_id === lineId) {
-                            row.cells[week].limit = newLimit;
-                            row.cells[week].available = newLimit - row.cells[week].used - row.cells[week].reserved;
+                            if (vals.amount_limit !== undefined) row.cells[week].limit = vals.amount_limit;
+                            if (vals.forecast_amount !== undefined) row.cells[week].forecast = vals.forecast_amount;
+                            row.cells[week].available = row.cells[week].limit - row.cells[week].used - row.cells[week].reserved - row.cells[week].forecast;
                         }
                     }
                 }

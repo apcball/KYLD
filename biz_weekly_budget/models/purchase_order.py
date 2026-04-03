@@ -8,9 +8,32 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+class PurchaseOrderLine(models.Model):
+    _inherit = 'purchase.order.line'
+
+    department_id = fields.Many2one(
+        'hr.department',
+        string='Department',
+        store=True,
+    )
 
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
+
+    @api.model
+    def _get_default_department(self):
+        if hasattr(self.env.user, 'employee_id') and self.env.user.employee_id:
+            return self.env.user.employee_id.department_id
+        if hasattr(self.env.company, 'default_department_id'):
+            return self.env.company.default_department_id
+        return False
+
+    department_id = fields.Many2one(
+        'hr.department',
+        string='Department',
+        store=True,
+        default=_get_default_department,
+    )
 
     payment_date = fields.Date(
         string='Expected Payment',
@@ -55,7 +78,7 @@ class PurchaseOrder(models.Model):
     def _compute_billed_amount(self):
         for order in self:
             posted_bills = order.invoice_ids.filtered(
-                lambda m: m.move_type == 'in_invoice' and m.state == 'posted'
+                lambda m: m.move_type == 'in_invoice' and m.state in ('draft', 'posted')
             )
             # Use invoice lines related to this purchase order to calculate the actual billed amount against this PO
             # Sometimes billed_amount is calculated directly by sum(posted_bills.mapped('amount_total'))
@@ -81,6 +104,41 @@ class PurchaseOrder(models.Model):
         string='Budget Warning',
         compute='_compute_budget_check_result',
     )
+    is_budget_reserved = fields.Boolean(
+        string='Budget is Reserved',
+        compute='_compute_is_budget_reserved',
+    )
+
+    def _compute_is_budget_reserved(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        for rec in self:
+            po_reserved = bool(BudgetMove.search_count([
+                ('source_model', '=', self._name),
+                ('source_id', '=', rec.id),
+                ('move_type', '=', 'reserved'),
+            ]))
+            
+            if po_reserved:
+                rec.is_budget_reserved = True
+                continue
+                
+            # If PO is still draft/to approve, check if source doc is holding the budget on its behalf
+            if rec.state in ('draft', 'sent', 'to approve'):
+                pr_name = getattr(rec, 'requisition_order', False) or getattr(rec, 'pr_number', False)
+                if pr_name:
+                    pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1)
+                    if pr and getattr(pr, 'is_budget_reserved', False):
+                        rec.is_budget_reserved = True
+                        continue
+                
+                mr_linked = getattr(rec, 'material_requisition_id', False)
+                if not mr_linked and getattr(rec, 'origin', False):
+                    mr_linked = self.env['material.requisition'].sudo().search([('name', '=', rec.origin)], limit=1)
+                if mr_linked and getattr(mr_linked, 'is_budget_reserved', False):
+                    rec.is_budget_reserved = True
+                    continue
+                    
+            rec.is_budget_reserved = False
 
     @api.depends('date_order', 'payment_term_id', 'partner_id')
     def _compute_payment_date(self):
@@ -156,30 +214,53 @@ class PurchaseOrder(models.Model):
             if po.origin:
                 mr = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1)
                 if mr: mr._update_budget_moves()
+            
+            # Update MR based on PO lines (e.g., from Procurement Pool)
+            mr_lines_linked = getattr(po.order_line, 'material_requisition_line_id', False)
+            if mr_lines_linked:
+                mrs = mr_lines_linked.mapped('requisition_id')
+                for mr in mrs:
+                    mr._update_budget_moves()
 
     def _update_budget_moves(self):
+        """Rebuild 'reserved' budget.move entries for this PO.
+
+        For confirmed POs (state purchase/done), only the *unbilled* quantity is
+        reserved — lines that already have a draft or posted vendor bill are counted
+        as 'used' (via the bill's own budget.move) and are excluded from the
+        reservation so we don't double-count.
+
+        This method is called both when the PO changes state AND when a linked bill
+        is created/cancelled, ensuring the reserved amount always equals only the
+        amount not yet invoiced.
+        """
+        # Recursion guard: avoid PO → bill → PO loops
+        if self.env.context.get('_budget_po_updating'):
+            return
+        self = self.with_context(_budget_po_updating=True)
+
         self._clear_budget_moves()
         self._trigger_linked_docs_recompute()
-        
+
         BudgetMove = self.env['budget.move'].sudo()
-        BudgetLine = self.env['weekly.budget.line'].sudo()
+        BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
         
         for po in self.filtered(lambda p: p.state not in ('cancel',)):
             budget_date = po.payment_date or fields.Date.to_date(po.date_order)
             if not budget_date:
                 continue
                 
-            # If draft, check if linked to PR/MR. If linked, don't reserve (PR/MR does).
             if po.state in ('draft', 'sent', 'to approve'):
                 pr_name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
                 mr1 = getattr(po, 'material_requisition_id', False)
-                if pr_name:
-                    pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1)
-                else:
-                    pr = False
+                pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1) if pr_name else False
                 mr2 = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1) if po.origin else False
-                if pr or mr1 or mr2:
-                    continue # PR/MR reserves
+                
+                # Check if generated from MR via Pool (PO lines linked)
+                mr_line_linked = getattr(po.order_line, 'material_requisition_line_id', False)
+                
+                if pr or mr1 or mr2 or mr_line_linked:
+                    continue
                     
             for line in po.order_line:
                 if line.display_type not in (False, 'product', ''):
@@ -187,7 +268,14 @@ class PurchaseOrder(models.Model):
                     
                 amount = line.price_subtotal
                 if po.state in ('purchase', 'done'):
-                    qty_unbilled = line.product_qty - line.qty_invoiced
+                    qty_billed = 0.0
+                    for inv_line in line.invoice_lines:
+                        if inv_line.move_id.state in ('draft', 'posted'):
+                            if inv_line.move_id.move_type == 'in_invoice':
+                                qty_billed += inv_line.quantity
+                            elif inv_line.move_id.move_type == 'in_refund':
+                                qty_billed -= inv_line.quantity
+                    qty_unbilled = line.product_qty - qty_billed
                     if qty_unbilled <= 0:
                         continue
                     amount = (qty_unbilled / line.product_qty) * line.price_subtotal if line.product_qty else 0
@@ -200,27 +288,25 @@ class PurchaseOrder(models.Model):
                     dist_amount = amount * dist['percentage']
                     if dist_amount == 0: continue
                     
-                    bline = BudgetLine.search([
+                    bline = BudgetAllocation.search([
                         ('plan_state', '=', 'confirmed'),
                         ('date_from', '<=', budget_date),
                         ('date_to', '>=', budget_date),
-                        ('analytic_account_id', '=', dist['analytic_account_id']),
                         ('department_id', '=', dist['department_id']),
                         '|', ('all_companies', '=', True), ('company_id', '=', po.company_id.id),
                     ], limit=1)
                     if not bline:
-                        bline = BudgetLine.search([
+                        bline = BudgetAllocation.search([
                             ('plan_state', '=', 'confirmed'),
                             ('date_from', '<=', budget_date),
                             ('date_to', '>=', budget_date),
-                            ('analytic_account_id', '=', False),
                             ('department_id', '=', False),
                             '|', ('all_companies', '=', True), ('company_id', '=', po.company_id.id),
                         ], limit=1)
                     if bline:
                         BudgetMove.create({
                             'name': f"{po.name} - {line.name or 'Line'}",
-                            'line_id': bline.id,
+                            'allocation_id': bline.id,
                             'source_model': 'purchase.order',
                             'source_id': po.id,
                             'source_line_id': line.id,
@@ -231,8 +317,8 @@ class PurchaseOrder(models.Model):
                             'date': budget_date,
                         })
 
-    def _get_weekly_budget_lines_for_po(self):
-        """Return dict: {budget_line: po_amount} based on PO Payment Date."""
+    def _get_monthly_budget_allocation_for_po(self):
+        """Return dict: {budget_allocation: po_amount} based on PO lines' departments and Payment Date."""
         self.ensure_one()
         result = defaultdict(float)
 
@@ -240,31 +326,55 @@ class PurchaseOrder(models.Model):
         if not target_date:
             return result
 
-        budget_line = self._find_budget_line_for_date(target_date)
-        if budget_line:
-            result[budget_line] = self.amount_total
+        BudgetMove = self.env['budget.move']
+        for line in self.order_line:
+            if line.display_type not in (False, 'product', ''):
+                continue
+            
+            amount = line.price_subtotal
+            if amount <= 0:
+                continue
+                
+            dists = BudgetMove.extract_analytic_distribution(line)
+            for dist in dists:
+                dist_amount = amount * dist['percentage']
+                if dist_amount == 0: continue
+                
+                budget_line = self._find_budget_allocation_for_date(target_date, department_id=dist['department_id'])
+                if budget_line:
+                    result[budget_line] += dist_amount
+                    
+        if not result and self.amount_untaxed:
+            # Fallback
+            budget_line = self._find_budget_allocation_for_date(target_date, department_id=self.department_id.id)
+            if budget_line:
+                result[budget_line] = self.amount_untaxed
 
         return result
 
-    def _find_budget_line_for_date(self, target_date):
-        """Find the confirmed budget line that covers the given date."""
+    def _find_budget_allocation_for_date(self, target_date, department_id=False):
+        """Find the confirmed budget allocation that covers the given date."""
+        if not department_id:
+            department_id = self.department_id.id
         domain = [
             ('plan_state', '=', 'confirmed'),
             ('date_from', '<=', target_date),
             ('date_to', '>=', target_date),
+            ('department_id', '=', department_id)
         ]
-
-        # Company scope: find plans for this PO's company OR all-companies plans
-        company_domain = [
-            '|',
-            ('all_companies', '=', True),
-            ('company_id', '=', self.company_id.id),
-        ]
-
-        budget_lines = self.env['weekly.budget.line'].sudo().search(
-            domain + company_domain, limit=1
-        )
-        return budget_lines[:1] if budget_lines else False
+        company_domain = ['|', ('all_companies', '=', True), ('company_id', '=', self.company_id.id)]
+        allocations = self.env['monthly.budget.allocation'].sudo().search(domain + company_domain, limit=1)
+        
+        if not allocations: # Fallback to general (no department)
+             domain = [
+                 ('plan_state', '=', 'confirmed'),
+                 ('date_from', '<=', target_date),
+                 ('date_to', '>=', target_date),
+                 ('department_id', '=', False)
+             ]
+             allocations = self.env['monthly.budget.allocation'].sudo().search(domain + company_domain, limit=1)
+             
+        return allocations[:1] if allocations else False
 
     @api.depends('amount_total', 'payment_date', 'state')
     def _compute_budget_check_result(self):
@@ -274,11 +384,11 @@ class PurchaseOrder(models.Model):
                 order.budget_warning = False
                 continue
 
-            week_amounts = order._get_weekly_budget_lines_for_po()
-            if not week_amounts:
+            month_amounts = order._get_monthly_budget_allocation_for_po()
+            if not month_amounts:
                 order.budget_check_result = _(
                     '<div class="alert alert-info">'
-                    'No active weekly budget plan found for the expected payment date.'
+                    'No active monthly budget plan found for the expected payment date.'
                     '</div>'
                 )
                 order.budget_warning = False
@@ -287,13 +397,16 @@ class PurchaseOrder(models.Model):
             html_parts = []
             has_warning = False
 
-            for budget_line, po_amount in week_amounts.items():
-                # Get the actual used and reserved from the system
+            for budget_line, po_amount in month_amounts.items():
                 used = budget_line.amount_used
                 reserved = budget_line.amount_reserved
-                limit_amt = budget_line.amount_limit
+                limit_amt = budget_line.amount
 
-                po_unbilled = order.remaining_to_bill if order.state in ['purchase', 'done'] else order.amount_total
+                po_unbilled = po_amount
+                if order.state in ['purchase', 'done']:
+                    ratio = order.remaining_to_bill / order.amount_total if order.amount_total else 0
+                    po_unbilled = po_amount * ratio
+                    
                 other_reserved = max(0.0, reserved - po_unbilled)
 
                 total_after = used + reserved
@@ -314,6 +427,7 @@ class PurchaseOrder(models.Model):
                     '<div class="card mb-2 border-%s">'
                     '<div class="card-body p-2">'
                     '<h6 class="card-title">%s %s</h6>'
+                    '<p class="card-subtitle mb-2 text-muted"><strong>%s</strong> (%s - %s)</p>'
                     '<table class="table table-sm table-borderless mb-0">'
                     '<tr><td>%s</td><td class="text-end">%s</td></tr>'
                     '<tr><td>%s</td><td class="text-end">%s</td></tr>'
@@ -327,8 +441,11 @@ class PurchaseOrder(models.Model):
                     '</div></div>' % (
                         status_class,
                         status_icon,
-                        budget_line.name,
-                        _('Weekly Budget'),
+                        budget_line.plan_id.name,
+                        budget_line.department_id.name if budget_line.department_id else 'Base',
+                        budget_line.date_from.strftime('%d %b %Y'),
+                        budget_line.date_to.strftime('%d %b %Y'),
+                        _('Monthly Budget'),
                         '{:,.2f}'.format(limit_amt),
                         _('Used (Billed)'),
                         '{:,.2f}'.format(used),
@@ -360,18 +477,15 @@ class PurchaseOrder(models.Model):
         return True
 
     def action_request_budget_approval(self):
-        """Submit a budget approval request when budget is exceeded."""
         self.ensure_one()
-        week_amounts = self._get_weekly_budget_lines_for_po()
-        budget_line = next(iter(week_amounts), False)
-        po_amount = week_amounts.get(budget_line, self.amount_total) if budget_line else self.amount_total
+        month_amounts = self._get_monthly_budget_allocation_for_po()
+        budget_line = next(iter(month_amounts), False)
+        po_amount = month_amounts.get(budget_line, self.amount_total) if budget_line else self.amount_total
 
         used = budget_line.amount_used if budget_line else 0.0
         reserved = budget_line.amount_reserved if budget_line else 0.0
-        limit_amt = budget_line.amount_limit if budget_line else 0.0
+        limit_amt = budget_line.amount if budget_line else 0.0
         overage = max(0.0, used + reserved - limit_amt)
-
-        ApprovalReq = self.env['buz.budget.approval.request']
 
         return {
             'name': _('Request Budget Approval'),
@@ -382,7 +496,8 @@ class PurchaseOrder(models.Model):
             'context': {
                 'default_document_type': 'po',
                 'default_ref_id': self.id,
-                'default_budget_line_id': budget_line.id if budget_line else False,
+                'default_budget_line_id': False, # Removed weekly relation
+                'default_budget_allocation_id': budget_line.id if budget_line else False,
                 'default_amount_requested': po_amount,
                 'default_amount_used': used,
                 'default_amount_reserved': reserved,
@@ -392,33 +507,60 @@ class PurchaseOrder(models.Model):
         }
 
     def action_submit_for_review(self):
-        """Override to check weekly budget before sending for review."""
+        """Override to check monthly budget before sending for review."""
         for order in self:
-            order._check_weekly_budget()
+            order._check_monthly_budget()
         return super().action_submit_for_review()
 
     def button_confirm(self):
-        """Override to check weekly budget before confirming."""
+        """Override to check monthly budget before confirming."""
         for order in self:
-            order._check_weekly_budget()
+            order._check_monthly_budget()
         return super().button_confirm()
 
-    def _check_weekly_budget(self):
-        """Check if confirming this PO would exceed any weekly budget."""
+    def button_cancel(self):
+        """Override to cascade cancellation to source documents."""
+        res = super().button_cancel()
+        for po in self:
+            pr_name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
+            if pr_name:
+                pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1)
+                # PR state can be 'cancelled', let's write to generic state field
+                if pr and pr.state != 'cancelled':
+                    pr.write({
+                        'state': 'cancelled',
+                        'reject_date': fields.Date.today()
+                    })
+
+            mr_linked = getattr(po, 'material_requisition_id', False)
+            if not mr_linked and getattr(po, 'origin', False):
+                mr_linked = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1)
+            
+            if mr_linked:
+                # Use standard state bypass for cancel
+                try:
+                    mr_linked.write({'state': 'cancel'})
+                except Exception:
+                    try:
+                        mr_linked.write({'state': 'cancelled'})
+                    except Exception:
+                        pass
+        return res
+
+    def _check_monthly_budget(self):
+        """Check if confirming this PO would exceed any monthly budget."""
         self.ensure_one()
 
         ApprovalReq = self.env['buz.budget.approval.request'].sudo()
 
-        # 1. Check if an approved budget request exists for THIS PO
         approved_po = ApprovalReq.search([
             ('document_type', '=', 'po'),
             ('ref_po_id', '=', self.id),
             ('state', '=', 'approved'),
         ], limit=1)
         if approved_po:
-            return  # Bypass
+            return
 
-        # 2. Check if approved from source PR
         if self.requisition_order:
             pr = self.env['employee.purchase.requisition'].search([('name', '=', self.requisition_order)], limit=1)
             if pr:
@@ -430,7 +572,6 @@ class PurchaseOrder(models.Model):
                 if approved_pr:
                     return
 
-        # 3. Check if approved from source MR
         if getattr(self, 'material_requisition_id', False):
             approved_mr = ApprovalReq.search([
                 ('document_type', '=', 'mr'),
@@ -440,16 +581,16 @@ class PurchaseOrder(models.Model):
             if approved_mr:
                 return
 
-        week_amounts = self._get_weekly_budget_lines_for_po()
+        month_amounts = self._get_monthly_budget_allocation_for_po()
 
-        if not week_amounts:
-            return  # No budget plan active, allow confirmation
+        if not month_amounts:
+            raise UserError(_('No active monthly budget plan found for the expected payment date.'))
 
         violations = []
-        for budget_line, po_amount in week_amounts.items():
+        for budget_line, po_amount in month_amounts.items():
             used = budget_line.amount_used
             reserved = budget_line.amount_reserved
-            limit_amt = budget_line.amount_limit
+            limit_amt = budget_line.amount
             total_after = used + reserved
             overage = total_after - limit_amt
 
@@ -467,19 +608,21 @@ class PurchaseOrder(models.Model):
             self._handle_budget_violation(violations)
 
     def _handle_budget_violation(self, violations):
-        """Block PO confirmation and send notification."""
+        """Block PO confirmation or warn based on configuration."""
         self.ensure_one()
+        control_type = self.env.company.budget_control_type if hasattr(self.env.company, 'budget_control_type') else 'hard'
 
         # Build error message
-        msg_parts = [_('Weekly Budget Exceeded! Cannot proceed with Purchase Order.\n')]
+        msg_parts = [_('Monthly Budget Exceeded! Cannot proceed with Purchase Order.\n')]
         for v in violations:
             msg_parts.append(
-                _('Week: %s\n'
+                _('Month: %s (%s)\n'
                   '  - Budget Limit: %s\n'
                   '  - Used (Billed): %s\n'
                   '  - Reserved (Unbilled/PR/MR): %s\n'
                   '  - Over by: %s\n') % (
-                    v['line'].name,
+                    v['line'].plan_id.name,
+                    v['line'].department_id.name if v['line'].department_id else 'Base',
                     '{:,.2f}'.format(v['limit']),
                     '{:,.2f}'.format(v['used']),
                     '{:,.2f}'.format(v['reserved']),
@@ -487,15 +630,10 @@ class PurchaseOrder(models.Model):
                 )
             )
 
-        # append guidance message
-        msg_parts.append(
-            _('\nPlease click "ขอเพิ่มงบประมาณ" button to submit a Budget Approval Request.')
-        )
+        msg_parts.append(_('\nPlease click "ขอเพิ่มงบประมาณ" button to submit a Budget Approval Request.'))
 
-        # Send email notification
         self._send_budget_exceeded_notification(violations)
 
-        # Post to budget plan chatter
         for v in violations:
             plan = v['line'].plan_id
             plan.message_post(
@@ -503,12 +641,13 @@ class PurchaseOrder(models.Model):
                     '<strong>Budget Exceeded Alert</strong><br/>'
                     'PO: <strong>%s</strong><br/>'
                     'User: %s<br/>'
-                    'Week: %s<br/>'
+                    'Month: %s (%s)<br/>'
                     'Budget: %s | Used: %s | Reserved: %s | Over by: %s'
                 ) % (
                     self.name,
                     self.env.user.name,
-                    v['line'].name,
+                    v['line'].plan_id.name,
+                    v['line'].department_id.name if v['line'].department_id else 'Base',
                     '{:,.2f}'.format(v['limit']),
                     '{:,.2f}'.format(v['used']),
                     '{:,.2f}'.format(v['reserved']),
@@ -518,10 +657,12 @@ class PurchaseOrder(models.Model):
                 subtype_xmlid='mail.mt_note',
             )
 
-        raise UserError('\n'.join(msg_parts))
+        if control_type == 'hard':
+            raise UserError('\n'.join(msg_parts))
+        else:
+            self.message_post(body=_('<strong>Budget Warning:</strong><br/>') + '<br/>'.join(msg_parts).replace('\n', '<br/>'))
 
     def _send_budget_exceeded_notification(self, violations):
-        """Send email to notify users about budget exceeded."""
         template = self.env.ref(
             'biz_weekly_budget.mail_template_budget_exceeded',
             raise_if_not_found=False,
@@ -529,7 +670,6 @@ class PurchaseOrder(models.Model):
         if not template:
             return
 
-        # Collect all notify users from related plans
         notify_users = self.env['res.users']
         for v in violations:
             notify_users |= v['line'].plan_id.notify_user_ids
@@ -537,11 +677,10 @@ class PurchaseOrder(models.Model):
         if not notify_users:
             return
 
-        # Build violation details for email context
         violation_details = []
         for v in violations:
             violation_details.append({
-                'week_name': v['line'].name,
+                'week_name': v['line'].plan_id.name, # Use plan name instead of week
                 'limit': '{:,.2f}'.format(v['limit']),
                 'used': '{:,.2f}'.format(v['used']),
                 'reserved': '{:,.2f}'.format(v['reserved']),
@@ -562,7 +701,4 @@ class PurchaseOrder(models.Model):
                     po_user=self.env.user.name,
                 ).send_mail(self.id, force_send=False)
             except Exception as e:
-                _logger.warning(
-                    'Failed to send budget exceeded email to %s: %s',
-                    user.email, str(e)
-                )
+                pass

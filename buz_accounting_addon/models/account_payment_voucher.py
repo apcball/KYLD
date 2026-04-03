@@ -264,20 +264,20 @@ class AccountPaymentVoucher(models.Model):
                      'force_amount': total_net,
                  })
              else:
-                 # FALLBACK: Generic Write-off to Account 213102
+                 # FALLBACK: Generic Write-off to Account 217402
                  wht_payable_account = self.env['account.account'].search([
-                    ('code', '=', '213102'),
+                    ('code', '=', '217402'),
                     ('company_id', '=', self.company_id.id)
                  ], limit=1)
                  
                  if not wht_payable_account:
-                     raise UserError(_("Configuration Error: No WHT Payable Account found (213102). Please configure your WHT Tax or Account."))
+                     raise UserError(_("Configuration Error: No WHT Payable Account found (217402). Please configure your WHT Tax or Account."))
                      
                  ctx.update({
                      'default_amount': total_net,
                      'default_payment_difference_handling': 'reconcile_account',
                      'default_writeoff_account_id': wht_payable_account.id,
-                     'default_writeoff_label': _('Withholding Tax'),
+                     'default_writeoff_label': _('ภาษีหัก ณ ที่จ่าย ภงด. 3 ค้างนำส่ง'),
                      'force_amount': total_net,
                  })
 
@@ -609,29 +609,35 @@ class AccountPaymentVoucher(models.Model):
 
         # 2. Credit Line (WHT)
         if total_wht > 0:
-            # 1. Specific Account Code (213102)
-            wht_account = self.env['account.account'].search([
-                ('code', '=', '213102'),
-                ('company_id', '=', self.company_id.id)
-            ], limit=1)
+            wht_account = False
+            first_wht_line = self.line_ids.filtered(lambda l: l.wht_amount > 0 and l.wht_tax_id)
+            if first_wht_line and first_wht_line[0].wht_tax_id.account_id:
+                wht_account = first_wht_line[0].wht_tax_id.account_id
+
+            if not wht_account:
+                # 1. Specific Account Code (217402)
+                wht_account = self.env['account.account'].search([
+                    ('code', '=', '217402'),
+                    ('company_id', '=', self.company_id.id)
+                ], limit=1)
 
             # 2. Search by Name/Code pattern if not found
+            if not wht_account:
+                wht_account = self.env['account.account'].search([
+                    ('name', '=', 'ภาษีหัก ณ ที่จ่าย ภงด. 3 ค้างนำส่ง'),
+                    ('company_id', '=', self.company_id.id)
+                ], limit=1)
+
+            # 3. Search by WHT pattern if not found
             if not wht_account:
                 wht_account = self.env['account.account'].search([
                     ('code', '=ilike', '%wht%payable%'),
                     ('company_id', '=', self.company_id.id)
                 ], limit=1)
-            
-            # 3. Fallback to generic liability
-            if not wht_account:
-                wht_account = self.env['account.account'].search([
-                    ('account_type', '=', 'liability_current'),
-                    ('company_id', '=', self.company_id.id)
-                ], limit=1)
                 
             lines.append({
-                'code': wht_account.code if wht_account else '213102',
-                'name': wht_account.name if wht_account else 'ภาษีหัก ณ ที่จ่ายค้างจ่าย',
+                'code': wht_account.code if wht_account else '217402',
+                'name': wht_account.name if wht_account else 'ภาษีหัก ณ ที่จ่าย ภงด. 3 ค้างนำส่ง',
                 'ref': voucher_name,
                 'date': date,
                 'debit': 0.0,

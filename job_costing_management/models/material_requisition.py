@@ -250,6 +250,9 @@ class MaterialRequisition(models.Model):
                 'origin': self.name,
                 'material_requisition_id': self.id,  # Link to material requisition
                 'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
+                'employee_id': self.employee_id.id if self.employee_id else False,
+                'department_id': self.department_id.id if self.department_id else False,
+                'dept_id': self.department_id.id if self.department_id else False,
                 'order_line': []
             }
             if self.delivery_to:

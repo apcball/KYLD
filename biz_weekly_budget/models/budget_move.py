@@ -8,15 +8,15 @@ class BudgetMove(models.Model):
 
     name = fields.Char(string='Description', required=True)
     
-    line_id = fields.Many2one(
-        'weekly.budget.line',
-        string='Budget Line',
+    allocation_id = fields.Many2one(
+        'monthly.budget.allocation',
+        string='Budget Allocation',
         required=True,
         ondelete='cascade',
         index=True
     )
     plan_id = fields.Many2one(
-        related='line_id.plan_id',
+        related='allocation_id.plan_id',
         string='Budget Plan',
         store=True,
         index=True
@@ -40,26 +40,73 @@ class BudgetMove(models.Model):
     department_id = fields.Many2one(
         'hr.department',
         string='Department',
-        index=True
+        index=True,
+        required=True
     )
+    month_key = fields.Char(string='Month Key', compute='_compute_keys', store=True)
+    week_key = fields.Char(string='Week Key', compute='_compute_keys', store=True)
+
+    reservation_date = fields.Date(string='Reservation Date', default=fields.Date.context_today)
+    aging_days = fields.Integer(string='Aging Days', compute='_compute_aging_days', store=True)
     
     amount = fields.Float(string='Amount', required=True)
     move_type = fields.Selection([
         ('reserved', 'Reserved'),
-        ('used', 'Used')
+        ('used', 'Used'),
+        ('forecast', 'Forecast')
     ], string='Type', required=True, index=True)
     
     date = fields.Date(string='Date', required=True, index=True)
     company_id = fields.Many2one(
-        related='line_id.company_id',
+        'res.company',
         string='Company',
-        store=True
+        compute='_compute_source_company',
+        store=True,
+        index=True
     )
     currency_id = fields.Many2one(
-        related='line_id.currency_id',
+        related='allocation_id.plan_id.currency_id',
         string='Currency',
         store=True
     )
+
+    @api.depends('date')
+    def _compute_keys(self):
+        for rec in self:
+            if rec.date:
+                rec.month_key = rec.date.strftime('%Y-%m')
+                rec.week_key = rec.date.strftime('%Y-W%W')
+            else:
+                rec.month_key = False
+                rec.week_key = False
+
+    @api.depends('source_model', 'source_id', 'department_id')
+    def _compute_source_company(self):
+        for rec in self:
+            company = False
+            if rec.source_model and rec.source_id:
+                try:
+                    source_doc = self.env[rec.source_model].sudo().browse(rec.source_id)
+                    if source_doc.exists() and getattr(source_doc, 'company_id', False):
+                        company = source_doc.company_id
+                except Exception:
+                    pass
+            
+            # Fallback to department's company if source is missing
+            if not company and rec.department_id and rec.department_id.company_id:
+                company = rec.department_id.company_id
+                
+            rec.company_id = company
+
+    @api.depends('reservation_date')
+    def _compute_aging_days(self):
+        today = fields.Date.context_today(self)
+        for rec in self:
+            if rec.reservation_date and rec.move_type == 'reserved':
+                delta = today - rec.reservation_date
+                rec.aging_days = delta.days
+            else:
+                rec.aging_days = 0
 
     @api.model
     def _create_move(self, vals):
@@ -75,39 +122,70 @@ class BudgetMove(models.Model):
         If no distribution exists, returns fallback.
         """
         res = []
-        dist = getattr(line, 'analytic_distribution', False)
         acc_id = getattr(line, 'analytic_account_id', False)
         dept_id = getattr(line, 'department_id', False)
-        
-        # Identify header to pull fallback department/analytic info
-        order = getattr(line, 'order_id', False) or \
-                getattr(line, 'requisition_id', False) or \
-                getattr(line, 'material_requisition_id', False) or \
-                getattr(line, 'requisition_product_id', False)
-                
+
+        # Priority fallback: Try fetching from linked MR line if available (important for Procurement Pools)
+        mr_line_linked = getattr(line, 'material_requisition_line_id', False)
+        if mr_line_linked:
+            if not dept_id:
+                dept_id = mr_line_linked.requisition_id.department_id
+            if not acc_id:
+                acc_id = mr_line_linked.analytic_account_id or mr_line_linked.requisition_id.analytic_account_id
+
+        # Identify header to pull fallback department/analytic info.
+        # For PO lines:    line.order_id
+        # For PR/MR lines: line.requisition_id / line.material_requisition_id
+        # For Bill lines:  line.purchase_line_id.order_id  ← standard Odoo link
+        #                  line.move_id                    ← the bill header itself
+        order = (
+            getattr(line, 'order_id', False)
+            or getattr(line, 'requisition_id', False)
+            or getattr(line, 'material_requisition_id', False)
+            or getattr(line, 'requisition_product_id', False)
+        )
+
+        if not order:
+            # Bill line → linked PO via purchase_line_id
+            po_line = getattr(line, 'purchase_line_id', False)
+            if po_line:
+                order = getattr(po_line, 'order_id', False)
+
+        if not order:
+            # Last resort: the parent document itself (e.g., the bill header)
+            order = getattr(line, 'move_id', False)
+
         if order:
             if not acc_id:
-                # Some modules use expense_code_id or analytic_account_id
                 acc_id = getattr(order, 'analytic_account_id', False) or getattr(order, 'expense_code_id', False)
             if not dept_id:
                 dept_id = getattr(order, 'department_id', False) or getattr(order, 'dept_id', False)
-        
-        if dist:
-            for account_id_str, percentage in dist.items():
-                for acc_id_piece in str(account_id_str).split(','):
-                    if not acc_id_piece.strip():
-                        continue
-                    acc_int = int(acc_id_piece.strip())
-                    res.append({
-                        'analytic_account_id': acc_int,
-                        'department_id': dept_id.id if hasattr(dept_id, 'id') and dept_id else False,
-                        'percentage': percentage / 100.0
-                    })
-        else:
-            res.append({
-                'analytic_account_id': acc_id.id if acc_id else False,
-                'department_id': dept_id.id if dept_id else False,
-                'percentage': 1.0
-            })
-            
+
+        # Budgets are mapped 100% strictly to the line's department, ignoring analytic splits.
+        res.append({
+            'analytic_account_id': acc_id.id if hasattr(acc_id, 'id') else (acc_id or False),
+            'department_id': dept_id.id if hasattr(dept_id, 'id') else (dept_id or False),
+            'percentage': 1.0
+        })
+
         return res
+
+    @api.model
+    def action_release_aged_reservations(self):
+        """Cron action: Find reserved moves exceeding the aging days limit and release them."""
+        # Note: We can only release reservations by either deleting the move or creating an offsetting move.
+        # Deleting the move is cleaner and aligns with '_clear_budget_moves' behavior for resetting.
+        # However, we only do this for purely aged PR/MR without linked POs? 
+        # Actually simplest is just to unlink them entirely or add an offsetting minus move.
+        moves = self.search([('move_type', '=', 'reserved')])
+        for move in moves:
+            limit = move._get_aging_limit()
+            if limit and move.aging_days > limit:
+                _logger.info(f"Releasing aged reservation {move.id} for {move.name}")
+                move.unlink()
+
+    def _get_aging_limit(self):
+        """Helper to get company limit, fall back to default"""
+        if self.company_id and hasattr(self.company_id, 'budget_aging_days_limit'):
+            return self.company_id.budget_aging_days_limit
+        return 30

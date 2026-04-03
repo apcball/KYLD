@@ -1,275 +1,330 @@
-# 🎯 Objective
+# 🧠 Prompt: Upgrade Weekly Budget Control → Department + Monthly Hybrid (Backend - Odoo 17)
 
-พัฒนา Analytic Budget Engine สำหรับ Odoo 17 เพื่อควบคุมงบประมาณแบบ:
+## 🎯 Objective
 
-* Weekly (time dimension)
-* Analytic-based (department / project)
-* รองรับ Used / Reserved / Available
-* รองรับ Partial billing และ analytic distribution
+Upgrade existing module `biz_weekly_budget` to support:
 
----
-
-# 🧱 Core Concept
-
-Budget = f(Week, Analytic Account, Department)
+1. Department-based budgeting (replace analytic dependency)
+2. Monthly budget layer (parent of weekly)
+3. Department allocation by percentage
+4. Backward compatibility with existing weekly engine
+5. Advanced controls (forecast, aging, soft/hard)
 
 ---
 
-# 🗂️ Models Design
+# 🏗️ ARCHITECTURE (IMPORTANT)
 
-## 1. weekly_budget_plan (existing - extend)
+## Existing (KEEP)
 
-* name
-* date_from
-* date_to
-* company_id
-* state
+* weekly.budget.plan
+* weekly.budget.line
+* budget.move (ledger)
 
----
+## New Layer (ADD)
 
-## 2. weekly_budget_line (REFACTOR - IMPORTANT)
-
-Add dimensions:
-
-* week_start (date)
-
-* week_end (date)
-
-* analytic_account_id (Many2one: account.analytic.account)
-
-* department_id (Many2one: hr.department)
-
-* analytic_tag_ids (Many2many)
-
-Financial fields:
-
-* budget_limit (float)
-* used_amount (compute)
-* reserved_amount (compute)
-* available_amount (compute)
-
-SQL constraint:
-
-* unique(week_start, analytic_account_id, department_id, company_id)
-
----
-
-## 3. budget_move (NEW - optional but recommended for performance)
-
-Purpose:
-
-* store pre-aggregated usage
-
-Fields:
-
-* source_model (po/pr/bill/mr)
-* source_id
-* analytic_account_id
-* department_id
-* amount
-* type (reserved / used)
-* date (cashflow date)
-
----
-
-# ⚙️ Core Engine Logic
-
-## 1. Budget Matching Function
-
+```text
+monthly.budget.plan
+    ↓
+monthly.budget.allocation (department %)
+    ↓
+weekly.budget.plan (generated from monthly)
 ```
-def _get_budget_line(date, analytic_account_id, department_id, company_id):
-    return search([
-        ('week_start', '<=', date),
-        ('week_end', '>=', date),
-        ('analytic_account_id', '=', analytic_account_id),
-        ('department_id', '=', department_id),
-        ('company_id', '=', company_id),
-    ], limit=1)
+
+👉 Weekly = execution layer
+👉 Monthly = control layer
+
+---
+
+# 🧩 1. NEW MODELS
+
+## 1.1 monthly.budget.plan
+
+```python
+name
+year
+month
+date_from
+date_to
+
+company_id
+total_budget
+
+state = draft / confirmed / done
+
+allocation_ids (department %)
+weekly_plan_ids
 ```
 
 ---
 
-## 2. Reserved Calculation
+## 1.2 monthly.budget.allocation
 
-Sources:
-
-* PR
-* MR
-* PO (not fully billed)
-
-Logic:
-
-FOR each document line:
-extract analytic distribution
-
-IF analytic_distribution exists:
-split amount by %
-ELSE:
-fallback to analytic_account_id
-
+```python
+plan_id
+department_id
+percentage
+amount (computed)
 ```
-reserved += line_amount * percent
+
+### Constraint:
+
+```python
+sum(percentage) == 100
 ```
 
 ---
 
-## 3. Used Calculation
+# 🔗 2. EXTEND EXISTING MODELS
 
-Source:
+## 2.1 weekly.budget.plan
 
-* account.move (Vendor Bill)
+Add:
 
-Rule:
-
-* only posted bills
-* use invoice_date_due as budget date
-
-Split logic same as reserved
-
----
-
-## 4. Analytic Distribution Handling (CRITICAL)
-
-Input example:
-
-```
-{
-    "analytic_1": 0.7,
-    "analytic_2": 0.3
-}
-```
-
-Engine must:
-
-* loop through each analytic
-* allocate amount proportionally
-* map to correct budget line
-
----
-
-## 5. Available Calculation
-
-```
-available = budget_limit - used_amount - reserved_amount
+```python
+monthly_plan_id = fields.Many2one('monthly.budget.plan')
+department_id = fields.Many2one('hr.department')
 ```
 
 ---
 
-# 🚨 Blocking Logic
+## 2.2 weekly.budget.line
 
-Hook into:
+REPLACE analytic logic with:
 
-* purchase.order → button_confirm
-* purchase.requisition → approve
-* material.requisition → submit
-
-Validation:
-
-FOR each line:
-simulate reserved impact
-find budget_line
-
-IF available < required:
-raise ValidationError
-
----
-
-# 🧠 Smart Handling
-
-## Partial Billing
-
-PO:
-
-* total = 100
-* billed = 40
-
-→ Used = 40
-→ Reserved = 60
-
----
-
-## Cancel Bill
-
-* revert used → reserved
-
----
-
-## Missing Analytic
-
-Fallback priority:
-
-1. line analytic
-2. order analytic
-3. department default analytic
-4. ERROR (optional strict mode)
-
----
-
-# ⚡ Performance Strategy
-
-DO NOT compute from raw tables every time
-
-Use:
-
-Option A:
-
-* computed stored fields
-
-Option B (recommended):
-
-* budget_move table (pre-aggregated)
-
-Option C:
-
-* SQL view / materialized view
-
----
-
-# 🔁 Recompute Engine
-
-Add method:
-
-```
-action_recompute_budget()
+```python
+department_id = fields.Many2one('hr.department', required=True)
 ```
 
-* delete budget_move
-* rebuild from all source docs
+---
+
+## ⚠️ IMPORTANT
+
+* REMOVE dependency on analytic_account_id
+* Keep field temporarily for migration only
 
 ---
 
-# 🔐 Security
+# 🧠 3. DEPARTMENT MAPPING
 
-* Budget User → read only
-* Budget Manager → adjust budget
+## Add to ALL source documents:
 
----
+* purchase.order
+* purchase.requisition
+* material.requisition
+* account.move
 
-# 🧪 Edge Cases
-
-* multi-company
-* timezone affecting week boundary
-* currency conversion (optional future)
-* analytic split rounding
-
----
-
-# 🚀 Future Extensions
-
-* budget reallocation
-* carry forward unused budget
-* approval override (VIP analytic)
+```python
+department_id = fields.Many2one('hr.department', store=True)
+```
 
 ---
 
-# ✅ Deliverables
+## Mapping logic:
 
-* models updated
-* compute methods
-* blocking hooks
-* test cases:
+```python
+def _get_department(self):
+    if self.employee_id:
+        return self.employee_id.department_id
+    if self.env.user.employee_id:
+        return self.env.user.employee_id.department_id
+    return self.env.company.default_department_id
+```
 
-  * over budget
-  * partial billing
-  * analytic split
-  * multi department
+---
+
+## On create:
+
+* assign department_id (LOCK value)
+
+---
+
+# 💰 4. MONTHLY → WEEKLY DISTRIBUTION
+
+## Generate Weekly Plans from Monthly
+
+```python
+for each department allocation:
+    monthly_amount = total_budget * percentage
+
+    weekly_amount = monthly_amount / number_of_weeks
+
+    create weekly.budget.plan per week
+```
+
+---
+
+## Store:
+
+```python
+weekly_plan.department_id
+weekly_plan.monthly_plan_id
+```
+
+---
+
+# 🔄 5. BUDGET MOVE (NO CHANGE CORE)
+
+But extend:
+
+```python
+department_id (required)
+month_key
+week_key
+```
+
+---
+
+# 📊 6. BUDGET CALCULATION (UPDATED)
+
+## Group by:
+
+```python
+department_id + week
+```
+
+---
+
+## Add Monthly Aggregation:
+
+```python
+monthly_used = sum(weekly_used)
+monthly_reserved = sum(weekly_reserved)
+```
+
+---
+
+# 🔥 7. FORECAST LAYER (NEW)
+
+## Add field:
+
+```python
+forecast_amount
+```
+
+---
+
+## Sources:
+
+* PO expected payment
+* recurring cost
+* fixed cost
+
+---
+
+## Formula:
+
+```python
+available_strict = limit - used - reserved
+available_forecast = limit - forecast
+```
+
+---
+
+# ⏳ 8. AGING RESERVATION (NEW)
+
+## Add:
+
+```python
+reservation_date
+aging_days
+```
+
+---
+
+## CRON:
+
+```python
+if aging_days > threshold:
+    release_reserved_move()
+```
+
+---
+
+# 🚫 9. BUDGET CONTROL (UPDATED)
+
+## Check:
+
+```python
+line = get_weekly_line(department_id, date)
+
+if control_type == 'hard':
+    block
+
+if control_type == 'soft':
+    warn only
+```
+
+---
+
+# ⚙️ 10. CONFIGURATION
+
+## Company Settings:
+
+```python
+default_department_id
+budget_control_type = hard / soft
+enable_forecast = True/False
+aging_days_limit
+```
+
+---
+
+# 🔁 11. RECOMPUTE ENGINE (UPGRADE)
+
+## Must support:
+
+1. Delete all budget.move
+
+2. Rebuild from:
+
+   * PR
+   * PO
+   * Bills
+
+3. Recalculate:
+
+   * weekly
+   * monthly aggregation
+
+---
+
+# 🔄 12. MIGRATION STRATEGY
+
+## Step 1:
+
+* Add department_id to all records
+
+## Step 2:
+
+* Map analytic → department (optional mapping table)
+
+## Step 3:
+
+* Recompute all budget.move
+
+---
+
+# 🧠 13. OPTIONAL (ADVANCED)
+
+## Priority-based allocation
+
+```python
+priority = high / normal / low
+```
+
+---
+
+## Carry Forward
+
+```python
+unused → next week
+```
+
+---
+
+# 📌 RULES (STRICT)
+
+* NEVER compute budget from source directly → always via budget.move
+* department_id must be stored (no dynamic compute)
+* system must support recompute safely
+* backward compatibility must be maintained

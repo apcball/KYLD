@@ -1,220 +1,201 @@
-# 🎯 Objective
+# 🎨 Prompt: Upgrade Weekly Budget UI → Department + Monthly Hybrid (OWL)
 
-สร้าง UI สำหรับ:
+## 🎯 Objective
 
-1. Budget Planning แบบ Matrix (Department x Week)
-2. Dashboard แบบ Analytic Insight
-3. UX ต้องเข้าใจง่ายสำหรับ non-accounting user
+Upgrade existing UI to support:
 
-Tech:
-
-* OWL (Odoo 17)
-* Chart.js
+* Department-based budget
+* Monthly overview + Weekly drilldown
+* Allocation by %
+* Forecast visibility
 
 ---
 
-# 🧩 1. Budget Planning Matrix
+# 🧭 MENU UPDATE
 
-## Concept
+Purchase > Budget Control
 
-Table:
+NEW:
 
-```
-        Week1   Week2   Week3
-```
+* Monthly Budget Plans
+* Department Matrix (Monthly)
 
-Marketing    100k    80k     50k
-Sales        200k    150k    100k
+EXISTING:
+
+* Weekly Plans
+* Dashboard (upgrade)
 
 ---
 
-## Component: budget_matrix_planner
+# 📊 1. DASHBOARD (UPGRADE)
 
-Features:
+## KPI:
 
-* Editable grid
-* Inline edit (เหมือน Excel)
-* Auto save / manual save
+* Monthly Total Budget
+* Used
+* Reserved
+* Forecast
+* Available
+
+---
+
+## Chart 1: Department Overview
+
+Bar Chart:
+
+* X: Department
+* Y: Amount
+* Series:
+
+  * Limit
+  * Used
+  * Reserved
+  * Forecast
+
+---
+
+## Chart 2: Weekly Trend
+
+Line Chart:
+
+* Weekly usage inside selected month
+
+---
+
+## Chart 3: Budget Health
+
+Pie:
+
+* Used %
+* Reserved %
+* Available %
+
+---
+
+# 📋 2. MONTHLY PLAN FORM
+
+## Header:
+
+* Month / Year
+* Total Budget
+
+---
+
+## Tab: Department Allocation
+
+Editable Grid:
+
+| Department | % | Amount |
+
+---
+
+## UX:
+
+* auto compute amount
+* validation = 100%
+
+---
+
+## Button:
+
+* Generate Weekly Plans
+
+---
+
+# 🧮 3. DEPARTMENT MATRIX (MONTHLY)
+
+## Layout:
+
+| Department ↓ | Week 1 | Week 2 | Week 3 | Week 4 |
+| ------------ | ------ | ------ | ------ | ------ |
+| Sales        |        |        |        |        |
+
+---
+
+## Features:
+
+* inline edit weekly budget
+* color:
+
+  * green = ok
+  * yellow = >80%
+  * red = exceeded
+
+---
+
+# 📊 4. WEEKLY VIEW (DRILL DOWN)
+
+Add:
+
+* Department filter
 
 Columns:
 
-* Weeks (dynamic from plan)
-
-Rows:
-
-* Department / Analytic
-
-Cell:
-
-* budget_limit
+* Limit
+* Used
+* Reserved
+* Forecast
+* Available
 
 ---
 
-## UX Rules
+# ⚠️ 5. WARNING MODAL (UPGRADE)
 
-* สีเขียว = available เยอะ
-* สีแดง = over budget
-* hover → show:
+```text
+⚠️ Budget Exceeded
 
-  * used
-  * reserved
-  * available
+Department: Marketing
+Weekly Available: 10,000
+Monthly Available: 50,000
 
----
-
-## Interaction
-
-* click cell → edit
-* tab → next cell
-* paste (bulk input)
-
----
-
-# 📊 2. Dashboard
-
-## Component: budget_dashboard_v2
-
----
-
-## Charts
-
-### 1. Budget vs Used vs Reserved (stacked bar)
-
-* x-axis: week
-* y-axis: amount
-
----
-
-### 2. Department Consumption
-
-* pie chart
-* filter by week
-
----
-
-### 3. Burn Rate
-
-* line chart
-* trend per analytic
-
----
-
-### 4. Over Budget Heatmap (🔥 highlight)
-
-Grid:
-
-```
-        Week1   Week2
+Requested: 25,000
 ```
 
-Marketing    OK      OVER
-Sales        OK      OK
+---
+
+# 📨 6. APPROVAL UI
+
+Add:
+
+* show department
+* show monthly impact
 
 ---
 
-# 🎛️ Filters
+# 🎯 UX PRINCIPLES
 
-Top bar:
+* Always show BOTH:
 
-* company
-* date range
-* department
-* analytic account
+  * Weekly
+  * Monthly
 
----
+* Department must be visible everywhere
 
-# ⚡ Drill Down
-
-Click chart → open list view:
-
-* related PO / PR / Bills
+* Avoid:
+  ❌ analytic references
 
 ---
 
-# 🔔 Notification UI
+# 🎨 STYLE
 
-* badge alert:
-
-  * “Marketing exceeded budget Week 2”
-
-* clickable → open detail
+* Card-based dashboard
+* Matrix grid with sticky header
+* Smooth OWL state updates
 
 ---
 
-# 🧠 Smart UX
+# 🚀 FUTURE READY
 
-## Suggestion Engine
+Prepare for:
 
-If budget almost exceeded:
-
-→ show hint:
-"Reduce PO amount or move to next week"
-
----
-
-## Inline Forecast
-
-When user edit budget:
-
-→ preview:
-
-* projected available
-* warning before save
+* multi-version budget
+* CFO dashboard
+* cashflow timeline
 
 ---
 
-# 🎨 Visual Design
+# 📌 NOTES
 
-* modern card layout
-* soft shadow
-* spacing (padding-lg)
-* responsive
-
----
-
-# 📱 Mobile Behavior
-
-* collapse matrix → list view
-* dashboard → scroll cards
-
----
-
-# 🔌 API Integration
-
-Endpoints:
-
-1. get_budget_matrix
-2. update_budget_cell
-3. get_dashboard_data
-4. get_budget_alerts
-
----
-
-# 🚀 Performance
-
-* lazy load charts
-* debounce input
-* batch update (not per cell)
-
----
-
-# 🧪 UX Edge Cases
-
-* no data → empty state illustration
-* large dataset → virtual scroll
-* slow compute → loading skeleton
-
----
-
-# ✅ Deliverables
-
-* OWL components:
-
-  * BudgetMatrixPlanner
-  * BudgetDashboardV2
-
-* Chart.js integration
-
-* API controllers
-
-* responsive design
+* Use API (avoid heavy ORM)
+* All amounts formatted
+* Optimize for large departments

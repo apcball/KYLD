@@ -8,10 +8,9 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
-def _find_budget_lines_for_date(env, target_date, company_id):
-    """Helper: find confirmed budget lines covering target_date."""
+def _find_budget_allocations_for_date(env, target_date, company_id):
     if not target_date:
-        return env['weekly.budget.line']
+        return env['monthly.budget.allocation']
     domain = [
         ('plan_state', '=', 'confirmed'),
         ('date_from', '<=', target_date),
@@ -20,11 +19,26 @@ def _find_budget_lines_for_date(env, target_date, company_id):
         ('all_companies', '=', True),
         ('company_id', '=', company_id),
     ]
-    return env['weekly.budget.line'].sudo().search(domain)
+    return env['monthly.budget.allocation'].sudo().search(domain)
 
 
 class MaterialRequisition(models.Model):
     _inherit = 'material.requisition'
+
+    @api.model
+    def _get_default_department(self):
+        if hasattr(self.env.user, 'employee_id') and self.env.user.employee_id:
+            return self.env.user.employee_id.department_id
+        if hasattr(self.env.company, 'default_department_id'):
+            return self.env.company.default_department_id
+        return False
+
+    department_id = fields.Many2one(
+        'hr.department',
+        string='Department',
+        store=True,
+        default=_get_default_department,
+    )
 
     payment_date = fields.Date(
         string='Expected Payment',
@@ -53,6 +67,19 @@ class MaterialRequisition(models.Model):
         string='Budget Warning',
         compute='_compute_budget_check_result'
     )
+    is_budget_reserved = fields.Boolean(
+        string='Budget is Reserved',
+        compute='_compute_is_budget_reserved',
+    )
+
+    def _compute_is_budget_reserved(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        for rec in self:
+            rec.is_budget_reserved = bool(BudgetMove.search_count([
+                ('source_model', '=', self._name),
+                ('source_id', '=', rec.id),
+                ('move_type', '=', 'reserved'),
+            ]))
 
     def _compute_budget_approval_id(self):
         ApprovalReq = self.env['buz.budget.approval.request'].sudo()
@@ -71,22 +98,30 @@ class MaterialRequisition(models.Model):
             base_date = req.required_date or fields.Date.today()
             req.payment_date = base_date + timedelta(days=30)
 
-    def _find_budget_line_for_date(self, target_date):
-        """Find the confirmed budget line that covers the given date."""
+    def _find_budget_allocation_for_date(self, target_date):
         domain = [
             ('plan_state', '=', 'confirmed'),
             ('date_from', '<=', target_date),
             ('date_to', '>=', target_date),
+            ('department_id', '=', self.department_id.id)
         ]
         company_domain = [
             '|',
             ('all_companies', '=', True),
             ('company_id', '=', self.company_id.id),
         ]
-        budget_lines = self.env['weekly.budget.line'].sudo().search(
+        allocations = self.env['monthly.budget.allocation'].sudo().search(
             domain + company_domain, limit=1
         )
-        return budget_lines[:1] if budget_lines else False
+        if not allocations:
+             domain = [
+                 ('plan_state', '=', 'confirmed'),
+                 ('date_from', '<=', target_date),
+                 ('date_to', '>=', target_date),
+                 ('department_id', '=', False)
+             ]
+             allocations = self.env['monthly.budget.allocation'].sudo().search(domain + company_domain, limit=1)
+        return allocations[:1] if allocations else False
 
     def write(self, vals):
         """Trigger budget reserved moves recompute when state or payment_date changes."""
@@ -105,13 +140,14 @@ class MaterialRequisition(models.Model):
     def _update_budget_moves(self):
         self._clear_budget_moves()
         BudgetMove = self.env['budget.move'].sudo()
-        BudgetLine = self.env['weekly.budget.line'].sudo()
+        BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
         
         for req in self.filtered(lambda r: r.state != 'draft'):
             confirmed_pos = self.env['purchase.order'].sudo().search([
                 ('state', 'in', ('purchase', 'done')),
-                '|', ('material_requisition_id', '=', req.id),
-                     ('origin', '=', req.name)
+                '|', '|', ('material_requisition_id', '=', req.id),
+                     ('origin', '=', req.name),
+                     ('order_line.material_requisition_line_id.requisition_id', '=', req.id)
             ], limit=1)
             
             if confirmed_pos:
@@ -128,27 +164,25 @@ class MaterialRequisition(models.Model):
                     dist_amount = amount * dist['percentage']
                     if dist_amount == 0: continue
                     
-                    bline = BudgetLine.search([
+                    bline = BudgetAllocation.search([
                         ('plan_state', '=', 'confirmed'),
                         ('date_from', '<=', budget_date),
                         ('date_to', '>=', budget_date),
-                        ('analytic_account_id', '=', dist['analytic_account_id']),
                         ('department_id', '=', dist['department_id']),
                         '|', ('all_companies', '=', True), ('company_id', '=', req.company_id.id),
                     ], limit=1)
                     if not bline:
-                        bline = BudgetLine.search([
+                        bline = BudgetAllocation.search([
                             ('plan_state', '=', 'confirmed'),
                             ('date_from', '<=', budget_date),
                             ('date_to', '>=', budget_date),
-                            ('analytic_account_id', '=', False),
                             ('department_id', '=', False),
                             '|', ('all_companies', '=', True), ('company_id', '=', req.company_id.id),
                         ], limit=1)
                     if bline:
                         BudgetMove.create({
                             'name': f"{req.name} - {line.product_id.name or 'Line'}",
-                            'line_id': bline.id,
+                            'allocation_id': bline.id,
                             'source_model': 'material.requisition',
                             'source_id': req.id,
                             'source_line_id': line.id,
@@ -168,11 +202,11 @@ class MaterialRequisition(models.Model):
                 req.budget_warning = False
                 continue
 
-            budget_line = req._find_budget_line_for_date(target_date)
+            budget_line = req._find_budget_allocation_for_date(target_date)
             if not budget_line:
                 req.budget_check_result = _(
                     '<div class="alert alert-info">'
-                    'No active weekly budget plan found for the expected payment date.'
+                    'No active monthly budget plan found for the expected payment date.'
                     '</div>'
                 )
                 req.budget_warning = False
@@ -181,7 +215,7 @@ class MaterialRequisition(models.Model):
             mr_amount = req.total_cost or sum(req.line_ids.mapped('total_cost'))
             used = budget_line.amount_used
             reserved = budget_line.amount_reserved
-            limit_amt = budget_line.amount_limit
+            limit_amt = budget_line.amount
             total_after = used + reserved + mr_amount
             remaining = limit_amt - total_after
             is_over = remaining < 0
@@ -201,6 +235,7 @@ class MaterialRequisition(models.Model):
                 '<div class="card mb-2 border-%s">'
                 '<div class="card-body p-2">'
                 '<h6 class="card-title">%s %s (MR - Estimate)</h6>'
+                '<p class="card-subtitle mb-2 text-muted"><strong>%s</strong> (%s - %s)</p>'
                 '<table class="table table-sm table-borderless mb-0">'
                 '<tr><td>%s</td><td class="text-end">%s</td></tr>'
                 '<tr><td>%s</td><td class="text-end">%s</td></tr>'
@@ -214,8 +249,11 @@ class MaterialRequisition(models.Model):
                 '</div></div>' % (
                     status_class,
                     status_icon,
-                    budget_line.name,
-                    _('Weekly Budget'),
+                    budget_line.plan_id.name,
+                    budget_line.department_id.name if budget_line.department_id else 'Base',
+                    budget_line.date_from.strftime('%d %b %Y'),
+                    budget_line.date_to.strftime('%d %b %Y'),
+                    _('Monthly Budget'),
                     '{:,.2f}'.format(limit_amt),
                     _('Already Used (Confirmed POs)'),
                     '{:,.2f}'.format(used),
@@ -242,12 +280,12 @@ class MaterialRequisition(models.Model):
         """Submit a budget approval request when budget is exceeded."""
         self.ensure_one()
         target_date = self.payment_date
-        budget_line = self._find_budget_line_for_date(target_date) if target_date else False
+        budget_line = self._find_budget_allocation_for_date(target_date) if target_date else False
         mr_amount = self.total_cost or sum(self.line_ids.mapped('total_cost'))
 
         used = budget_line.amount_used if budget_line else 0.0
         reserved = budget_line.amount_reserved if budget_line else 0.0
-        limit_amt = budget_line.amount_limit if budget_line else 0.0
+        limit_amt = budget_line.amount if budget_line else 0.0
         overage = max(0.0, used + reserved + mr_amount - limit_amt)
 
         return {
@@ -259,7 +297,8 @@ class MaterialRequisition(models.Model):
             'context': {
                 'default_document_type': 'mr',
                 'default_ref_id': self.id,
-                'default_budget_line_id': budget_line.id if budget_line else False,
+                'default_budget_line_id': False,
+                'default_budget_allocation_id': budget_line.id if budget_line else False,
                 'default_amount_requested': mr_amount,
                 'default_amount_used': used,
                 'default_amount_reserved': reserved,
@@ -269,13 +308,13 @@ class MaterialRequisition(models.Model):
         }
 
     def action_submit(self):
-        """Override to check weekly budget before submitting."""
+        """Override to check monthly budget before submitting."""
         for req in self:
-            req._check_weekly_budget()
+            req._check_monthly_budget()
         return super().action_submit()
 
-    def _check_weekly_budget(self):
-        """Check if this MR would exceed any weekly budget."""
+    def _check_monthly_budget(self):
+        """Check if this MR would exceed any monthly budget."""
         self.ensure_one()
         target_date = self.payment_date
         if not target_date or not self.line_ids:
@@ -288,16 +327,16 @@ class MaterialRequisition(models.Model):
             ('state', '=', 'approved'),
         ], limit=1)
         if approved:
-            return  # Bypass – approved
+            return
 
-        budget_line = self._find_budget_line_for_date(target_date)
+        budget_line = self._find_budget_allocation_for_date(target_date)
         if not budget_line:
-            return  # No budget plan active
+            raise UserError(_('No active monthly budget plan found for the expected payment date.'))
 
         mr_amount = self.total_cost or sum(self.line_ids.mapped('total_cost'))
         used = budget_line.amount_used
         reserved = budget_line.amount_reserved
-        limit_amt = budget_line.amount_limit
+        limit_amt = budget_line.amount
         total_after = used + reserved + mr_amount
         overage = total_after - limit_amt
 
@@ -307,12 +346,13 @@ class MaterialRequisition(models.Model):
                     '<strong>Budget Exceeded Alert (MR)</strong><br/>'
                     'MR: <strong>%s</strong><br/>'
                     'User: %s<br/>'
-                    'Week: %s<br/>'
+                    'Month: %s (%s)<br/>'
                     'Budget: %s | Used: %s | Reserved: %s | MR Amount: %s | Over by: %s'
                 ) % (
                     self.name,
                     self.env.user.name,
-                    budget_line.name,
+                    budget_line.plan_id.name,
+                    budget_line.department_id.name if budget_line.department_id else 'Base',
                     '{:,.2f}'.format(limit_amt),
                     '{:,.2f}'.format(used),
                     '{:,.2f}'.format(reserved),
@@ -324,8 +364,8 @@ class MaterialRequisition(models.Model):
             )
 
             raise UserError(_(
-                'Weekly Budget Exceeded! Cannot submit Material Requisition.\n\n'
-                'Week: %s\n'
+                'Monthly Budget Exceeded! Cannot submit Material Requisition.\n\n'
+                'Month: %s (%s)\n'
                 '  - Budget Limit: %s\n'
                 '  - Already Used: %s\n'
                 '  - Already Reserved: %s\n'
@@ -333,7 +373,8 @@ class MaterialRequisition(models.Model):
                 '  - Over by: %s\n\n'
                 'Please click "ขอเพิ่มงบประมาณ" to submit a Budget Approval Request.'
             ) % (
-                budget_line.name,
+                budget_line.plan_id.name,
+                budget_line.department_id.name if budget_line.department_id else 'Base',
                 '{:,.2f}'.format(limit_amt),
                 '{:,.2f}'.format(used),
                 '{:,.2f}'.format(reserved),

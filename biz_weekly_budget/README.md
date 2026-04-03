@@ -135,42 +135,84 @@ biz_weekly_budget/
 ### 1. ดูภาพรวมงบประมาณผ่าน Dashboard
 **เส้นทาง:** Purchase > Budget Control > Dashboard
 - ตรวจสอบสถานะการใช้งบประมาณรายสัปดาห์ผ่านกราฟ (Chart.js)
-- ดูเปรียบเทียบยอด Limit, Used (เงินจ่ายจริง/บิลแจ้งหนี้), และ Reserved (ยอดผูกพัน)
+- ดูเปรียบเทียบยอด Limit, Used (เงินจ่ายจริง/บิลแจ้งหนี้), Reserved (ยอดผูกพัน) และ Available
+- กรองข้อมูลตาม Plan, Year, หรือ Month
 
 ### 2. สร้างและจัดการแผนงบประมาณรายสัปดาห์
 **เส้นทาง:** Purchase > Budget Control > Weekly Budget Plans
+
+**สร้างแผนงบประมาณใหม่:**
 1. กด **Create** เพื่อสร้างแผนงบประมาณใหม่
-2. กรอกข้อมูลช่วงวันที่ (Date From/To), บริษัท (Company/All Companies) และ Default Weekly Amount
-3. กำหนด **Notify Users** ที่จะได้รับอีเมลแจ้งเตือน
-4. กด **Generate Weeks** เพื่อสร้างงบประมาณรายสัปดาห์ย่อย (จันทร์ - อาทิตย์)
-5. กด **Confirm** เพื่อเปิดใช้งานแผน
+2. เลือก **Month** และ **Year** (ระบบจะคำนวณ Date From/To อัตโนมัติ)
+3. เลือก **Company** หรือเลือก **All Companies**
+4. กรอกข้อมูลงบประมาณ:
+   - **Default Weekly Amount**: ยอดงบประมาณเริ่มต้นต่อสัปดาห์ (ถ้าไม่มี allocation)
+   - หรือกำหนด **Total Budget (Plan)** และ **Analytic Allocations**
+5. กำหนด **Notify Users** ที่จะได้รับอีเมลแจ้งเตือน
+6. กด **Generate Weeks** เพื่อสร้างงบประมาณรายสัปดาห์ย่อย (จันทร์ - อาทิตย์)
+7. กด **Confirm** เพื่อเปิดใช้งานแผน
+
+**การจัดสรรงบประมาณแบบ Analytic Allocation:**
+1. ในแผนงบประมาณ กด **Add a line** ใน Analytic Allocations
+2. เลือก **Analytic Account** (จำเป็น)
+3. เลือก **Department** (ถ้าต้องการ)
+4. ระบุ **Percentage** (รวมทั้งหมดต้องเท่ากับ 100%)
+5. กด Generate Weeks เพื่อกระจายงบตามสัดส่วน
 
 ### 3. ตรวจสอบการใช้งานและยอดจอง (Used & Reserved)
 **เส้นทาง:** Purchase > Budget Control > Budget Lines
+
+**ดูรายการงบย่อย:**
 - ดูรายการงบย่อยรายสัปดาห์ พร้อมสถานะ (Normal / Exceeded)
 - ระบบจำแนกยอดค่าใช้จ่ายเป็น:
-  - **Used Amount**: บิล (Vendor Bill) ที่ถูกสร้างแล้ว 
-  - **Reserved Amount**: ติดสถานะดำเนินการใน PR, MR, RFQ และ PO ที่ยังไม่ได้ออกบิล
-  - **Available**: ยอดคงเหลือที่ใช้งานได้จริง
-- ปรับเพิ่ม/ลดงบประมาณรายสัปดาห์ (เฉพาะ Budget Manager) โดยกดปุ่ม **Adjust**
+  - **Used Amount**: บิล (Vendor Bill) ที่ถูกสร้างแล้ว
+  - **Reserved Amount**: ติดสถานะดำเนินการใน PR, MR, RFQ, Procurement Pool และ PO ที่ยังไม่ได้ออกบิล
+  - **Available**: ยอดคงเหลือที่ใช้งานได้จริง (Limit - Used - Reserved)
 
-### 4. การทำงานร่วมกับระบบจัดซื้อและรวบรวมยอด (PO, PR, MR, Bill, Procurement Pool)
-ระบบคำนวณยอดโควตางบประมาณตามสัดส่วนการชำระหรือยอดที่เหลือ โดยอ้างอิงจาก **Expected Payment Date / Due Date**:
-- **Partial Billing:** กรณีแจ้งเบิกบิลเพียงแค่ส่วนเดียว ยอดบิลที่เกิดจะวิ่งเข้างบเป็น Used ตาม Due Date ของบิล และยอด PO ที่ยังไม่ได้เบิก (Remaining to bill) จะยังคงค้างอยู่ในงบ Reserved ตาม Expected Payment Date ของ PO
-- **Cancel Bill:** หากบิลตีกลับหรือยกเลิก ยอดจะถูกดึงกลับมาจากงบ Used เข้าสู่งบ Reserved ตามเอกสารต้นทาง
-- **Vendor Credit Notes:** เมื่อสร้างบิลเครดิต (in_refund) ยอดจะถูกหักลบจากยอด Used อัตโนมัติ
+**ปรับเพิ่ม/ลดงบประมาณ:**
+1. เลือก Budget Line ที่ต้องการ
+2. กดปุ่ม **Adjust** (เฉพาะ Budget Manager)
+3. กรอก New Budget Amount และ Reason
+4. ระบบจะบันทึกประวัติการปรับและแจ้งเตือนผู้ที่เกี่ยวข้อง
 
-### 5. Procurement Pool Integration
-ระบบรองรับคลังพัสดุรวม (Procurement Pool) เพื่อการจัดซื้อแบบรวม:
-- ระบบจะคำนวณงบประมาณที่จอง (Reserved) สำหรับ Procurement Pool
-- บล็อกการ Confirm และ Create RFQ เมื่องบเกินกำหนด
-- Expected Payment Date ของ Pool จะถูกส่งต่อไปยัง POs ที่สร้างขึ้นจาก Pool
+**ดู Budget Moves:**
+- กด Smart Button "Budget Moves" เพื่อดูรายการการเคลื่อนไหวของงบประมาณทั้งหมด
+- ระบุ Source Model, Source ID, Amount และ Move Type (Used/Reserved)
 
-### 6. Budget Matrix Planner
-ตัวช่วยวางแผนงบประมาณแบบ matrix view:
-- แสดงงบประมาณแบบ matrix (รายสัปดาห์ x ราย Analytic Account/Department)
-- แก้ไขยอดงบประมาณได้โดยตรงใน matrix view
+### 4. การทำงานร่วมกับระบบจัดซื้อ
+ระบบคำนวณยอดโควตางบประมาณตามสัดส่วนการชำระหรือยอดที่เหลือ:
+- ระบบจะแสดง Budget Check Result บนแต่ละเอกสาร
+- เมื่องบเกินกำหนด ระบบจะ:
+  1. แจ้งเตือนผ่าน UI (Budget Warning)
+  2. แสดง wizard ให้กรอกเหตุผลเพื่อขออนุมัติพิเศษ
+  3. สร้าง Budget Approval Request อัตโนมัติ
+
+### 5. จัดการ Budget Approval Requests
+**เส้นทาง:** Purchase > Budget Control > Budget Approval Requests
+
+**สำหรับ Budget Managers:**
+1. ดูรายการคำขอที่รอการอนุมัติ (Pending)
+2. เลือกคำขอและตรวจสอบรายละเอียด
+3. กด **Approve** หรือ **Reject**
+4. กรอกเหตุผลใน wizard
+5. ระบบจะแจ้งผู้ขอทราบผลการตัดสินใจ
+
+**สำหรับ Requesters:**
+- ดูสถานะของคำขอของตนเอง
+- ดูเหตุผลที่ Manager ให้มา (ถ้าถูกปฏิเสธ)
+- หลังจากอนุมัติ สามารถดำเนินการเอกสารต้นทางต่อได้
+
+### 6. ใช้งาน Budget Matrix Planner
+**เส้นทาง:** Purchase > Budget Control > Budget Matrix Planner
+- แสดงงบประมาณแบบ matrix (Weeks x Analytic Accounts)
+- แก้ไขยอดงบได้โดยตรงใน cell
 - ดูภาพรวมการใช้งบได้ทันที
+
+### 7. รายงานงบประมาณ (Budget Reports)
+**เส้นทาง:** Purchase > Budget Control > Budget Reports
+- รายงานวิเคราะห์งบประมาณรายสัปดาห์ (SQL View based)
+- แสดงข้อมูล Budget Limit, Actual Spending, Remaining, และ Utilization %
+- รองรับการกรองข้อมูลตามวันที่, บริษัท, และ Analytic Account
 
 ## การตั้งค่า (Configuration)
 
@@ -284,9 +326,6 @@ biz_weekly_budget/
   - `line_id`: ID of the budget line
   - `amount_limit`: New budget amount
 - **Returns:** Success/error status
-
----
-**หมายเหตุ**: โมดูลนี้เป็นการยกระดับการจัดการงบประมาณแบบ **Commitment Budget + Cashflow Budget** ทำให้ตัวเลขงบประมาณสะท้อนกระแสเงินสดขาออกในอนาคต (Cash Outflow Forecast) ได้อย่างแม่นยำยิ่งขึ้น
 
 ---
 **หมายเหตุ**: โมดูลนี้เป็นการยกระดับการจัดการงบประมาณแบบ **Commitment Budget + Cashflow Budget** ทำให้ตัวเลขงบประมาณสะท้อนกระแสเงินสดขาออกในอนาคต (Cash Outflow Forecast) ได้อย่างแม่นยำยิ่งขึ้น

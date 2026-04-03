@@ -21,7 +21,7 @@
 
     <!-- Menu Item for Matrix Planner -->
     <menuitem id="menu_weekly_budget_matrix_planner"
-              name="Matrix Planner"
+              name="Department Matrix (Monthly)"
               parent="menu_budget_control_root"
               action="action_weekly_budget_matrix_planner"
               sequence="15"/>

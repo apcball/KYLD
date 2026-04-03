@@ -56,13 +56,14 @@ class AddToPoolWizard(models.TransientModel):
             if not vendor and mr_line.product_id.seller_ids:
                 vendor = mr_line.product_id.seller_ids[0].partner_id
 
-            # Determine analytic distribution from MR line
+            # Determine analytic distribution and department from MR line
             analytic_dist = mr_line.analytic_distribution
+            dept = mr_line.requisition_id.department_id
 
-            # Check if a pool line for this product+vendor already exists
+            # Check if a pool line for this product+vendor+department already exists
             existing_pool_line = pool.line_ids.filtered(
-                lambda l, p=mr_line.product_id, u=mr_line.uom_id, v=vendor:
-                    l.product_id == p and l.uom_id == u and l.vendor_id == v)
+                lambda l, p=mr_line.product_id, u=mr_line.uom_id, v=vendor, d=dept:
+                    l.product_id == p and l.uom_id == u and l.vendor_id == v and l.department_id == d)
 
             if existing_pool_line:
                 # Add the MR line to existing pool line
@@ -84,6 +85,8 @@ class AddToPoolWizard(models.TransientModel):
                 }
                 if vendor:
                     vals['vendor_id'] = vendor.id
+                if dept:
+                    vals['department_id'] = dept.id
                 if analytic_dist:
                     vals['analytic_distribution'] = analytic_dist
                 PoolLine.create(vals)
