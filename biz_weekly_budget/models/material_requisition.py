@@ -162,7 +162,7 @@ class MaterialRequisition(models.Model):
                 # Calculate how much of this MR line is already covered by PO lines
                 po_lines = POLine.search([
                     ('material_requisition_line_id', '=', line.id),
-                    ('order_id.state', 'not in', ['cancel']),
+                    ('order_id.state', 'in', ['purchase', 'done']),
                 ])
                 po_covered_amount = sum(po_lines.mapped('price_subtotal'))
                 uncovered_amount = max(0, mr_line_cost - po_covered_amount)

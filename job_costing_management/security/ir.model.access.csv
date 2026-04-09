@@ -78,3 +78,6 @@ access_allocate_receiving_wizard_line_base,allocate.receiving.wizard.line.base,m
 access_po_shortfall_wizard_user,po.shortfall.wizard.user,model_po_shortfall_wizard,group_material_requisition_user,1,1,1,0
 access_po_shortfall_wizard_manager,po.shortfall.wizard.manager,model_po_shortfall_wizard,group_material_requisition_manager,1,1,1,1
 access_po_shortfall_wizard_base,po.shortfall.wizard.base,model_po_shortfall_wizard,base.group_user,1,1,1,0
+access_po_shortfall_wizard_line_user,po.shortfall.wizard.line.user,model_po_shortfall_wizard_line,group_material_requisition_user,1,1,1,0
+access_po_shortfall_wizard_line_manager,po.shortfall.wizard.line.manager,model_po_shortfall_wizard_line,group_material_requisition_manager,1,1,1,1
+access_po_shortfall_wizard_line_base,po.shortfall.wizard.line.base,model_po_shortfall_wizard_line,base.group_user,1,1,1,0

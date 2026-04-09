@@ -1,295 +1,210 @@
-# 🧠 Backend Prompt — BOQ & Budget Fix (Patch Existing Modules)
+# 🧠 Backend Prompt V2 — Shortfall Wizard (Safe Mode)
 
 ## 🎯 Objective
 
-Upgrade existing modules:
+Enhance Shortfall Wizard with:
 
-* job_costing_management
-* biz_weekly_budget
+* Editable received qty (SAFE)
+* Optional new PO creation
+* Full consistency with stock + budget + BOQ
 
-To correctly support:
-
-* Partial PO
-* Short shipment
-* Accurate BOQ tracking (PO-based)
-* Partial budget reservation
-
-⚠️ DO NOT rewrite modules. Only patch / extend.
+⚠️ CRITICAL: Must NOT break stock valuation or FIFO
 
 ---
 
-## 🔧 1. BOQ Tracking Fix (CRITICAL)
+## 🔧 1. Wizard Line Model
 
-### File:
+### New Model:
 
-job_costing_management/models/boq.py
+po.shortfall.wizard.line
 
-### Modify:
+Fields:
 
-_method: `_compute_purchase_tracking`
-
-### Requirements:
-
-1. Keep `total_requisitioned_qty` logic unchanged
-
-2. Replace:
-
-* total_ordered_qty → derive from purchase.order.line
-* total_received_qty → derive from qty_received
-
-### Logic:
-
-* Find PO lines:
-
-  * linked via `material_requisition_line_id`
-  * state in: purchase, done
-* Sum:
-
-  * ordered = product_qty
-  * received = qty_received
-
-### Add optimization:
-
-* Use grouped read (read_group) instead of search loop
+* product_id (readonly)
+* product_qty (ordered)
+* qty_received (readonly current)
+* new_qty_received (editable)
+* shortfall (computed)
 
 ---
 
-## 🔧 2. Fix State Bug (VERY IMPORTANT)
+## 🔧 2. Received Qty Update Logic (CRITICAL)
 
-### Problem:
+### DO NOT:
 
-MR cancel uses:
-
-* 'cancel'
-* but BOQ filters 'cancelled'
-
-### Fix:
-
-Standardize ALL to:
-
-```
-state = 'cancelled'
-```
-
-### Update:
-
-* material_requisition
-* purchase override
-* any filter logic
+write directly to `qty_received` for storable products
 
 ---
 
-## 🔧 3. Partial MR Budget Reservation
-
-### File:
-
-biz_weekly_budget/models/material_requisition.py
-
-### Modify:
-
-_method: `_update_budget_moves`
-
-### New Logic:
-
-For each MR:
-
-1. Calculate:
+### IMPLEMENT:
 
 ```
-mr_total = sum(line.total_cost)
+if product.type == 'product':
+
+    diff = new_qty_received - qty_received
+
+    IF diff > 0:
+        → create stock.picking (incoming)
+        → create stock.move (qty = diff)
+        → validate picking
+
+    IF diff < 0:
+        → raise error (cannot reduce received)
 ```
-
-2. Calculate PO covered:
-
-* sum price_subtotal from PO lines (exclude cancelled PO)
-
-3. Compute:
-
-```
-uncovered_amount = mr_total - po_covered_amount
-```
-
-4. Reserve ONLY uncovered_amount
-
-### Edge Cases:
-
-* if uncovered_amount <= 0 → remove reservation
-* prevent duplicate budget.move
 
 ---
 
-## 🔧 4. Add MR Action: Close Remaining
-
-### Model:
-
-material.requisition
-
-### Method:
+### SERVICE PRODUCT:
 
 ```
-action_close_remaining()
+if product.type == 'service':
+    po_line.qty_received = new_qty_received
 ```
-
-### Logic:
-
-For each line:
-
-* find linked PO lines (exclude cancel)
-* actual_ordered = sum(product_qty)
-
-IF:
-
-```
-actual_ordered < line.quantity
-```
-
-THEN:
-
-* reduce line.quantity → actual_ordered
-* log message
-
-After loop:
-
-* call:
-
-  * _update_budget_moves()
-  * recompute BOQ
 
 ---
 
-## 🔧 5. Add PO Action: Close Shortfall
+## 🔧 3. Action Type Logic
 
-### Model:
+### Field:
 
-purchase.order
+action_type
 
-### Method:
+Options:
+
+* cancel
+* create_po
+
+---
+
+## 🔧 4. Cancel Remaining Flow
+
+FOR each line:
 
 ```
-action_close_shortfall()
+new_order_qty = new_qty_received
 ```
 
-### Logic:
+### Rules:
 
-For each line:
+* must >= received
+* write:
 
 ```
-shortfall = product_qty - qty_received
+po_line.product_qty = new_order_qty
 ```
 
-IF shortfall > 0:
+### MR Sync:
 
-* set product_qty = qty_received
-
-IF linked MR line exists:
-
-* reduce MR line qty accordingly
-
-After:
-
-* trigger:
-
-  * budget recompute
-  * BOQ recompute
+```
+mr_line.quantity = new_order_qty
+```
 
 ---
 
-## 🔧 6. Fix PO Cancel Cascade
+## 🔧 5. Create New PO Flow (IMPORTANT)
 
-### File:
+### Step 1: Close current PO
 
-purchase_order.py
-
-### Modify:
-
-button_cancel()
-
-### New Behavior:
-
-DO NOT cancel MR immediately
-
-Check:
-
-* any other active PO linked to same MR?
-
-IF YES:
-
-* do nothing
-
-IF NO:
-
-* set MR → approved (NOT cancelled)
+```
+po_line.product_qty = new_qty_received
+```
 
 ---
 
-## 🔧 7. Data Integrity Safeguards
+### Step 2: Calculate shortfall
 
-Add constraints:
-
-1. MR line qty >= ordered qty
-2. PO qty >= received qty
-3. Cannot reduce below received
+```
+shortfall = original_qty - new_qty_received
+```
 
 ---
 
-## 🔧 8. Logging / Audit
+### Step 3: Create new PO
 
-For ALL actions:
+```
+new_po = purchase.order.create({
+    partner_id: same,
+    origin: old_po.name,
+})
+```
 
-* message_post()
-* include:
+### Add lines:
 
-  * user
-  * qty changed
-  * reason (if available)
-
----
-
-## 🧪 9. Test Scenarios (MUST PASS)
-
-### Case 1:
-
-MR 100 → PO 70
-→ BOQ remaining = 30
-
-### Case 2:
-
-PO 70 → receive 50 → close shortfall
-→ BOQ remaining increases by 20
-
-### Case 3:
-
-Cancel PO
-→ MR returns to approved
-
-### Case 4:
-
-Budget reflects partial only
+```
+product_qty = shortfall
+price_unit = same
+material_requisition_line_id = same
+```
 
 ---
 
-## ⚡ Performance Notes
+### Step 4: IMPORTANT RULE
 
-* Avoid N+1 search
-* Use read_group
-* Add index:
+DO NOT modify MR quantity
 
-  * material_requisition_line_id
+→ keep demand intact
+
+---
+
+## 🔧 6. Budget Sync
+
+After BOTH flows:
+
+```
+_update_budget_moves()
+```
+
+---
+
+## 🔧 7. BOQ Sync
+
+Trigger recompute:
+
+* ordered_qty
+* received_qty
+
+---
+
+## 🔧 8. Constraints
+
+* new_received <= ordered
+* cannot reduce received
+* cannot create negative shortfall
+
+---
+
+## 🔧 9. Audit Log
+
+message_post:
+
+* before qty
+* after qty
+* action_type
+* reason
+
+---
+
+## 🧪 10. Test Cases
+
+### Case A:
+
+0 received → user input 10 → system creates picking
+
+### Case B:
+
+received 50 / ordered 70 → create_po
+→ new PO 20
+
+### Case C:
+
+cancel mode → MR reduced
 
 ---
 
 ## 🚫 DO NOT
 
-* Do not remove MR logic
-* Do not change existing workflows
-* Do not break backward compatibility
-
----
-
-## ✅ Deliverables
-
-* Clean patch
-* No duplicate records
-* Migration safe
+* DO NOT write qty_received directly (product)
+* DO NOT bypass stock.move
+* DO NOT break valuation layer
 
 ---

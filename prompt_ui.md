@@ -1,125 +1,52 @@
-# 🎨 UI Prompt — BOQ & Budget Fix
+# 🎨 UI Prompt V2 — Shortfall Wizard
 
-## 🎯 Objective
+## 🔧 Add Warning Banner
 
-Add minimal UI to support new backend logic:
+IF product.type == 'product':
 
-* Close Remaining (MR)
-* Close Shortfall (PO)
-
----
-
-## 🧩 1. MR Button
-
-### Location:
-
-material.requisition form view
-
-### Button:
-
-```
-Close Remaining
-```
-
-### Behavior:
-
-* visible when:
-  state in ('approved', 'ordered')
-* calls:
-  action_close_remaining
+Show:
+"Receiving adjustment will create stock receipt automatically"
 
 ---
 
-## 🧩 2. PO Button
+## 🔧 Column Update
 
-### Location:
+Rename:
 
-purchase.order form
-
-### Button:
-
-```
-Close Shortfall
-```
-
-### Behavior:
-
-* visible when:
-  state in ('purchase')
-  AND any line has qty_received < product_qty
+* Received → Current Received
+* New Received → Adjust Received
 
 ---
 
-## 🧩 3. Shortfall Wizard (IMPORTANT)
+## 🔧 Validation UX
 
-### Model:
+IF new_received < current_received:
 
-po.shortfall.wizard
-
-### Fields:
-
-* reason (required)
-* note
-
-### Flow:
-
-PO → click button → open wizard → confirm → run action
+→ show error inline:
+"Cannot reduce received quantity"
 
 ---
 
-## 🧩 4. UX Improvements
+## 🔧 Action Type UI
 
-### MR:
+Radio:
 
-* show:
-  ordered_qty
-  received_qty
+* Cancel Remaining (Return Budget)
+* Create New PO for Remaining
 
-### BOQ:
-
-* show 3 columns:
-
-  * Requested
-  * Ordered
-  * Received
+Default:
+→ Create New PO
 
 ---
 
-## 🧩 5. Warning Messages
+## 🔧 Confirmation Dialog
 
-### MR:
+Before submit:
 
-if remaining exists:
-→ show banner:
-"Some quantities not yet ordered"
+Show summary:
 
-### PO:
-
-if shortfall:
-→ show banner:
-"Supplier has not delivered full quantity"
-
----
-
-## 🎯 Design Principle
-
-* Minimal disruption
-* No extra clicks unless needed
-* Clear visibility of gap
-
----
-
-## 🚫 DO NOT
-
-* No complex UI
-* No dashboard yet
-* Keep form-based UX
-
----
-
-## ✅ Deliverables
-
-* Clean XML inherit
-* OWL not required (optional later)
+* total shortfall
+* action type
+* affected PO
 
 ---
