@@ -30,4 +30,10 @@
               action="action_budget_move_report"
               sequence="10"/>
 
+    <menuitem id="menu_weekly_budget_report"
+              name="Weekly Budget Analysis"
+              parent="menu_budget_analysis_root"
+              action="action_weekly_budget_report"
+              sequence="20"/>
+
 </odoo>

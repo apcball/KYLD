@@ -591,26 +591,56 @@ class BOQLine(models.Model):
     
     @api.depends('requisition_line_ids', 'requisition_line_ids.quantity', 'requisition_line_ids.requisition_state')
     def _compute_purchase_tracking(self):
-        """Compute purchase tracking fields"""
+        """Compute purchase tracking fields.
+
+        - total_requisitioned_qty: sum of active MR line quantities (unchanged).
+        - total_ordered_qty: for purchase MR lines → actual PO line data;
+                             for internal/service MR lines → MR state-based.
+        - total_received_qty: for purchase MR lines → PO qty_received;
+                              for internal/service MR lines → MR state-based.
+        - remaining_qty: BOQ adjusted qty minus requisitioned qty.
+        """
+        POLine = self.env['purchase.order.line'].sudo()
         for record in self:
             # Get all requisition lines for this BOQ line
             req_lines = record.requisition_line_ids
-            
+
             # Calculate total requisitioned quantity (all states except cancelled/rejected)
-            active_req_lines = req_lines.filtered(lambda l: l.requisition_state not in ['cancelled', 'rejected'])
+            active_req_lines = req_lines.filtered(
+                lambda l: l.requisition_state not in ['cancelled', 'cancel', 'rejected'])
             record.total_requisitioned_qty = sum(active_req_lines.mapped('quantity'))
-            
-            # Calculate total ordered quantity (approved and above states)
-            ordered_req_lines = req_lines.filtered(lambda l: l.requisition_state in ['approved', 'ordered', 'received'])
-            record.total_ordered_qty = sum(ordered_req_lines.mapped('quantity'))
-            
-            # Calculate total received quantity
-            received_req_lines = req_lines.filtered(lambda l: l.requisition_state == 'received')
-            record.total_received_qty = sum(received_req_lines.mapped('quantity'))
-            
+
+            # --- Split by requisition_action ---
+            purchase_lines = active_req_lines.filtered(
+                lambda l: l.requisition_action == 'purchase')
+            internal_lines = active_req_lines.filtered(
+                lambda l: l.requisition_action != 'purchase')
+
+            # Purchase-type: derive from actual PO lines
+            po_ordered = 0.0
+            po_received = 0.0
+            if purchase_lines:
+                po_lines = POLine.search([
+                    ('material_requisition_line_id', 'in', purchase_lines.ids),
+                    ('order_id.state', 'in', ['purchase', 'done']),
+                ])
+                po_ordered = sum(po_lines.mapped('product_qty'))
+                po_received = sum(po_lines.mapped('qty_received'))
+
+            # Internal/service-type: use MR state as before
+            int_ordered = sum(internal_lines.filtered(
+                lambda l: l.requisition_state in ['approved', 'ordered', 'received']
+            ).mapped('quantity'))
+            int_received = sum(internal_lines.filtered(
+                lambda l: l.requisition_state == 'received'
+            ).mapped('quantity'))
+
+            record.total_ordered_qty = po_ordered + int_ordered
+            record.total_received_qty = po_received + int_received
+
             # Calculate remaining quantity
             record.remaining_qty = record.adjusted_quantity - record.total_requisitioned_qty
-            
+
             # Calculate purchase progress percentage
             if record.adjusted_quantity > 0:
                 record.purchase_progress = (record.total_requisitioned_qty / record.adjusted_quantity) * 100

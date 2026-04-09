@@ -138,32 +138,44 @@ class MaterialRequisition(models.Model):
                 moves.unlink()
 
     def _update_budget_moves(self):
+        """Rebuild 'reserved' budget.move entries for this MR.
+
+        Instead of all-or-nothing (skip entire MR if any confirmed PO exists),
+        this now calculates per-line coverage:
+        - For each MR line, find linked PO lines (any state except cancel)
+        - Compute uncovered_amount = MR line cost − sum(PO line subtotals)
+        - Reserve ONLY the uncovered amount
+        """
         self._clear_budget_moves()
         BudgetMove = self.env['budget.move'].sudo()
         BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
-        
-        for req in self.filtered(lambda r: r.state != 'draft'):
-            confirmed_pos = self.env['purchase.order'].sudo().search([
-                ('state', 'in', ('purchase', 'done')),
-                '|', '|', ('material_requisition_id', '=', req.id),
-                     ('origin', '=', req.name),
-                     ('order_line.material_requisition_line_id.requisition_id', '=', req.id)
-            ], limit=1)
-            
-            if confirmed_pos:
-                continue
-                
+        POLine = self.env['purchase.order.line'].sudo()
+
+        for req in self.filtered(lambda r: r.state not in ('draft', 'cancelled', 'cancel')):
             budget_date = req.payment_date
             if not budget_date:
                 continue
-                
+
             for line in req.line_ids:
-                amount = line.total_cost
+                mr_line_cost = line.total_cost
+
+                # Calculate how much of this MR line is already covered by PO lines
+                po_lines = POLine.search([
+                    ('material_requisition_line_id', '=', line.id),
+                    ('order_id.state', 'not in', ['cancel']),
+                ])
+                po_covered_amount = sum(po_lines.mapped('price_subtotal'))
+                uncovered_amount = max(0, mr_line_cost - po_covered_amount)
+
+                if uncovered_amount <= 0:
+                    continue
+
                 dists = BudgetMove.extract_analytic_distribution(line)
                 for dist in dists:
-                    dist_amount = amount * dist['percentage']
-                    if dist_amount == 0: continue
-                    
+                    dist_amount = uncovered_amount * dist['percentage']
+                    if dist_amount == 0:
+                        continue
+
                     bline = BudgetAllocation.search([
                         ('plan_state', '=', 'confirmed'),
                         ('date_from', '<=', budget_date),

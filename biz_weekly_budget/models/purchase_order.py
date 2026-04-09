@@ -519,32 +519,63 @@ class PurchaseOrder(models.Model):
         return super().button_confirm()
 
     def button_cancel(self):
-        """Override to cascade cancellation to source documents."""
+        """Override to handle source document state on PO cancellation.
+
+        Instead of blindly cascading cancel:
+        - PR: only cancel if NO other active POs reference the same PR.
+        - MR: return to 'approved' (not cancelled) if no other active POs
+          reference the same MR, allowing re-procurement.
+        """
         res = super().button_cancel()
         for po in self:
+            # --- PR cascade ---
             pr_name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
             if pr_name:
-                pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', pr_name)], limit=1)
-                # PR state can be 'cancelled', let's write to generic state field
+                pr = self.env['employee.purchase.requisition'].sudo().search(
+                    [('name', '=', pr_name)], limit=1)
                 if pr and pr.state != 'cancelled':
-                    pr.write({
-                        'state': 'cancelled',
-                        'reject_date': fields.Date.today()
-                    })
+                    other_active_pos = self.env['purchase.order'].sudo().search([
+                        ('id', '!=', po.id),
+                        '|', ('requisition_order', '=', pr_name),
+                             ('pr_number', '=', pr_name),
+                        ('state', 'not in', ('cancel',)),
+                    ], limit=1)
+                    if not other_active_pos:
+                        pr.write({
+                            'state': 'cancelled',
+                            'reject_date': fields.Date.today(),
+                        })
+                        pr.message_post(
+                            body=_('PR cancelled — last linked PO %s was cancelled.') % po.name,
+                            message_type='notification',
+                            subtype_xmlid='mail.mt_note',
+                        )
 
+            # --- MR cascade ---
             mr_linked = getattr(po, 'material_requisition_id', False)
             if not mr_linked and getattr(po, 'origin', False):
-                mr_linked = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1)
-            
-            if mr_linked:
-                # Use standard state bypass for cancel
-                try:
-                    mr_linked.write({'state': 'cancel'})
-                except Exception:
-                    try:
-                        mr_linked.write({'state': 'cancelled'})
-                    except Exception:
-                        pass
+                mr_linked = self.env['material.requisition'].sudo().search(
+                    [('name', '=', po.origin)], limit=1)
+
+            if mr_linked and mr_linked.state not in ('draft', 'cancelled', 'cancel'):
+                other_active_pos = self.env['purchase.order'].sudo().search([
+                    ('id', '!=', po.id),
+                    '|', ('material_requisition_id', '=', mr_linked.id),
+                         ('origin', '=', mr_linked.name),
+                    ('state', 'not in', ('cancel',)),
+                ], limit=1)
+                if not other_active_pos:
+                    # Return MR to approved — allow re-procurement
+                    mr_linked.write({'state': 'approved'})
+                    mr_linked.message_post(
+                        body=_('MR returned to Approved — PO %s was cancelled. '
+                               'You may re-issue a Purchase Order.') % po.name,
+                        message_type='notification',
+                        subtype_xmlid='mail.mt_note',
+                    )
+                    # Recompute MR budget moves
+                    if hasattr(mr_linked, '_update_budget_moves'):
+                        mr_linked._update_budget_moves()
         return res
 
     def _check_monthly_budget(self):

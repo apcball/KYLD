@@ -1,201 +1,125 @@
-# 🎨 Prompt: Upgrade Weekly Budget UI → Department + Monthly Hybrid (OWL)
+# 🎨 UI Prompt — BOQ & Budget Fix
 
 ## 🎯 Objective
 
-Upgrade existing UI to support:
+Add minimal UI to support new backend logic:
 
-* Department-based budget
-* Monthly overview + Weekly drilldown
-* Allocation by %
-* Forecast visibility
+* Close Remaining (MR)
+* Close Shortfall (PO)
 
 ---
 
-# 🧭 MENU UPDATE
+## 🧩 1. MR Button
 
-Purchase > Budget Control
+### Location:
 
-NEW:
+material.requisition form view
 
-* Monthly Budget Plans
-* Department Matrix (Monthly)
+### Button:
 
-EXISTING:
-
-* Weekly Plans
-* Dashboard (upgrade)
-
----
-
-# 📊 1. DASHBOARD (UPGRADE)
-
-## KPI:
-
-* Monthly Total Budget
-* Used
-* Reserved
-* Forecast
-* Available
-
----
-
-## Chart 1: Department Overview
-
-Bar Chart:
-
-* X: Department
-* Y: Amount
-* Series:
-
-  * Limit
-  * Used
-  * Reserved
-  * Forecast
-
----
-
-## Chart 2: Weekly Trend
-
-Line Chart:
-
-* Weekly usage inside selected month
-
----
-
-## Chart 3: Budget Health
-
-Pie:
-
-* Used %
-* Reserved %
-* Available %
-
----
-
-# 📋 2. MONTHLY PLAN FORM
-
-## Header:
-
-* Month / Year
-* Total Budget
-
----
-
-## Tab: Department Allocation
-
-Editable Grid:
-
-| Department | % | Amount |
-
----
-
-## UX:
-
-* auto compute amount
-* validation = 100%
-
----
-
-## Button:
-
-* Generate Weekly Plans
-
----
-
-# 🧮 3. DEPARTMENT MATRIX (MONTHLY)
-
-## Layout:
-
-| Department ↓ | Week 1 | Week 2 | Week 3 | Week 4 |
-| ------------ | ------ | ------ | ------ | ------ |
-| Sales        |        |        |        |        |
-
----
-
-## Features:
-
-* inline edit weekly budget
-* color:
-
-  * green = ok
-  * yellow = >80%
-  * red = exceeded
-
----
-
-# 📊 4. WEEKLY VIEW (DRILL DOWN)
-
-Add:
-
-* Department filter
-
-Columns:
-
-* Limit
-* Used
-* Reserved
-* Forecast
-* Available
-
----
-
-# ⚠️ 5. WARNING MODAL (UPGRADE)
-
-```text
-⚠️ Budget Exceeded
-
-Department: Marketing
-Weekly Available: 10,000
-Monthly Available: 50,000
-
-Requested: 25,000
+```
+Close Remaining
 ```
 
----
+### Behavior:
 
-# 📨 6. APPROVAL UI
-
-Add:
-
-* show department
-* show monthly impact
+* visible when:
+  state in ('approved', 'ordered')
+* calls:
+  action_close_remaining
 
 ---
 
-# 🎯 UX PRINCIPLES
+## 🧩 2. PO Button
 
-* Always show BOTH:
+### Location:
 
-  * Weekly
-  * Monthly
+purchase.order form
 
-* Department must be visible everywhere
+### Button:
 
-* Avoid:
-  ❌ analytic references
+```
+Close Shortfall
+```
 
----
+### Behavior:
 
-# 🎨 STYLE
-
-* Card-based dashboard
-* Matrix grid with sticky header
-* Smooth OWL state updates
+* visible when:
+  state in ('purchase')
+  AND any line has qty_received < product_qty
 
 ---
 
-# 🚀 FUTURE READY
+## 🧩 3. Shortfall Wizard (IMPORTANT)
 
-Prepare for:
+### Model:
 
-* multi-version budget
-* CFO dashboard
-* cashflow timeline
+po.shortfall.wizard
+
+### Fields:
+
+* reason (required)
+* note
+
+### Flow:
+
+PO → click button → open wizard → confirm → run action
 
 ---
 
-# 📌 NOTES
+## 🧩 4. UX Improvements
 
-* Use API (avoid heavy ORM)
-* All amounts formatted
-* Optimize for large departments
+### MR:
+
+* show:
+  ordered_qty
+  received_qty
+
+### BOQ:
+
+* show 3 columns:
+
+  * Requested
+  * Ordered
+  * Received
+
+---
+
+## 🧩 5. Warning Messages
+
+### MR:
+
+if remaining exists:
+→ show banner:
+"Some quantities not yet ordered"
+
+### PO:
+
+if shortfall:
+→ show banner:
+"Supplier has not delivered full quantity"
+
+---
+
+## 🎯 Design Principle
+
+* Minimal disruption
+* No extra clicks unless needed
+* Clear visibility of gap
+
+---
+
+## 🚫 DO NOT
+
+* No complex UI
+* No dashboard yet
+* Keep form-based UX
+
+---
+
+## ✅ Deliverables
+
+* Clean XML inherit
+* OWL not required (optional later)
+
+---

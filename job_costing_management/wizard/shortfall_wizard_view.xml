@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- PO Shortfall Wizard Form View -->
+        <record id="view_po_shortfall_wizard_form" model="ir.ui.view">
+            <field name="name">po.shortfall.wizard.form</field>
+            <field name="model">po.shortfall.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Close Shortfall">
+                    <group>
+                        <field name="po_id" readonly="1"/>
+                    </group>
+                    <separator string="Shortfall Details"/>
+                    <field name="shortfall_summary" nolabel="1" readonly="1"/>
+                    <separator string="Reason"/>
+                    <group>
+                        <field name="reason" placeholder="Explain why the supplier could not deliver the full quantity..." nolabel="1" colspan="2"/>
+                    </group>
+                    <group>
+                        <field name="note" placeholder="Additional notes (optional)..." nolabel="1" colspan="2"/>
+                    </group>
+                    <footer>
+                        <button name="action_confirm" string="Confirm Close Shortfall" type="object" class="btn-primary"/>
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+    </data>
+</odoo>

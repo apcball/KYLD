@@ -1,330 +1,295 @@
-# 🧠 Prompt: Upgrade Weekly Budget Control → Department + Monthly Hybrid (Backend - Odoo 17)
+# 🧠 Backend Prompt — BOQ & Budget Fix (Patch Existing Modules)
 
 ## 🎯 Objective
 
-Upgrade existing module `biz_weekly_budget` to support:
+Upgrade existing modules:
 
-1. Department-based budgeting (replace analytic dependency)
-2. Monthly budget layer (parent of weekly)
-3. Department allocation by percentage
-4. Backward compatibility with existing weekly engine
-5. Advanced controls (forecast, aging, soft/hard)
+* job_costing_management
+* biz_weekly_budget
+
+To correctly support:
+
+* Partial PO
+* Short shipment
+* Accurate BOQ tracking (PO-based)
+* Partial budget reservation
+
+⚠️ DO NOT rewrite modules. Only patch / extend.
 
 ---
 
-# 🏗️ ARCHITECTURE (IMPORTANT)
+## 🔧 1. BOQ Tracking Fix (CRITICAL)
 
-## Existing (KEEP)
+### File:
 
-* weekly.budget.plan
-* weekly.budget.line
-* budget.move (ledger)
+job_costing_management/models/boq.py
 
-## New Layer (ADD)
+### Modify:
 
-```text
-monthly.budget.plan
-    ↓
-monthly.budget.allocation (department %)
-    ↓
-weekly.budget.plan (generated from monthly)
+_method: `_compute_purchase_tracking`
+
+### Requirements:
+
+1. Keep `total_requisitioned_qty` logic unchanged
+
+2. Replace:
+
+* total_ordered_qty → derive from purchase.order.line
+* total_received_qty → derive from qty_received
+
+### Logic:
+
+* Find PO lines:
+
+  * linked via `material_requisition_line_id`
+  * state in: purchase, done
+* Sum:
+
+  * ordered = product_qty
+  * received = qty_received
+
+### Add optimization:
+
+* Use grouped read (read_group) instead of search loop
+
+---
+
+## 🔧 2. Fix State Bug (VERY IMPORTANT)
+
+### Problem:
+
+MR cancel uses:
+
+* 'cancel'
+* but BOQ filters 'cancelled'
+
+### Fix:
+
+Standardize ALL to:
+
+```
+state = 'cancelled'
 ```
 
-👉 Weekly = execution layer
-👉 Monthly = control layer
+### Update:
+
+* material_requisition
+* purchase override
+* any filter logic
 
 ---
 
-# 🧩 1. NEW MODELS
+## 🔧 3. Partial MR Budget Reservation
 
-## 1.1 monthly.budget.plan
+### File:
 
-```python
-name
-year
-month
-date_from
-date_to
+biz_weekly_budget/models/material_requisition.py
 
-company_id
-total_budget
+### Modify:
 
-state = draft / confirmed / done
+_method: `_update_budget_moves`
 
-allocation_ids (department %)
-weekly_plan_ids
+### New Logic:
+
+For each MR:
+
+1. Calculate:
+
+```
+mr_total = sum(line.total_cost)
 ```
 
----
+2. Calculate PO covered:
 
-## 1.2 monthly.budget.allocation
+* sum price_subtotal from PO lines (exclude cancelled PO)
 
-```python
-plan_id
-department_id
-percentage
-amount (computed)
+3. Compute:
+
+```
+uncovered_amount = mr_total - po_covered_amount
 ```
 
-### Constraint:
+4. Reserve ONLY uncovered_amount
 
-```python
-sum(percentage) == 100
+### Edge Cases:
+
+* if uncovered_amount <= 0 → remove reservation
+* prevent duplicate budget.move
+
+---
+
+## 🔧 4. Add MR Action: Close Remaining
+
+### Model:
+
+material.requisition
+
+### Method:
+
+```
+action_close_remaining()
 ```
 
----
+### Logic:
 
-# 🔗 2. EXTEND EXISTING MODELS
+For each line:
 
-## 2.1 weekly.budget.plan
+* find linked PO lines (exclude cancel)
+* actual_ordered = sum(product_qty)
 
-Add:
+IF:
 
-```python
-monthly_plan_id = fields.Many2one('monthly.budget.plan')
-department_id = fields.Many2one('hr.department')
+```
+actual_ordered < line.quantity
 ```
 
+THEN:
+
+* reduce line.quantity → actual_ordered
+* log message
+
+After loop:
+
+* call:
+
+  * _update_budget_moves()
+  * recompute BOQ
+
 ---
 
-## 2.2 weekly.budget.line
+## 🔧 5. Add PO Action: Close Shortfall
 
-REPLACE analytic logic with:
+### Model:
 
-```python
-department_id = fields.Many2one('hr.department', required=True)
+purchase.order
+
+### Method:
+
+```
+action_close_shortfall()
 ```
 
----
+### Logic:
 
-## ⚠️ IMPORTANT
+For each line:
 
-* REMOVE dependency on analytic_account_id
-* Keep field temporarily for migration only
-
----
-
-# 🧠 3. DEPARTMENT MAPPING
-
-## Add to ALL source documents:
-
-* purchase.order
-* purchase.requisition
-* material.requisition
-* account.move
-
-```python
-department_id = fields.Many2one('hr.department', store=True)
+```
+shortfall = product_qty - qty_received
 ```
 
----
+IF shortfall > 0:
 
-## Mapping logic:
+* set product_qty = qty_received
 
-```python
-def _get_department(self):
-    if self.employee_id:
-        return self.employee_id.department_id
-    if self.env.user.employee_id:
-        return self.env.user.employee_id.department_id
-    return self.env.company.default_department_id
-```
+IF linked MR line exists:
 
----
+* reduce MR line qty accordingly
 
-## On create:
+After:
 
-* assign department_id (LOCK value)
+* trigger:
+
+  * budget recompute
+  * BOQ recompute
 
 ---
 
-# 💰 4. MONTHLY → WEEKLY DISTRIBUTION
+## 🔧 6. Fix PO Cancel Cascade
 
-## Generate Weekly Plans from Monthly
+### File:
 
-```python
-for each department allocation:
-    monthly_amount = total_budget * percentage
+purchase_order.py
 
-    weekly_amount = monthly_amount / number_of_weeks
+### Modify:
 
-    create weekly.budget.plan per week
-```
+button_cancel()
 
----
+### New Behavior:
 
-## Store:
+DO NOT cancel MR immediately
 
-```python
-weekly_plan.department_id
-weekly_plan.monthly_plan_id
-```
+Check:
 
----
+* any other active PO linked to same MR?
 
-# 🔄 5. BUDGET MOVE (NO CHANGE CORE)
+IF YES:
 
-But extend:
+* do nothing
 
-```python
-department_id (required)
-month_key
-week_key
-```
+IF NO:
+
+* set MR → approved (NOT cancelled)
 
 ---
 
-# 📊 6. BUDGET CALCULATION (UPDATED)
+## 🔧 7. Data Integrity Safeguards
 
-## Group by:
+Add constraints:
 
-```python
-department_id + week
-```
-
----
-
-## Add Monthly Aggregation:
-
-```python
-monthly_used = sum(weekly_used)
-monthly_reserved = sum(weekly_reserved)
-```
+1. MR line qty >= ordered qty
+2. PO qty >= received qty
+3. Cannot reduce below received
 
 ---
 
-# 🔥 7. FORECAST LAYER (NEW)
+## 🔧 8. Logging / Audit
 
-## Add field:
+For ALL actions:
 
-```python
-forecast_amount
-```
+* message_post()
+* include:
 
----
-
-## Sources:
-
-* PO expected payment
-* recurring cost
-* fixed cost
+  * user
+  * qty changed
+  * reason (if available)
 
 ---
 
-## Formula:
+## 🧪 9. Test Scenarios (MUST PASS)
 
-```python
-available_strict = limit - used - reserved
-available_forecast = limit - forecast
-```
+### Case 1:
 
----
+MR 100 → PO 70
+→ BOQ remaining = 30
 
-# ⏳ 8. AGING RESERVATION (NEW)
+### Case 2:
 
-## Add:
+PO 70 → receive 50 → close shortfall
+→ BOQ remaining increases by 20
 
-```python
-reservation_date
-aging_days
-```
+### Case 3:
 
----
+Cancel PO
+→ MR returns to approved
 
-## CRON:
+### Case 4:
 
-```python
-if aging_days > threshold:
-    release_reserved_move()
-```
+Budget reflects partial only
 
 ---
 
-# 🚫 9. BUDGET CONTROL (UPDATED)
+## ⚡ Performance Notes
 
-## Check:
+* Avoid N+1 search
+* Use read_group
+* Add index:
 
-```python
-line = get_weekly_line(department_id, date)
-
-if control_type == 'hard':
-    block
-
-if control_type == 'soft':
-    warn only
-```
+  * material_requisition_line_id
 
 ---
 
-# ⚙️ 10. CONFIGURATION
+## 🚫 DO NOT
 
-## Company Settings:
-
-```python
-default_department_id
-budget_control_type = hard / soft
-enable_forecast = True/False
-aging_days_limit
-```
+* Do not remove MR logic
+* Do not change existing workflows
+* Do not break backward compatibility
 
 ---
 
-# 🔁 11. RECOMPUTE ENGINE (UPGRADE)
+## ✅ Deliverables
 
-## Must support:
-
-1. Delete all budget.move
-
-2. Rebuild from:
-
-   * PR
-   * PO
-   * Bills
-
-3. Recalculate:
-
-   * weekly
-   * monthly aggregation
+* Clean patch
+* No duplicate records
+* Migration safe
 
 ---
-
-# 🔄 12. MIGRATION STRATEGY
-
-## Step 1:
-
-* Add department_id to all records
-
-## Step 2:
-
-* Map analytic → department (optional mapping table)
-
-## Step 3:
-
-* Recompute all budget.move
-
----
-
-# 🧠 13. OPTIONAL (ADVANCED)
-
-## Priority-based allocation
-
-```python
-priority = high / normal / low
-```
-
----
-
-## Carry Forward
-
-```python
-unused → next week
-```
-
----
-
-# 📌 RULES (STRICT)
-
-* NEVER compute budget from source directly → always via budget.move
-* department_id must be stored (no dynamic compute)
-* system must support recompute safely
-* backward compatibility must be maintained
