@@ -13,9 +13,10 @@ class BudgetAPI(http.Controller):
 
         lines = request.env['monthly.budget.allocation'].search([('plan_id', '=', plan_id)])
         
-        column_key = 'monthly_alloc'
+        column_key = plan.date_from.strftime('%Y-%m-%d') if plan.date_from else 'empty'
         weeks = {
             column_key: {
+                'key': column_key,
                 'label': plan.name,
                 'date_from': plan.date_from.strftime('%Y-%m-%d') if plan.date_from else '',
                 'date_to': plan.date_to.strftime('%Y-%m-%d') if plan.date_to else ''
