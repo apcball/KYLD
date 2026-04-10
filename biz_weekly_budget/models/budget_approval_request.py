@@ -108,11 +108,11 @@ class BuzBudgetApprovalRequest(models.Model):
     def _compute_document_ref(self):
         for rec in self:
             if rec.document_type == 'pr' and rec.ref_pr_id:
-                rec.document_ref = rec.ref_pr_id.name
+                rec.document_ref = rec.ref_pr_id.sudo().name
             elif rec.document_type == 'mr' and rec.ref_mr_id:
-                rec.document_ref = rec.ref_mr_id.name
+                rec.document_ref = rec.ref_mr_id.sudo().name
             elif rec.document_type == 'po' and rec.ref_po_id:
-                rec.document_ref = rec.ref_po_id.name
+                rec.document_ref = rec.ref_po_id.sudo().name
             else:
                 rec.document_ref = ''
 
