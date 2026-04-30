@@ -456,6 +456,7 @@ class PurchaseRequisition(models.Model):
                 'requisition_order': self.name,
                 'employee_id': self.employee_id.id,
                 'dept_id': self.dept_id.id,
+                'department_id': self.dept_id.id,
                 'pr_number': self.name,
                 'date_order': fields.Date.today(),
                 'order_line': order_lines,

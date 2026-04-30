@@ -84,6 +84,7 @@
                                         <field name="product_id"/>
                                         <field name="description"/>
                                         <field name="vendor_id"/>
+                                        <field name="department_id" optional="show"/>
                                         <field name="analytic_distribution" widget="analytic_distribution"
                                                groups="analytic.group_analytic_accounting"
                                                options="{'product_field': 'product_id', 'business_domain': 'purchase_order'}"/>
@@ -104,6 +105,7 @@
                                 <field name="line_ids" nolabel="1" mode="tree" readonly="1">
                                     <tree>
                                         <field name="product_id"/>
+                                        <field name="department_id" optional="show"/>
                                         <field name="mr_references"/>
                                         <field name="total_qty"/>
                                         <field name="ordered_qty"/>

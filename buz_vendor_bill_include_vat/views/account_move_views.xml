@@ -1,19 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <record id="view_move_form_inherit_include_vat" model="ir.ui.view">
-        <field name="name">account.move.form.inherit.include.vat</field>
+    <record id="view_account_move_form_inherit" model="ir.ui.view">
+        <field name="name">account.move.form.inherit</field>
         <field name="model">account.move</field>
         <field name="inherit_id" ref="account.view_move_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//header" position="inside">
-                <button name="action_include_vat_into_price"
-                        type="object"
-                        string="Include VAT in Price"
-                        class="btn-primary"
-                        invisible="state != 'draft' or move_type not in ('in_invoice', 'in_refund') or is_vat_included"/>
-            </xpath>
-            <xpath expr="//field[@name='payment_reference']" position="after">
+            <!-- Add is_vat_included field to the form (invisible) -->
+            <xpath expr="//field[@name='invoice_date']" position="after">
                 <field name="is_vat_included" invisible="1"/>
+            </xpath>
+            
+            <!-- Add buttons to the form -->
+            <xpath expr="//field[@name='invoice_line_ids']/tree" position="inside">
+                <field name="include_vat_cost" widget="boolean_button" 
+                       string="Include VAT" 
+                       help="If checked, VAT of this line will be moved into cost."/>
+            </xpath>
+            
+            <!-- Add buttons to the form header -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_include_vat_in_price" 
+                        type="object" 
+                        string="Include VAT in Price" 
+                        class="btn-primary"
+                        invisible="state != 'draft' or move_type not in ('in_invoice', 'in_refund')"
+                        help="Include VAT in the price of selected lines"/>
+                <button name="action_restore_vat" 
+                        type="object" 
+                        string="Restore VAT" 
+                        class="btn-secondary"
+                        invisible="state != 'draft' or is_vat_included == False"
+                        help="Restore VAT to separate tax lines"/>
             </xpath>
         </field>
     </record>

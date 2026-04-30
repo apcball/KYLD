@@ -74,6 +74,7 @@ Key Benefits:
         'wizard/job_cost_line_wizard_view.xml',
         'wizard/boq_material_requisition_wizard_view.xml',
         'wizard/add_to_pool_wizard_view.xml',
+        'wizard/shortfall_wizard_view.xml',
         
         # Views (load after wizards to ensure actions are defined)
         'views/job_type_views.xml',

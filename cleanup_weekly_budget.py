@@ -1,0 +1,6 @@
+env.cr.execute("DELETE FROM mail_tracking_value WHERE field_id IN (SELECT id FROM ir_model_fields WHERE model = 'weekly.budget.plan');")
+env.cr.commit()
+print("Cleaned up mail_tracking_value records for weekly.budget.plan")
+env.cr.execute("DELETE FROM ir_model_fields WHERE model = 'weekly.budget.plan';")
+env.cr.commit()
+print("Cleaned up ir_model_fields records for weekly.budget.plan")

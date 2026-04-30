@@ -142,19 +142,24 @@ class ProcurementPool(models.Model):
         purchase_orders = []
 
         for vendor, lines in vendor_lines.items():
-            # Collect job cost sheet and project from MR lines
+            # Collect job cost sheet, project, and department from MR lines
             job_cost_sheet_id = False
             project_id = False
+            dept_id = False
             for line in lines:
+                if not dept_id and line.department_id:
+                    dept_id = line.department_id.id
                 for mr_line in line.mr_line_ids:
                     mr = mr_line.requisition_id
                     if not job_cost_sheet_id and mr.job_cost_sheet_id:
                         job_cost_sheet_id = mr.job_cost_sheet_id.id
                     if not project_id and mr.project_id:
                         project_id = mr.project_id.id
-                    if job_cost_sheet_id and project_id:
+                    if not dept_id and mr.department_id:
+                        dept_id = mr.department_id.id
+                    if job_cost_sheet_id and project_id and dept_id:
                         break
-                if job_cost_sheet_id and project_id:
+                if job_cost_sheet_id and project_id and dept_id:
                     break
 
             po_vals = {
@@ -163,6 +168,8 @@ class ProcurementPool(models.Model):
                 'origin': self.name,
                 'order_line': [],
             }
+            if dept_id:
+                po_vals['department_id'] = dept_id
             if job_cost_sheet_id:
                 po_vals['job_cost_sheet_id'] = job_cost_sheet_id
             if project_id:
@@ -205,6 +212,9 @@ class ProcurementPool(models.Model):
                     po_line_vals['analytic_distribution'] = line.analytic_distribution
                 elif analytic_account_id:
                     po_line_vals['analytic_account_id'] = analytic_account_id
+
+                if line.department_id:
+                    po_line_vals['department_id'] = line.department_id.id
 
                 po_vals['order_line'].append((0, 0, po_line_vals))
 
@@ -345,6 +355,8 @@ class ProcurementPoolLine(models.Model):
     vendor_id = fields.Many2one(
         'res.partner', string='Vendor',
         domain="[('is_company', '=', True), ('supplier_rank', '>', 0)]")
+    department_id = fields.Many2one(
+        'hr.department', string='Department')
     analytic_distribution = fields.Json(string='Analytic Distribution')
     price_unit = fields.Float(string='Unit Price', digits='Product Price')
 

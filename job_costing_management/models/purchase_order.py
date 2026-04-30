@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 
 
 class PurchaseOrder(models.Model):
@@ -12,6 +12,11 @@ class PurchaseOrder(models.Model):
     project_id = fields.Many2one('project.project', string='Project', index=True)
     job_order_id = fields.Many2one('job.order', string='Job Order', index=True)
     allocation_count = fields.Integer(string='Allocations', compute='_compute_allocation_count')
+    has_shortfall = fields.Boolean(
+        string='Has Shortfall',
+        compute='_compute_has_shortfall',
+        help='True if any PO line has received less than ordered (on confirmed POs).',
+    )
 
     def _compute_allocation_count(self):
         for record in self:
@@ -28,6 +33,31 @@ class PurchaseOrder(models.Model):
             'res_model': 'purchase.allocation',
             'view_mode': 'tree,form',
             'domain': [('id', 'in', allocations.ids)],
+        }
+
+    def _compute_has_shortfall(self):
+        """Check if any PO line on a confirmed PO has received < ordered."""
+        for record in self:
+            has_gap = False
+            if record.state == 'purchase':
+                for line in record.order_line:
+                    if line.display_type not in (False, 'product', ''):
+                        continue
+                    if line.qty_received < line.product_qty:
+                        has_gap = True
+                        break
+            record.has_shortfall = has_gap
+
+    def action_open_shortfall_wizard(self):
+        """Open wizard to confirm shortfall closure with reason."""
+        self.ensure_one()
+        return {
+            'name': _('Close Shortfall'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'po.shortfall.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {'default_po_id': self.id},
         }
     
     @api.model

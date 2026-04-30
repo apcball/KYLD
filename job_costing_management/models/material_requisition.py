@@ -67,6 +67,13 @@ class MaterialRequisition(models.Model):
         ('urgent', 'Urgent')
     ], string='Priority', default='normal')
     
+    # Shortfall tracking
+    has_unordered_qty = fields.Boolean(
+        string='Has Unordered Qty',
+        compute='_compute_has_unordered_qty',
+        help='True if any MR purchase line has not been fully ordered via PO.',
+    )
+    
     # Procurement Pool
     is_pooled = fields.Boolean(
         string='In Procurement Pool', compute='_compute_is_pooled', store=True)
@@ -121,6 +128,23 @@ class MaterialRequisition(models.Model):
             
             record.picking_count = len(picking_ids)
     
+    def _compute_has_unordered_qty(self):
+        """Check if any purchase-type MR line has qty not yet on a PO."""
+        POLine = self.env['purchase.order.line'].sudo()
+        for record in self:
+            has_gap = False
+            if record.state in ('approved', 'ordered'):
+                for line in record.line_ids.filtered(lambda l: l.requisition_action == 'purchase'):
+                    po_lines = POLine.search([
+                        ('material_requisition_line_id', '=', line.id),
+                        ('order_id.state', 'not in', ['cancel']),
+                    ])
+                    actual_ordered = sum(po_lines.mapped('product_qty'))
+                    if actual_ordered < line.quantity:
+                        has_gap = True
+                        break
+            record.has_unordered_qty = has_gap
+
     @api.depends('line_ids.total_cost')
     def _compute_total_amount(self):
         """Compute total amount from requisition lines"""
@@ -250,6 +274,9 @@ class MaterialRequisition(models.Model):
                 'origin': self.name,
                 'material_requisition_id': self.id,  # Link to material requisition
                 'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
+                'employee_id': self.employee_id.id if self.employee_id else False,
+                'department_id': self.department_id.id if self.department_id else False,
+                'dept_id': self.department_id.id if self.department_id else False,
                 'order_line': []
             }
             if self.delivery_to:
@@ -385,6 +412,54 @@ class MaterialRequisition(models.Model):
     def action_received(self):
         self.write({'state': 'received'})
 
+    def action_close_remaining(self):
+        """Close unordered MR lines, releasing qty back to BOQ.
+
+        For each purchase-type MR line, if the actual PO-ordered quantity is
+        less than the MR line quantity, reduce the MR line quantity to match
+        what was actually ordered. This releases BOQ remaining qty and budget.
+        """
+        POLine = self.env['purchase.order.line'].sudo()
+        for req in self:
+            if req.state not in ('approved', 'ordered'):
+                raise ValidationError(_('Can only close remaining on Approved or Ordered requisitions.'))
+
+            changes = []
+            for line in req.line_ids.filtered(lambda l: l.requisition_action == 'purchase'):
+                po_lines = POLine.search([
+                    ('material_requisition_line_id', '=', line.id),
+                    ('order_id.state', 'not in', ['cancel']),
+                ])
+                actual_ordered = sum(po_lines.mapped('product_qty'))
+
+                if actual_ordered < line.quantity:
+                    old_qty = line.quantity
+                    line.write({'quantity': actual_ordered})
+                    changes.append(
+                        _('%s: %.2f %s → %.2f %s (released %.2f)') % (
+                            line.product_id.display_name,
+                            old_qty, line.uom_id.name or '',
+                            actual_ordered, line.uom_id.name or '',
+                            old_qty - actual_ordered,
+                        )
+                    )
+
+            if changes:
+                req.message_post(
+                    body=_('<strong>Close Remaining — Quantities adjusted:</strong><br/>%s') % '<br/>'.join(changes),
+                    message_type='notification',
+                    subtype_xmlid='mail.mt_note',
+                )
+
+            # Trigger budget recompute if biz_weekly_budget is installed
+            if hasattr(req, '_update_budget_moves'):
+                req._update_budget_moves()
+
+            # Recompute BOQ tracking for affected lines
+            boq_lines = req.line_ids.mapped('boq_line_id')
+            if boq_lines:
+                boq_lines._compute_purchase_tracking()
+
     def action_add_to_pool(self):
         """Open wizard to add approved MR lines to a procurement pool."""
         self.ensure_one()
@@ -514,6 +589,14 @@ class MaterialRequisitionLine(models.Model):
     allocated_qty = fields.Float(
         string='Allocated Qty', compute='_compute_allocated_qty')
     
+    # PO-based tracking
+    ordered_qty = fields.Float(
+        string='PO Ordered', compute='_compute_po_tracking', store=False,
+        help='Total quantity ordered via confirmed Purchase Orders.')
+    received_qty = fields.Float(
+        string='PO Received', compute='_compute_po_tracking', store=False,
+        help='Total quantity received from confirmed Purchase Orders.')
+
     # Notes
     notes = fields.Text(string='Notes')
     
@@ -528,6 +611,17 @@ class MaterialRequisitionLine(models.Model):
             allocations = Allocation.search([
                 ('mr_line_id', '=', record.id)])
             record.allocated_qty = sum(allocations.mapped('qty'))
+
+    def _compute_po_tracking(self):
+        """Compute ordered and received qty from linked PO lines."""
+        POLine = self.env['purchase.order.line'].sudo()
+        for record in self:
+            po_lines = POLine.search([
+                ('material_requisition_line_id', '=', record.id),
+                ('order_id.state', 'in', ['purchase', 'done']),
+            ])
+            record.ordered_qty = sum(po_lines.mapped('product_qty'))
+            record.received_qty = sum(po_lines.mapped('qty_received'))
     
     @api.depends('quantity', 'estimated_cost')
     def _compute_total_cost(self):

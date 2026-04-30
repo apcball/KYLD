@@ -53,6 +53,11 @@
                                 invisible="state not in ('draft', 'submitted', 'dept_approved', 'approved', 'ordered')"/>
                         <button name="action_reset_to_draft" string="Reset to Draft" type="object" 
                                 invisible="state not in ('rejected', 'cancelled', 'ordered')"/>
+                        <button name="action_close_remaining" string="Close Remaining" type="object"
+                                class="btn-warning" icon="fa-compress"
+                                invisible="state not in ('approved', 'ordered') or not has_unordered_qty"
+                                confirm="This will reduce MR line quantities to match actual PO quantities. Unordered quantities will be released back to BOQ. Continue?"
+                                groups="purchase.group_purchase_manager,job_costing_management.group_job_costing_manager"/>
                         <field name="state" widget="statusbar" statusbar_visible="draft,submitted,dept_approved,approved,ordered,received"/>
                     </header>
                     <sheet>
@@ -75,6 +80,12 @@
                                 invisible="state != 'rejected'"/>
                         <widget name="web_ribbon" title="Cancelled" bg_color="text-bg-warning" 
                                 invisible="state != 'cancelled'"/>
+                        <field name="has_unordered_qty" invisible="1"/>
+                        <div class="alert alert-warning mb-0" role="alert"
+                             invisible="not has_unordered_qty or state not in ('approved', 'ordered')">
+                            <i class="fa fa-exclamation-triangle"/> <strong>Some quantities have not been ordered via PO yet.</strong>
+                            Click "Close Remaining" to release unordered quantities back to BOQ.
+                        </div>
                         <group>
                             <group>
                                 <field name="name"/>
@@ -118,6 +129,8 @@
                                         <field name="boq_remaining_qty" string="BOQ Remaining" readonly="1" invisible="not boq_line_id"/>
                                         <field name="is_pooled" string="Pooled" readonly="1" widget="boolean" optional="show"/>
                                         <field name="allocated_qty" string="Allocated" readonly="1" optional="hide"/>
+                                        <field name="ordered_qty" string="PO Ordered" readonly="1" optional="show"/>
+                                        <field name="received_qty" string="PO Received" readonly="1" optional="show"/>
                                     </tree>
                                 </field>
                             </page>

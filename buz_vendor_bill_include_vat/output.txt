@@ -1,0 +1,36 @@
+Testing bill / (ID: 1237)
+Fixing inconsistent state: setting is_vat_included to False...
+--- BEFORE INCLUDE VAT ---
+Line 4392 (APO2600827: M197 TPI ปูนซ็นมนล์ ฉลากสีเขียว - งานฉาบ ถุง 50kg (ปูนเทา)): display_type=product, debit=585.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4393 (APO2600827: UNIK ใบเจียร์บัวมีร่อง 4"(3000-รุ่นบาง)): display_type=product, debit=345.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4394 (APO2600827: MAKITA ดอกสว่านโรตารี่ 16 มิล * 210 D-00290): display_type=product, debit=405.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4395 (APO2600827: M200 TPI ปูนฉาบทั่วไป ถุง 50 kg (ปูนสำเร็จ)): display_type=product, debit=450.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4396 (APO2600827: PSP พุ๊กเหล็ก 1/2" (30ตัว/กล่อง)): display_type=product, debit=1610.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4397 (APO2600827: SUMO ใบตัดสแตนเลส 14" สีเขียว (25)): display_type=product, debit=1490.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4398 (APO2600827: SUMO ใบตัดเหล็ก-สแตนเลส 4" หนา 1 มิล ใบสีเขียว ใย2 ชั้น (50/
+กล่อง)
+): display_type=product, debit=150.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4399 (APO2600827: ZI-TEC ใบเพชรตัดคอนกรีต 9" น้ำ/แห้ง Turbo): display_type=product, debit=440.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4400 (APO2600827: MAKITA ดอกสว่านโรตารี่ 12 มิล * 160 D-00228): display_type=product, debit=120.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4401 (APO2600827: วัสดุสิ้นเปลือง ผนัง - ตาข่ายไฟเบอร์ TOA รุ่น Fiber Mesh ขนาด 8 นิ้ว x 10 เมตร สีขาว.): display_type=product, debit=2720.0, credit=0.0, tax_ids=[], include_vat_cost=True
+Line 4402 (False): display_type=payment_term, debit=0.0, credit=8315.0, tax_ids=[], include_vat_cost=False
+Total Debits: 8315.0, Credits: 8315.0
+Selected lines to include VAT: [4392, 4393, 4394, 4395, 4396, 4397, 4398, 4399, 4400, 4401]
+Including VAT...
+Action successful.
+--- AFTER INCLUDE VAT ---
+Line 4392 (APO2600827: M197 TPI ปูนซ็นมนล์ ฉลากสีเขียว - งานฉาบ ถุง 50kg (ปูนเทา)): display_type=product, debit=585.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4393 (APO2600827: UNIK ใบเจียร์บัวมีร่อง 4"(3000-รุ่นบาง)): display_type=product, debit=345.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4394 (APO2600827: MAKITA ดอกสว่านโรตารี่ 16 มิล * 210 D-00290): display_type=product, debit=405.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4395 (APO2600827: M200 TPI ปูนฉาบทั่วไป ถุง 50 kg (ปูนสำเร็จ)): display_type=product, debit=450.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4396 (APO2600827: PSP พุ๊กเหล็ก 1/2" (30ตัว/กล่อง)): display_type=product, debit=1610.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4397 (APO2600827: SUMO ใบตัดสแตนเลส 14" สีเขียว (25)): display_type=product, debit=1490.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4398 (APO2600827: SUMO ใบตัดเหล็ก-สแตนเลส 4" หนา 1 มิล ใบสีเขียว ใย2 ชั้น (50/
+กล่อง)
+): display_type=product, debit=150.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4399 (APO2600827: ZI-TEC ใบเพชรตัดคอนกรีต 9" น้ำ/แห้ง Turbo): display_type=product, debit=440.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4400 (APO2600827: MAKITA ดอกสว่านโรตารี่ 12 มิล * 160 D-00228): display_type=product, debit=120.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4401 (APO2600827: วัสดุสิ้นเปลือง ผนัง - ตาข่ายไฟเบอร์ TOA รุ่น Fiber Mesh ขนาด 8 นิ้ว x 10 เมตร สีขาว.): display_type=product, debit=2720.0, credit=0.0, tax_ids=[], tax_line_id=False
+Line 4402 (False): display_type=payment_term, debit=0.0, credit=8315.0, tax_ids=[], tax_line_id=False
+Total Debits: 8315.0, Credits: 8315.0
+Difference: 0.0

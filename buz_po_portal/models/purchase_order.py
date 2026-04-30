@@ -22,9 +22,9 @@ class PurchaseOrder(models.Model):
     department_id = fields.Many2one(
         'hr.department',
         string="แผนก",
-        related='user_id.employee_id.department_id',
         store=True,
-        readonly=True
+        readonly=False,
+        help="แผนกเจ้าของเรื่อง (สืบทอดจาก PR/MR ต้นทาง)",
     )
     requisition_id = fields.Many2one('purchase.requisition', string='Purchase Agreement')
     custom_request_date = fields.Date(string="วันที่ตามแบบฟอร์ม")
