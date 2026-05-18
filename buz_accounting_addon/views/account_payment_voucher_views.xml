@@ -82,6 +82,7 @@
                             <field name="destination_journal_id" required="1"/>
                             <field name="payment_method_line_id" required="payment_type != 'cash'" invisible="payment_type == 'cash'"/>
                             <field name="check_pay_to" string="Pay To"/>
+                            <field name="wht_description" string="WHT Description"/>
                         </group>
                     </group>
                     <group string="Payment Details" invisible="payment_type != 'check'">

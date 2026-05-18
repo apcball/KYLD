@@ -171,7 +171,8 @@
                                         หัก ณ.ที่จ่าย
                                     </td>
                                     <td>
-                                        ค่าบริการ <!-- Or try to fetch name from first tax: o.line_ids[:1].wht_tax_id.name -->
+                                        <span t-if="o.wht_description" t-esc="o.wht_description"/>
+                                        <span t-else="">ค่าบริการ</span>
                                     </td>
                                     <td></td>
                                     <td class="text-center">

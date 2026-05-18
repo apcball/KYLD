@@ -15,30 +15,51 @@ class PurchaseOrder(models.Model):
         copy=False,
     )
 
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        from_procurement = self.env.context.get('from_procurement') 
+    def _buz_is_allowed_rfq_source(self, vals):
+        """Allow RFQ creation only from approved source documents or trusted flows."""
+        from_procurement = self.env.context.get('from_procurement')
         allow_create_rfq = self.env.context.get('allow_create_rfq')
         is_admin = self.env.user.has_group('base.group_system')
 
-        for vals in vals_list:
-            is_from_pr = bool(vals.get('requisition_order')) or bool(vals.get('pr_number'))
-            is_from_mr = bool(vals.get('material_requisition_id'))
+        is_from_pr = bool(vals.get('requisition_order')) or bool(vals.get('pr_number'))
+        is_from_mr = bool(vals.get('material_requisition_id'))
+        is_from_pool = bool(vals.get('procurement_pool_id'))
 
-            if not (from_procurement or allow_create_rfq or is_admin or is_from_pr or is_from_mr):
+        return bool(
+            from_procurement
+            or allow_create_rfq
+            or is_admin
+            or is_from_pr
+            or is_from_mr
+            or is_from_pool
+        )
+
+    def _buz_default_source_type(self, vals):
+        """Set a stable source marker for downstream reporting and debugging."""
+        from_procurement = self.env.context.get('from_procurement')
+        is_admin = self.env.user.has_group('base.group_system')
+
+        if vals.get('buz_source_type'):
+            return vals['buz_source_type']
+        if vals.get('requisition_order') or vals.get('pr_number'):
+            return 'pr'
+        if vals.get('material_requisition_id'):
+            return 'mr'
+        if vals.get('procurement_pool_id') or from_procurement:
+            return 'auto'
+        if is_admin:
+            return 'manual_allowed'
+        return False
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if not self._buz_is_allowed_rfq_source(vals):
                 raise UserError(_("You are not allowed to create RFQ manually. Please use Purchase Request or approved process."))
-            
+
             if not vals.get('buz_source_type'):
-                if is_from_pr:
-                    vals['buz_source_type'] = 'pr'
-                elif is_from_mr:
-                    vals['buz_source_type'] = 'mr'
-                elif from_procurement:
-                    vals['buz_source_type'] = 'auto'
-                elif is_admin:
-                    vals['buz_source_type'] = 'manual_allowed'
-                    
+                vals['buz_source_type'] = self._buz_default_source_type(vals)
+
             if not vals.get('buz_source_type'):
                 raise UserError(_("Source Type is required for RFQ creation."))
 
@@ -59,4 +80,3 @@ class PurchaseOrder(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
-

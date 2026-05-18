@@ -25,6 +25,12 @@
                         class="btn-primary"
                         invisible="state != 'draft' or move_type not in ('in_invoice', 'in_refund')"
                         help="Include VAT in the price of selected lines"/>
+                <button name="action_include_vat_all"
+                        type="object"
+                        string="Include VAT All"
+                        class="btn-secondary"
+                        invisible="state != 'draft' or move_type not in ('in_invoice', 'in_refund')"
+                        help="Include VAT in the price of all taxable invoice lines"/>
                 <button name="action_restore_vat" 
                         type="object" 
                         string="Restore VAT" 

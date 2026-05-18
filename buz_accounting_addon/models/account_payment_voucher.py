@@ -23,6 +23,11 @@ class AccountPaymentVoucher(models.Model):
     ], default="draft", tracking=True)
 
     billing_note = fields.Char(string="Billing Note", tracking=True)
+    wht_description = fields.Char(
+        string="WHT Description",
+        tracking=True,
+        help="Description for WHT (e.g., ค่าบริการ, ค่าเช่า, etc.). If filled, this will be used in the payment voucher report."
+    )
 
     partner_id = fields.Many2one("res.partner", string="Vendor", required=True, domain=[("supplier_rank", ">", 0)], tracking=True)
     line_ids = fields.One2many("account.payment.voucher.line", "voucher_id", string="Lines")

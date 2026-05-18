@@ -89,7 +89,37 @@ class TestVatInclusion(TransactionCase):
         self.assertEqual(line.original_price_unit, 100.0)
         self.assertEqual(line.vat_included_amount, 7.0)
         self.assertTrue(line.original_tax_ids)
-        
+
+    def test_vat_inclusion_all(self):
+        """Test VAT inclusion for all taxable invoice lines"""
+        move = self.env['account.move'].create({
+            'move_type': 'in_invoice',
+            'partner_id': self.partner.id,
+            'company_id': self.company.id,
+            'invoice_line_ids': [
+                (0, 0, {
+                    'product_id': self.product.id,
+                    'quantity': 1,
+                    'price_unit': 100.0,
+                    'tax_ids': [(6, 0, [self.vat_tax.id])],
+                }),
+                (0, 0, {
+                    'product_id': self.product.id,
+                    'quantity': 2,
+                    'price_unit': 50.0,
+                    'tax_ids': [(6, 0, [self.vat_tax.id])],
+                }),
+            ]
+        })
+
+        move.action_include_vat_all()
+
+        self.assertTrue(move.is_vat_included)
+        self.assertEqual(move.invoice_line_ids[0].price_unit, 107.0)
+        self.assertEqual(move.invoice_line_ids[1].price_unit, 53.5)
+        self.assertFalse(move.invoice_line_ids[0].tax_ids)
+        self.assertFalse(move.invoice_line_ids[1].tax_ids)
+
     def test_vat_restoration(self):
         """Test VAT restoration functionality"""
         # Create a vendor bill with a line

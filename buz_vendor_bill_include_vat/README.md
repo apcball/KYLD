@@ -15,6 +15,7 @@ The **Include VAT in Price** module adds a button to vendor bills that moves the
   4. Clears the `tax_ids` on the line and writes all changes in a single `move.write()` call, ensuring Odoo 17’s `_sync_dynamic_lines` recomputes tax and payment‑term lines correctly.
   5. Stores original tax information for restoration.
 - Adds a **Restore VAT** button to revert changes.
+- Adds an **Include VAT All** button to process every taxable invoice line in one click.
 - Posts a system message on the bill confirming the operation.
 
 ## Deep‑Level Analysis
