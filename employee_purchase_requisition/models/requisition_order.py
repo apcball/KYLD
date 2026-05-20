@@ -12,7 +12,8 @@ class RequisitionOrder(models.Model):
     product_id = fields.Many2one(
         'product.product',
         string='Product',
-        required=True
+        required=True,
+        domain="[('product_tmpl_id.can_be_expensed', '=', False)]"
     )
     description = fields.Text(string='Description')
     quantity = fields.Float(string='Quantity', default=1.0)

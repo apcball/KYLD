@@ -162,7 +162,7 @@
                             <field name="requisition_order_ids"
                                    readonly="state not in ['draft', 'waiting_purchase_approval']">
                                 <tree editable="bottom">
-                                    <field name="product_id"/>
+                                    <field name="product_id" domain="[('product_tmpl_id.can_be_expensed', '=', False)]"/>
                                     <field name="description"/>
                                     <field name="analytic_distribution"
                                            widget="analytic_distribution"
