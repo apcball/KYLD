@@ -183,4 +183,6 @@ class AccountMove(models.Model):
 
         # Trigger PO recompute ONCE after processing all bills (not inside the loop).
         # This reduces the PO's 'reserved' moves to reflect only the unbilled remainder.
-        self._trigger_linked_po_recompute()
+        # Skiped in bulk cron mode because the cron already processes all POs.
+        if not self.env.context.get('_skip_trigger_linked'):
+            self._trigger_linked_po_recompute()

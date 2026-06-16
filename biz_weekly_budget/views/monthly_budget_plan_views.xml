@@ -28,7 +28,7 @@
                     <button name="action_done" string="Mark as Done" type="object" invisible="state != 'confirmed'"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state not in ('cancelled')"/>
                     <button name="action_cancel" string="Cancel" type="object" invisible="state in ('done','cancelled')"/>
-                    <button name="action_recompute_all_budgets" string="Recompute All Budgets" type="object" class="btn-danger" confirm="This will wipe and recalculate ALL budget reservations across the system. Ensure no one is working. Proceed?"/>
+                    <button name="action_recompute_all_budgets" string="Recompute Budget" type="object" class="btn-danger" confirm="This will recalculate budget reservations for this plan only. Continue?"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done"/>
                 </header>
                 <sheet>

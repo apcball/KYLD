@@ -130,7 +130,7 @@ class MonthlyBudgetAllocation(models.Model):
             line.amount_available_forecast = line.amount - line.forecast_amount
             # Fix: Prevent ZeroDivisionError when amount is 0
             line.usage_percentage = (
-                (line.amount_used / line.amount * 100)
+                ((line.amount_used + line.amount_reserved) / line.amount * 100)
                 if line.amount and line.amount != 0 else 0.0
             )
             line.status = 'exceeded' if line.amount_used > line.amount else 'normal'
@@ -182,49 +182,58 @@ class MonthlyBudgetAllocation(models.Model):
         if not target_date:
             return self.browse()
 
+        comp_id = company_id.id if company_id else False
+        dept_id = department_id.id if department_id else False
+        dept_name = department_id.sudo().name if department_id else False
+
+        # Build cache key
+        cache_key = (str(target_date), comp_id, dept_id)
+        budget_cache = self.env.context.get('_budget_allocation_cache')
+        if budget_cache is not None and cache_key in budget_cache:
+            cached = budget_cache[cache_key]
+            return self.browse(cached) if cached else self.browse()
+
         base_domain = [
             ('plan_state', '=', 'confirmed'),
             ('date_from', '<=', target_date),
             ('date_to', '>=', target_date),
         ]
 
-        comp_id = company_id.id if company_id else False
-        dept_id = department_id.id if department_id else False
-        dept_name = department_id.sudo().name if department_id else False
+        alloc = self.browse()
 
         # Priority 1: Same company + same department
-        if comp_id and dept_id:
+        if not alloc and comp_id and dept_id:
             alloc = self.sudo().search(base_domain + [
                 ('all_companies', '=', False),
                 ('company_id', '=', comp_id),
                 ('department_id', '=', dept_id)
             ], limit=1)
-            if alloc: return alloc
 
         # Priority 2: Same company + department is null
-        if comp_id:
+        if not alloc and comp_id:
             alloc = self.sudo().search(base_domain + [
                 ('all_companies', '=', False),
                 ('company_id', '=', comp_id),
                 ('department_id', '=', False)
             ], limit=1)
-            if alloc: return alloc
 
         # Priority 3: Global company + same department (match by NAME for cross-company)
-        if dept_name:
-            allocs = self.sudo().search(base_domain + [
+        if not alloc and dept_name:
+            alloc = self.sudo().search(base_domain + [
                 ('all_companies', '=', True),
-                ('department_id', '!=', False)
-            ])
-            for alloc in allocs:
-                if alloc.department_id.name == dept_name:
-                    return alloc
+                ('department_id.name', '=', dept_name)
+            ], limit=1)
 
         # Priority 4: Global company + department is null
-        alloc = self.sudo().search(base_domain + [
-            ('all_companies', '=', True),
-            ('department_id', '=', False)
-        ], limit=1)
-        
+        if not alloc:
+            alloc = self.sudo().search(base_domain + [
+                ('all_companies', '=', True),
+                ('department_id', '=', False)
+            ], limit=1)
+
+        # Cache result
+        if budget_cache is not None:
+            budget_cache[cache_key] = alloc.id if alloc else False
+
         return alloc or self.browse()
 

@@ -23,6 +23,11 @@ class PurchaseOrder(models.Model):
     # department_id is defined in buz_po_portal, no redefinition needed here.
     # Department inheritance from source documents is handled in create().
 
+    # Re-declare with index=True to speed up the per-PR confirmed-PO
+    # lookups in purchase_requisition._update_budget_moves.
+    requisition_order = fields.Char(index=True)
+    pr_number = fields.Char(index=True)
+
     payment_date = fields.Date(
         string='Expected Payment',
         compute='_compute_payment_date',
@@ -312,25 +317,42 @@ class PurchaseOrder(models.Model):
                 moves.unlink()
 
     def _trigger_linked_docs_recompute(self):
-        """Recompute PR/MR budget moves to clear their reservation if PO takes over."""
+        """Recompute PR/MR budget moves — deduplicated to avoid redundant calls.
+
+        When called on many POs at once (e.g. the global recompute cron) the
+        old per-PO loop would trigger _update_budget_moves on the same PR/MR
+        over and over.  This version collects every *unique* PR and MR first,
+        then updates each once.
+        """
+        prs = self.env['employee.purchase.requisition'].sudo()
+        mrs = self.env['material.requisition'].sudo()
+
         for po in self:
-            if getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False):
-                name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
-                if name:
-                    pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', name)], limit=1)
-                    if pr: pr._update_budget_moves()
-            if getattr(po, 'material_requisition_id', False):
-                po.material_requisition_id._update_budget_moves()
-            if po.origin:
+            # PRs
+            name = getattr(po, 'requisition_order', False) or getattr(po, 'pr_number', False)
+            if name:
+                pr = self.env['employee.purchase.requisition'].sudo().search([('name', '=', name)], limit=1)
+                if pr:
+                    prs |= pr
+
+            # MRs: header-level link
+            mr = po.material_requisition_id.sudo() if getattr(po, 'material_requisition_id', False) else False
+            if not mr and po.origin:
                 mr = self.env['material.requisition'].sudo().search([('name', '=', po.origin)], limit=1)
-                if mr: mr._update_budget_moves()
-            
-            # Update MR based on PO lines (e.g., from Procurement Pool)
+            if mr:
+                mrs |= mr
+
+            # MRs: PO-line level link (Procurement Pool etc.)
             mr_lines_linked = getattr(po.order_line, 'material_requisition_line_id', False)
             if mr_lines_linked:
-                mrs = mr_lines_linked.mapped('requisition_id')
-                for mr in mrs:
-                    mr._update_budget_moves()
+                for mr_line in mr_lines_linked:
+                    if mr_line.requisition_id:
+                        mrs |= mr_line.requisition_id
+
+        if prs:
+            prs._update_budget_moves()
+        if mrs:
+            mrs._update_budget_moves()
 
     def _update_budget_moves(self):
         """Rebuild 'reserved' budget.move entries for this PO.
@@ -350,7 +372,8 @@ class PurchaseOrder(models.Model):
         self = self.with_context(_budget_po_updating=True)
 
         self._clear_budget_moves()
-        self._trigger_linked_docs_recompute()
+        if not self.env.context.get('_skip_trigger_linked'):
+            self._trigger_linked_docs_recompute()
 
         BudgetMove = self.env['budget.move'].sudo()
         BudgetAllocation = self.env['monthly.budget.allocation'].sudo()

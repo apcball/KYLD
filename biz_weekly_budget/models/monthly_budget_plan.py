@@ -146,7 +146,7 @@ class MonthlyBudgetPlan(models.Model):
             rec.total_forecast = sum(rec.allocation_ids.mapped('forecast_amount'))
             rec.total_remaining = rec.total_budget - rec.total_used - rec.total_reserved
             rec.usage_percentage = (
-                (rec.total_used / rec.total_budget * 100)
+                ((rec.total_used + rec.total_reserved) / rec.total_budget * 100)
                 if rec.total_budget else 0.0
             )
 
@@ -188,32 +188,62 @@ class MonthlyBudgetPlan(models.Model):
         self.write({'state': 'draft'})
 
     def action_recompute_all_budgets(self):
-        """Schedule a global sweep to rebuild all budget_move records across all monthly plans."""
-        cron = self.env.ref('biz_weekly_budget.ir_cron_recompute_budgets', raise_if_not_found=False)
-        if not cron:
-            cron = self.env['ir.cron'].sudo().create({
-                'name': 'Recompute All Budgets (Async)',
-                'model_id': self.env['ir.model']._get_id('monthly.budget.plan'),
-                'state': 'code',
-                'code': 'model._cron_recompute_all_budgets()',
-                'interval_number': 1,
-                'interval_type': 'months',
-                'numbercall': 1,
-                'active': False,
-            })
-        
-        cron.write({
-            'nextcall': fields.Datetime.now(),
-            'active': True,
-            'numbercall': 1
-        })
-        
+        """Rebuild budget_move records for THIS plan only (not all plans).
+
+        Deletes only the moves linked to this plan's allocations and
+        reprocesses documents whose payment/bill dates fall within
+        the plan's date range.
+        """
+        self.ensure_one()
+        if not self.date_from or not self.date_to:
+            raise UserError(_('Plan date range is not set.'))
+
+        ctx = dict(
+            self.env.context,
+            _skip_trigger_linked=True,
+            _budget_allocation_cache={},
+        )
+        self = self.with_context(**ctx)
+
+        # Delete only moves belonging to this plan
+        plan_allocs = self.allocation_ids
+        self.env['budget.move'].sudo().search([
+            ('allocation_id', 'in', plan_allocs.ids)
+        ]).unlink()
+        self.env.cr.commit()
+
+        date_from, date_to = self.date_from, self.date_to
+
+        steps = [
+            ('employee.purchase.requisition', 'payment_date',
+             [('state', '!=', 'draft')]),
+            ('material.requisition', 'payment_date',
+             [('state', '!=', 'draft')]),
+            ('purchase.order', 'payment_date',
+             [('state', '!=', 'cancel')]),
+            ('account.move', 'invoice_date_due',
+             [('state', 'in', ('draft', 'posted')),
+              ('move_type', 'in', ('in_invoice', 'in_refund'))]),
+        ]
+        for model_name, date_field, base_domain in steps:
+            domain = base_domain + [
+                (date_field, '>=', date_from),
+                (date_field, '<=', date_to),
+            ]
+            records = self.env[model_name].sudo().search(domain)
+            if records:
+                records._update_budget_moves()
+            self.env.cr.commit()
+
+        # Re-read to show fresh computed fields
+        self.invalidate_recordset(['total_used', 'total_reserved', 'total_remaining', 'usage_percentage'])
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': _('Recomputation Scheduled'),
-                'message': _('Budget recomputation has been scheduled in the background. It will execute shortly. Please wait a few minutes for it to complete.'),
+                'title': _('Recomputation Complete'),
+                'message': _('Budget moves for %s have been rebuilt.') % self.name,
                 'type': 'success',
                 'sticky': True,
             }
@@ -221,13 +251,36 @@ class MonthlyBudgetPlan(models.Model):
 
     @api.model
     def _cron_recompute_all_budgets(self):
-        """Global sweep to rebuild all budget_move records. Executed by cron."""
+        """Global sweep to rebuild all budget_move records. Executed by cron.
+
+        Strategy:
+        - Delete ALL budget moves at the start (catches orphaned records).
+        - Process each document type in its own commit step so the
+          transaction log never grows too large.
+        - Skip linked-doc triggers (PO↔PR/MR, bill↔PO) because the cron
+          processes every doc once per step anyway.
+        - Pre-populate an allocation cache so the thousands of per-line
+          _get_allocation calls resolve from memory instead of hitting the DB.
+        """
+        ctx = dict(
+            self.env.context,
+            _skip_trigger_linked=True,
+            _budget_allocation_cache={},
+        )
+        self = self.with_context(**ctx)
+
         self.env['budget.move'].sudo().search([]).unlink()
-        self.env['employee.purchase.requisition'].sudo().search([('state', '!=', 'draft')])._update_budget_moves()
         self.env.cr.commit()
-        self.env['material.requisition'].sudo().search([('state', '!=', 'draft')])._update_budget_moves()
-        self.env.cr.commit()
-        self.env['purchase.order'].sudo().search([('state', '!=', 'cancel')])._update_budget_moves()
-        self.env.cr.commit()
-        self.env['account.move'].sudo().search([('state', 'in', ('draft', 'posted')), ('move_type', 'in', ('in_invoice', 'in_refund'))])._update_budget_moves()
-        self.env.cr.commit()
+
+        steps = [
+            ('employee.purchase.requisition', [('state', '!=', 'draft')]),
+            ('material.requisition', [('state', '!=', 'draft')]),
+            ('purchase.order', [('state', '!=', 'cancel')]),
+            ('account.move', [('state', 'in', ('draft', 'posted')),
+                              ('move_type', 'in', ('in_invoice', 'in_refund'))]),
+        ]
+        for model_name, domain in steps:
+            records = self.env[model_name].sudo().search(domain)
+            if records:
+                records._update_budget_moves()
+            self.env.cr.commit()
