@@ -94,6 +94,14 @@ class MonthlyBudgetPlan(models.Model):
         'plan_id',
         string='Department Allocations',
     )
+    notify_user_ids = fields.Many2many(
+        'res.users',
+        'monthly_budget_plan_notify_rel',
+        'plan_id',
+        'user_id',
+        string='Notify on Budget Exceeded',
+        help='Users notified by email when a budget violation occurs on this plan.',
+    )
 
     # Summary fields
     total_used = fields.Float(

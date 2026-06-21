@@ -49,6 +49,7 @@
                             <field name="date_to" readonly="1"/>
                             <field name="currency_id" invisible="1"/>
                             <field name="total_budget" widget="monetary" readonly="state != 'draft'"/>
+                            <field name="notify_user_ids" widget="many2many_tags"/>
                         </group>
                     </group>
                     <notebook>

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 
 class BudgetAdjustmentWizard(models.TransientModel):
@@ -23,15 +23,17 @@ class BudgetAdjustmentWizard(models.TransientModel):
     )
     reason = fields.Text(
         string='Reason',
-        required=True,
     )
+
+    @api.constrains('reason')
+    def _check_reason(self):
+        for rec in self:
+            if not rec.reason or not rec.reason.strip():
+                raise ValidationError(_('Please provide a reason for the adjustment.'))
 
     def action_confirm(self):
         """Apply the budget adjustment."""
         self.ensure_one()
-        if not self.reason:
-            raise UserError(_('Please provide a reason for the adjustment.'))
-        # Fix: Validate new_amount is non-negative
         if self.new_amount < 0:
             raise UserError(_('New budget amount cannot be negative.'))
 

@@ -48,9 +48,7 @@ class CreateBillingNoteWizard(models.TransientModel):
 
         note_type = 'payable' if invoice.move_type == 'in_invoice' else 'receivable'
 
-        billing_note = self.env['billing.note'].with_context(
-            billing_note_date=self.date,
-        ).create({
+        billing_note = self.env['billing.note'].create({
             'partner_id': invoice.partner_id.id,
             'date': self.date,
             'due_date': invoice.invoice_date_due,

@@ -74,19 +74,15 @@ class PurchaseOrder(models.Model):
                 lambda m: m.move_type == 'in_invoice' and m.state in ('draft', 'posted')
             )
             # Use invoice lines related to this purchase order to calculate the actual billed amount against this PO
-            # Sometimes billed_amount is calculated directly by sum(posted_bills.mapped('amount_total'))
-            # but standard odoo approach might be better. Let's stick to simple sum for now as we just need total.
-            # But wait, a bill could cover multiple POs.
             amount = 0.0
             for bill in posted_bills:
                 # Calculate proportion of this bill that belongs to this PO
                 for line in bill.invoice_line_ids:
                     if line.purchase_line_id and line.purchase_line_id.order_id.id == order.id:
                         amount += line.price_total
-            
-            # Simple approach if standard invoice_ids contains only bills for this PO
-            order.billed_amount = sum(posted_bills.mapped('amount_total')) if not amount else amount
-            order.remaining_to_bill = max(0.0, order.amount_total - order.billed_amount)
+
+            order.billed_amount = amount
+            order.remaining_to_bill = max(0.0, order.amount_untaxed - order.billed_amount)
 
     # Budget info fields (computed on demand via button)
     budget_check_result = fields.Html(
@@ -523,7 +519,7 @@ class PurchaseOrder(models.Model):
 
                 po_projected = po_amount
                 if order.state in ['purchase', 'done']:
-                    ratio = order.remaining_to_bill / order.amount_total if order.amount_total else 0
+                    ratio = order.remaining_to_bill / order.amount_untaxed if order.amount_untaxed else 0
                     po_projected = po_amount * ratio
 
                 source_reserved = order._get_source_reserved_amount(budget_line)
@@ -752,7 +748,7 @@ class PurchaseOrder(models.Model):
             source_reserved = self._get_source_reserved_amount(budget_line)
             po_projected = po_amount
             if self.state in ('purchase', 'done'):
-                ratio = self.remaining_to_bill / self.amount_total if self.amount_total else 0
+                ratio = self.remaining_to_bill / self.amount_untaxed if self.amount_untaxed else 0
                 po_projected = po_amount * ratio
 
             total_after = used + max(0.0, reserved - source_reserved) + po_projected

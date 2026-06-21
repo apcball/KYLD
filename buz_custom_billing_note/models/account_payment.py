@@ -27,16 +27,14 @@ class AccountPayment(models.Model):
             ])
 
             for note in billing_notes:
-                # Calculate amount for this billing note
                 note_invoices = note.invoice_ids & reconciled_invoices
                 note_total = sum(note_invoices.mapped('amount_total'))
                 if not note_total:
                     continue
 
-                # Calculate payment ratio and amount for this billing note
-                total_payment = sum(note_invoices.mapped(lambda i: 
+                total_payment = sum(note_invoices.mapped(lambda i:
                     i.amount_total - i.amount_residual))
-                payment_ratio = total_payment / note_total
+                payment_ratio = total_payment / note_total if note_total else 0
                 note_amount = payment.amount * payment_ratio
 
                 if note_amount <= 0:

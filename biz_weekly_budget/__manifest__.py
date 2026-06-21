@@ -35,7 +35,6 @@
         'wizard/budget_reason_wizards_views.xml',
         'views/res_config_settings_views.xml',
         'views/monthly_budget_plan_views.xml',
-        'views/dashboard_views.xml',
         'views/budget_approval_request_views.xml',
         'views/purchase_order_views.xml',
         'views/purchase_requisition_views.xml',
@@ -43,6 +42,7 @@
         'views/procurement_pool_views.xml',
         'views/budget_move_views.xml',
         'views/menu_views.xml',
+        'views/dashboard_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

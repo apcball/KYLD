@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_budget_transaction_user,Budget Transaction User,model_budget_transaction,biz_weekly_budget.group_budget_user,1,0,0,0
+access_budget_transaction_manager,Budget Transaction Manager,model_budget_transaction,biz_weekly_budget.group_budget_manager,1,1,1,1
+access_budget_transaction_purchase_user,Budget Transaction Purchase User,model_budget_transaction,purchase.group_purchase_user,1,0,0,0
+access_budget_transaction_system,Budget Transaction System,model_budget_transaction,base.group_system,1,1,1,1

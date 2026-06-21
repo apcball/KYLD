@@ -76,10 +76,10 @@
                             <div class="row mb-2" style="padding-top: 0;">
                                 <div class="col-8">
                                     <div style="font-size: 20px;">
-                                        <div class="mb-1"><strong>บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</strong></div>
-                                        <div style="font-size: 18px;">9 หมู่ 12 ตําบลบึงคําพรอย อําเภอลําลูกกา จ.ปทุมธานี 12150</div>
-                                        <div style="font-size: 18px;">เลขที่ประจําตัวผูเสียภาษี 0105547076103</div>
-                                        <div style="font-size: 18px;">โทร 02 1509710 แฟกซ์ 02 1528803 E-mail: contact@mogen.co.th</div>
+                                        <div class="mb-1"><strong t-esc="doc.company_id.name or ''"/></div>
+                                        <div style="font-size: 18px;"><span t-field="doc.company_id.street"/> <span t-field="doc.company_id.street2"/></div>
+                                        <div style="font-size: 18px;">เลขที่ประจําตัวผู้เสียภาษี <span t-field="doc.company_id.vat"/></div>
+                                        <div style="font-size: 18px;">โทร <span t-field="doc.company_id.phone"/> E-mail: <span t-field="doc.company_id.email"/></div>
                                     </div>
                                 </div>
                                 <div class="col-4 text-end">
@@ -121,13 +121,18 @@
                                     <div class="info-box" style="height: 180px;">
                                         <div style="margin-bottom: 2px;">
                                             <strong style="width: 15%; display: inline-block;">นามผู้ซื้อ:</strong>
-                                            <span t-field="doc.partner_id.name"/> <span t-field="doc.partner_id.branch"/>
+<span t-field="doc.partner_id.name"/> <t t-if="doc.partner_id.branch">
+                                            <t t-if="doc.partner_id.branch in ('00000', 'สำนักงานใหญ่')">(สำนักงานใหญ่)</t>
+                                            <t t-elif="doc.partner_id.branch.isdigit()">(สาขาที่ <t t-esc="int(doc.partner_id.branch)"/>)</t>
+                                            <t t-else="">(สาขาที่ <t t-esc="doc.partner_id.branch"/>)</t>
+                                            </t>
                                         </div>
                                         <div style="margin-bottom: 2px;">
                                             <strong style="width: 10%; display: inline-block;">ที่อยู่:</strong>
                                             <span t-field="doc.partner_id.street"/> <span t-field="doc.partner_id.street2"/>
                                             <br/>
                                             <span t-field="doc.partner_id.city"/>
+                                            <span t-field="doc.partner_id.state_id.name"/>
                                             <span t-field="doc.partner_id.zip"/>
                                         </div>
                                         <div style="margin-bottom: 2px;">
@@ -289,8 +294,8 @@
                     </div>
                     <div class="col-6">
                         <div class="text-center">
-                            <p>ในนามบริษัท โมเก้น จำกัด</p>
-                            <p>ชื่อผู้รับวางบิล: ______________________</p>
+                            <p>ในนาม <span t-esc="doc.company_id.name or ''"/></p>
+                            <p>ชื่อผู้วางบิล: ______________________</p>
         
                             <p>วันที่: ____/____/____</p>
                         </div>

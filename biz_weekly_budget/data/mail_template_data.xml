@@ -111,8 +111,8 @@
                         <td style="padding: 8px; border: 1px solid #dee2e6;"><t t-out="object.requester_id.name"/></td>
                     </tr>
                     <tr>
-                        <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Budget Week</strong></td>
-                        <td style="padding: 8px; border: 1px solid #dee2e6;"><t t-out="object.budget_line_name"/></td>
+                        <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Budget Allocation</strong></td>
+                        <td style="padding: 8px; border: 1px solid #dee2e6;"><t t-out="object.budget_allocation_name or (object.budget_allocation_id.plan_id.name if object.budget_allocation_id else '')"/></td>
                     </tr>
                     <tr style="background: #fff3cd;">
                         <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Budget Limit</strong></td>

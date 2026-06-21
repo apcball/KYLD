@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import http
+from odoo import fields, http
 from odoo.http import request
 
 class BudgetAPI(http.Controller):

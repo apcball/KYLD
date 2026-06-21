@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- List View -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <record id="budget_transaction_view_list" model="ir.ui.view">
+            <field name="name">budget.transaction.list</field>
+            <field name="model">budget.transaction</field>
+            <field name="arch" type="xml">
+                <tree string="Budget Transactions">
+                    <field name="name"/>
+                    <field name="source_doc_name"/>
+                    <field name="origin_type"/>
+                    <field name="raw_date"/>
+                    <field name="raw_dept_id" optional="hide"/>
+                    <field name="product_id" optional="show"/>
+                    <field name="allocation_id" optional="show"/>
+                    <field name="primary_stage" widget="badge"
+                           decoration-info="primary_stage == 'reserved'"
+                           decoration-warning="primary_stage == 'committed'"
+                           decoration-success="primary_stage == 'used'"
+                           decoration-muted="primary_stage == 'pending'"
+                           decoration-danger="primary_stage == 'partial'"/>
+                    <field name="reserved_amount" sum="Total Reserved"/>
+                    <field name="committed_amount" sum="Total Committed"/>
+                    <field name="used_amount" sum="Total Used"/>
+                    <field name="released_amount" sum="Total Released"/>
+                    <field name="state" widget="badge"
+                           decoration-info="state == 'pending'"
+                           decoration-success="state == 'active'"
+                           decoration-muted="state == 'closed'"/>
+                </tree>
+            </field>
+        </record>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- Form View -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <record id="budget_transaction_view_form" model="ir.ui.view">
+            <field name="name">budget.transaction.form</field>
+            <field name="model">budget.transaction</field>
+            <field name="arch" type="xml">
+                <form string="Budget Transaction">
+                    <header>
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="pending,active,closed"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_resolve_allocation" type="object"
+                                    string="Resolve Allocation" class="oe_stat_button"
+                                    icon="fa-search"
+                                    invisible="state != 'pending'"/>
+                        </div>
+                        <div class="oe_title">
+                            <label for="name"/>
+                            <h1><field name="name"/></h1>
+                        </div>
+                        <group>
+                            <group string="Source">
+                                <field name="origin_type"/>
+                                <field name="source_doc_name" readonly="1"/>
+                                <field name="source_line_model" readonly="1"/>
+                                <field name="source_line_id" readonly="1"/>
+                                <field name="raw_date"/>
+                                <field name="raw_dept_id"/>
+                                <field name="raw_company_id" groups="base.group_multi_company"/>
+                            </group>
+                            <group string="Allocation">
+                                <field name="allocation_id"/>
+                                <field name="plan_id" readonly="1"/>
+                                <field name="primary_stage"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Stage Amounts" name="amounts">
+                                <group>
+                                    <group>
+                                        <field name="reserved_amount"/>
+                                        <field name="committed_amount"/>
+                                        <field name="used_amount"/>
+                                        <field name="released_amount"/>
+                                    </group>
+                                    <group>
+                                        <field name="active_amount"/>
+                                        <field name="total_demand"/>
+                                        <field name="product_id"/>
+                                        <field name="analytic_account_id" groups="analytic.group_analytic_accounting"/>
+                                    </group>
+                                </group>
+                            </page>
+                            <page string="Lineage" name="lineage">
+                                <group>
+                                    <group>
+                                        <field name="po_id"/>
+                                        <field name="po_line_id"/>
+                                        <field name="pool_line_id"/>
+                                    </group>
+                                    <group>
+                                        <field name="bill_line_ids" widget="many2many"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <div class="oe_chatter">
+                        <field name="message_follower_ids"/>
+                        <field name="activity_ids"/>
+                        <field name="message_ids"/>
+                    </div>
+                </form>
+            </field>
+        </record>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- Search View -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <record id="budget_transaction_view_search" model="ir.ui.view">
+            <field name="name">budget.transaction.search</field>
+            <field name="model">budget.transaction</field>
+            <field name="arch" type="xml">
+                <search string="Budget Transactions">
+                    <field name="name"/>
+                    <field name="source_doc_name"/>
+                    <field name="allocation_id"/>
+                    <field name="raw_dept_id"/>
+                    <field name="product_id"/>
+                    <field name="po_id"/>
+                    <separator/>
+                    <filter name="filter_pending" string="Pending"
+                            domain="[('state', '=', 'pending')]"/>
+                    <filter name="filter_active" string="Active"
+                            domain="[('state', '=', 'active')]"/>
+                    <filter name="filter_closed" string="Closed"
+                            domain="[('state', '=', 'closed')]"/>
+                    <separator/>
+                    <filter name="filter_reserved" string="Reserved"
+                            domain="[('primary_stage', '=', 'reserved')]"/>
+                    <filter name="filter_committed" string="Committed"
+                            domain="[('primary_stage', '=', 'committed')]"/>
+                    <filter name="filter_used" string="Used"
+                            domain="[('primary_stage', '=', 'used')]"/>
+                    <filter name="filter_partial" string="Partial Bill"
+                            domain="[('primary_stage', '=', 'partial')]"/>
+                    <group expand="0" string="Group By">
+                        <filter name="group_state" string="Status"
+                                context="{'group_by': 'state'}"/>
+                        <filter name="group_stage" string="Stage"
+                                context="{'group_by': 'primary_stage'}"/>
+                        <filter name="group_alloc" string="Allocation"
+                                context="{'group_by': 'allocation_id'}"/>
+                        <filter name="group_dept" string="Department"
+                                context="{'group_by': 'raw_dept_id'}"/>
+                        <filter name="group_month" string="Month"
+                                context="{'group_by': 'month_key'}"/>
+                        <filter name="group_origin" string="Origin"
+                                context="{'group_by': 'origin_type'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- Action -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <record id="action_budget_transaction" model="ir.actions.act_window">
+            <field name="name">Budget Transactions</field>
+            <field name="res_model">budget.transaction</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="budget_transaction_view_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    No budget transactions yet
+                </p>
+                <p>
+                    Budget transactions are created automatically when MR/PR/PO
+                    documents are submitted or confirmed.
+                </p>
+            </field>
+        </record>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- Pending Transactions Action -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <record id="action_budget_transaction_pending" model="ir.actions.act_window">
+            <field name="name">Pending Transactions</field>
+            <field name="res_model">budget.transaction</field>
+            <field name="view_mode">list,form</field>
+            <field name="domain">[('state', '=', 'pending')]</field>
+            <field name="search_view_id" ref="budget_transaction_view_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    No pending transactions
+                </p>
+                <p>
+                    Pending transactions have no matching budget allocation yet.
+                    They will be resolved automatically when a plan is confirmed
+                    that covers their date range.
+                </p>
+            </field>
+        </record>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- Menu items (added under existing Budget menu) -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <menuitem id="menu_budget_transaction"
+                  name="Budget Transactions"
+                  action="action_budget_transaction"
+                  parent="biz_weekly_budget.menu_budget_control_root"
+                  sequence="15"/>
+
+        <menuitem id="menu_budget_transaction_pending"
+                  name="Pending Transactions"
+                  action="action_budget_transaction_pending"
+                  parent="biz_weekly_budget.menu_budget_control_root"
+                  sequence="16"/>
+    </data>
+</odoo>

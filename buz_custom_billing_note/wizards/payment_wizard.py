@@ -27,8 +27,8 @@ class BillingNotePaymentWizard(models.TransientModel):
             if wizard.amount <= 0:
                 raise ValidationError(_('Payment amount must be positive.'))
             if wizard.amount > wizard.billing_note_id.amount_residual:
-                raise ValidationError(_('Payment amount cannot exceed the remaining amount to pay (%s).') % 
-                    wizard.billing_note_id.currency_id.symbol + str(wizard.billing_note_id.amount_residual))
+                raise ValidationError(_('Payment amount cannot exceed the remaining amount to pay (%(amount)s).') % {
+                    'amount': '%s%s' % (wizard.billing_note_id.currency_id.symbol, wizard.billing_note_id.amount_residual)})
 
     @api.model
     def default_get(self, fields_list):
