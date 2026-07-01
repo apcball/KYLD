@@ -121,28 +121,53 @@
                         <t t-set="line_list" t-value="doc.line_ids"/>
                         <!-- total of invoice amounts (show even if not paid) -->
                         <t t-set="total_invoice_amount" t-value="doc.amount_invoice_total"/>
-                        <t t-set="groups_of_7" t-value="[line_list[i:i+7] for i in range(0, len(line_list), 7)]"/>
+                        <t t-set="groups_of_10" t-value="[line_list[i:i+10] for i in range(0, len(line_list), 10)]"/>
                         <t t-set="page_number" t-value="1"/>
-                        <t t-set="total_pages" t-value="groups_of_7 and len(groups_of_7) or 0"/>
+                        <t t-set="total_pages" t-value="groups_of_10 and len(groups_of_10) or 0"/>
         
-                        <t t-foreach="groups_of_7" t-as="group">
+                        <t t-foreach="groups_of_10" t-as="group">
                           <div t-attf-style="#{page_number != 1 and 'page-break-before: always;' or ''}">
     
+                          <div style="float: right; font-size: 18px; font-weight: bold; margin-top: -5px;">
+                            หน้า <span t-esc="page_number"/> / <span t-esc="total_pages"/>
+                          </div>
+                          <div style="clear: right;"></div>
     
                         <t t-call="buz_custom_invoice.report_invoice_document_style"/>
                         <!-- Header Section -->
-                        <div class="row mb-2" style="padding-top: 0;"> <!-- Remove padding from the top -->
+                        <div class="row mb-2" style="padding-top: 0;">
                             <div class="col-8">
                                 <div style="font-size: 20px;">
-                                    <div class="mb-1"><strong>บริษัท โมเก้น จำกัด (สำนักงานใหญ่)</strong></div>
-                                    <div style="font-size: 18px;">9 หมู่ 12 ตําบลบึงคําพร้อย อําเภอลําลูกกา จ.ปทุมธานี 12150</div>
-                                    <div style="font-size: 18px;">เลขที่ประจําตัวผู้เสียภาษี 0105547076103</div>
-                                    <div style="font-size: 18px;">โทร 02 1509710 แฟกซ์ 02 1528803 E-mail: contact@mogen.co.th</div>
+                                    <div class="mb-1"><strong t-field="doc.company_id.name"/></div>
+                                    <div style="font-size: 18px;">
+                                        <t t-if="doc.company_id.partner_id.street">
+                                            <span t-field="doc.company_id.partner_id.street"/>
+                                            <t t-if="doc.company_id.partner_id.street2">
+                                                <span> </span><span t-field="doc.company_id.partner_id.street2"/>
+                                            </t>
+                                        </t>
+                                        <t t-if="doc.company_id.partner_id.city">
+                                            <span> </span><span t-field="doc.company_id.partner_id.city"/>
+                                        </t>
+                                        <t t-if="doc.company_id.partner_id.state_id">
+                                            <span> </span><span t-field="doc.company_id.partner_id.state_id.name"/>
+                                        </t>
+                                        <t t-if="doc.company_id.partner_id.zip">
+                                            <span> </span><span t-field="doc.company_id.partner_id.zip"/>
+                                        </t>
+                                    </div>
+                                    <div style="font-size: 18px;" t-if="doc.company_id.partner_id.vat">
+                                        เลขที่ประจําตัวผู้เสียภาษี <span t-field="doc.company_id.partner_id.vat"/>
+                                    </div>
+                                    <div style="font-size: 18px;">
+                                        <t t-if="doc.company_id.partner_id.phone">โทร <span t-field="doc.company_id.partner_id.phone"/></t>
+                                        <t t-if="doc.company_id.partner_id.email">E-mail: <span t-field="doc.company_id.partner_id.email"/></t>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-4 text-end">
-                                <img t-if="doc.company_id.logo" t-att-src="image_data_uri(doc.company_id.logo)" 
-                                     style="width: 180px; height: auto; object-fit: contain;" alt="Company Logo"/>
+                                <img t-if="doc.company_id.logo_web" t-att-src="image_data_uri(doc.company_id.logo_web)"
+                                     style="width: 180px; height: auto; object-fit: contain;" alt="Logo"/>
                             </div>
                         </div>
                        
@@ -156,7 +181,7 @@
                         
 
                           <!-- Right side: Document info -->
-                     <div class="col-6" style="text-align: right; padding-left: 0; padding-right: 0; float: right; margin-top: -20px;">
+                      <div class="col-6" t-attf-style="text-align: right; padding-left: 0; padding-right: 0; float: right; margin-top: #{page_number == 1 and '-20px' or '0'};">
                         <div class="info-box" style="font-size: 20px;">
                             <div class="mb-2">
                                 <strong style="width: 60%; display: inline-block; font-size: 20px;">เลขที่เอกสาร/No:</strong>
@@ -164,7 +189,7 @@
                             </div>
                             <div class="mb-2">
                                 <strong style="width: 60%; display: inline-block; font-size: 20px;">วันที่:</strong>
-                                <span t-field="doc.create_date" t-options='{"widget": "date"}' style="font-size: 20px;"/>
+                                <span t-field="doc.date" t-options='{"widget": "date"}' style="font-size: 20px;"/>
                             </div>
                         </div>
                     </div>
@@ -181,19 +206,22 @@
                             <!-- ฝั่งซ้าย: ข้อมูลลูกค้า -->
                             <div style="display: table-cell; width: 50%; vertical-align: top; padding-right: 5px;">
                                 <div style="border: 1px solid black; padding: 10px; border-radius: 4px; min-height: 192px; box-sizing: border-box;">
-                                    <div><strong>ชื่อลูกค้า:</strong> <span t-field="doc.partner_id.name"/></div>
+                                    <div><strong>ชื่อลูกค้า:</strong> <span t-field="doc.partner_id.name"/> <t t-if="doc.partner_id.branch">
+    <t t-if="doc.partner_id.branch in ('00000', 'สำนักงานใหญ่')">(สำนักงานใหญ่)</t>
+    <t t-elif="doc.partner_id.branch.isdigit()">(สาขาที่ <t t-esc="'{:05d}'.format(int(doc.partner_id.branch))"/>)</t>
+    <t t-else="">(สาขาที่ <t t-esc="doc.partner_id.branch"/>)</t>
+</t></div>
                                     <div><strong>เลขประจำตัวผู้เสียภาษีอากร:</strong> <span t-field="doc.partner_id.vat"/></div>
                                     <div>
                                         <strong>ที่อยู่:</strong>
                                         <span t-field="doc.partner_id.street"/>
-                                        <t t-if="doc.partner_id.city"> ตำบล<span t-field="doc.partner_id.city"/></t>
-                                        <t t-if="doc.partner_id.state_id"> อำเภอ<span t-field="doc.partner_id.state_id.name"/></t>
-                                        <t t-if="doc.partner_id.state_id"> จังหวัด<span t-field="doc.partner_id.state_id.name"/></t>
+                                        <t t-if="doc.partner_id.street2"><br/><span t-field="doc.partner_id.street2"/></t>
+                                        <t t-if="doc.partner_id.city"><span t-field="doc.partner_id.city"/></t>
+                                        <t t-if="doc.partner_id.state_id"><span t-field="doc.partner_id.state_id.name"/></t>
                                         <span t-field="doc.partner_id.zip"/>
                                     </div>
                                     <div>
                                         <strong>โทรศัพท์:</strong> <span t-field="doc.partner_id.phone"/>
-                                        <strong style="margin-left: 20px;">โทรสาร:</strong> <span t-field="doc.partner_id.fax"/>
                                     </div>
                                 </div>
                             </div>
@@ -203,19 +231,8 @@
                                 <div style="border: 1px solid black; padding: 10px; border-radius: 4px; min-height: 192px; box-sizing: border-box;">
                                     <div>
                                         <strong>สถานที่ส่งของ:</strong>
-                                        <t t-if="doc.delivery_partner_id and doc.delivery_partner_id.street">
-                                            <span t-field="doc.delivery_partner_id.street"/>
-                                        </t>
-                                        <t t-if="not doc.delivery_partner_id or not doc.delivery_partner_id.street">
-                                            <span t-field="doc.partner_id.street"/>
-                                        </t>
+                                        <br/>
                                     </div>
-                                            <div>
-                                                <!-- ตำบล (ใช้ข้อมูล delivery_partner ก่อน ถ้าไม่มีใช้ partner) -->
-                                                <t t-if="(doc.delivery_partner_id and doc.delivery_partner_id.city) or doc.partner_id.city">
-                                                    ตำบล<span t-esc="(doc.delivery_partner_id and doc.delivery_partner_id.city) or doc.partner_id.city"/>
-                                                </t>
-                                            </div>
                                             <div><strong>ชื่อผู้ติดต่อ:</strong>
                                                 <t t-if="doc.delivery_partner_id and doc.delivery_partner_id.phone">
                                                     <span t-field="doc.delivery_partner_id.phone"/>
@@ -235,78 +252,65 @@
                                         </div>
                                         <div style="width: 49%;">
                                             <strong>เงื่อนไข:</strong>
-                                            <span t-if="doc.line_ids and doc.line_ids[0].move_id" t-esc="doc.line_ids[0].move_id.invoice_payment_term_id and doc.line_ids[0].move_id.invoice_payment_term_id.name or ''"/>
                                         </div>
                                     </div>
-                                </div>
+                                    <div>
+                                        <strong>วันครบกำหนด:</strong>
+                                    </div>
                             </div>
                         </div>
                     </div>
-
+                    </div>
 
 
                     <div class="product-section font-size-18">
                         <table class="product-table" style="width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 5px;">
                           <thead>
                             <tr>
-                              <th style="width: 8%; text-align: center; border: 1px solid black; padding: 4px;">
+                              <th style="width: 5%; text-align: center; border: 1px solid black; padding: 4px;">
                                 ลำดับ<br/><span style="font-size: 16px;">(No)</span>
                               </th>
-                              <th style="width: 20%; text-align: center; border: 1px solid black; padding: 4px;">
+                              <th style="width: 23%; text-align: center; border: 1px solid black; padding: 4px;">
                                 เลขที่ใบกำกับภาษี<br/><span style="font-size: 16px;">(Invoice)</span>
                               </th>
                               <th style="width: 12%; text-align: center; border: 1px solid black; padding: 4px;">
-                                วันที่<br/><span style="font-size: 16px;">(Date)</span>
+                                ลงวันที่<br/><span style="font-size: 16px;">(Date)</span>
+                              </th>
+                              <th style="width: 12%; text-align: center; border: 1px solid black; padding: 4px;">
+                                วันที่ครบกำหนด<br/><span style="font-size: 16px;">(Due Date)</span>
                               </th>
                               <th style="width: 15%; text-align: center; border: 1px solid black; padding: 4px;">
-                                มูลค่ารวม<br/><span style="font-size: 16px;">(Total)</span>
+                                มูลค่าที่ชำระ<br/><span style="font-size: 16px;">(Amount)</span>
                               </th>
-                              <th style="width: 15%; text-align: center; border: 1px solid black; padding: 4px;">
-                                ชำระแล้ว<br/><span style="font-size: 16px;">(Paid-to-Date)</span>
-                              </th>
-                              <th style="width: 15%; text-align: center; border: 1px solid black; padding: 4px;">
-                                รับชำระครั้งนี้<br/><span style="font-size: 16px;">(To Collect)</span>
-                              </th>
-                              <th style="width: 15%; text-align: center; border: 1px solid black; padding: 4px;">
-                                คงเหลือ<br/><span style="font-size: 16px;">(Residual After)</span>
-                              </th>
+
                             </tr>
                           </thead>
                           <tbody>
-                            <t t-set="max_lines" t-value="7"/>
+                            <t t-set="max_lines" t-value="10"/>
                             <t t-set="line_number" t-value="((page_number - 1) * max_lines) + 1"/>
                             <t t-set="current_line_number" t-value="line_number"/>
                       
                             <t t-foreach="group" t-as="line">
                               <tr style="font-size: 18px; height: 30px;">
-                                <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
+                                <td style="border: 1px solid black; text-align: center; vertical-align: middle; height: 30px;">
                                   <span t-esc="current_line_number"/>
                                 </td>
                                 <!-- Invoice Number -->
-                                <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
+                                <td style="border: 1px solid black; text-align: center; vertical-align: middle; height: 30px;">
                                   <span t-esc="line.move_id.name"/>
                                 </td>
                                 <!-- Invoice Date -->
-                                <td style="border: 1px solid black; text-align: center; vertical-align: middle;">
+                                <td style="border: 1px solid black; text-align: center; vertical-align: middle; height: 30px;">
                                     <span t-field="line.move_id.invoice_date" t-options='{"format": "dd/MM/yyyy"}'/>
                                 </td>
-                                <!-- Total (Signed) -->
-                                <td style="border: 1px solid black; text-align: right; vertical-align: middle; padding-right: 4px;">
-                                  <span t-field="line.amount_total_signed" t-options='{"widget": "monetary", "display_currency": line.currency_id}'/>
+                                <!-- Due Date -->
+                                <td style="border: 1px solid black; text-align: center; vertical-align: middle; height: 30px;">
                                 </td>
-                                <!-- Paid-to-Date (Total - Residual) -->
-                                <td style="border: 1px solid black; text-align: right; vertical-align: middle; padding-right: 4px;">
-                                  <span t-field="line.amount_paid_to_date" t-options='{"widget": "monetary", "display_currency": line.currency_id}'/>
+                                <!-- Amount Paid -->
+                                <td style="border: 1px solid black; text-align: right; vertical-align: middle; padding-right: 4px; height: 30px;">
+                                  <span t-esc="'{:,.2f}'.format(line.amount_total_signed)"/>
                                 </td>
-                                <!-- To Collect (This Receipt) -->
-                                <td style="border: 1px solid black; text-align: right; vertical-align: middle; padding-right: 4px;">
-                                  <span t-field="line.amount_to_collect" t-options='{"widget": "monetary", "display_currency": line.currency_id}'/>
-                                </td>
-                                <!-- Residual After Payment (theoretical: residual - to_collect) -->
-                                <td style="border: 1px solid black; text-align: right; vertical-align: middle; padding-right: 4px;">
-                                  <t t-set="residual_after" t-value="line.amount_residual_signed - line.amount_to_collect"/>
-                                  <span t-esc="'{:,.2f}'.format(residual_after)"/>
-                                </td>
+
                               </tr>
                               <t t-set="current_line_number" t-value="current_line_number + 1"/>
                             </t>
@@ -315,35 +319,18 @@
                         </tbody>
                         <!-- Totals -->
                         <tfoot>
-                            <!-- This Payment Total (sum of amount_to_collect) -->
                             <tr>
-                                <td colspan="5" style="border-top: 1px solid #000; line-height: 1.5; vertical-align: top; padding: 6px;">
-                                    <div style="display: flex; justify-content: space-between; width: 100%;">
-                                      <!-- Left: Amount in words -->
-                                      <div style="text-align: left;">
-                                        <span style="font-weight: bold; font-size: 20px;">ตัวอักษร:</span>
-                                        <span style="font-size: 20px; font-weight: bold;" t-esc="doc.amount_total_words"/>
-                                      </div>
-                                      <!-- Right: Label -->
-                                      <div style="text-align: right;">
-                                        <span style="font-weight: bold;">รับชำระครั้งนี้ (This Payment)</span>
-                                      </div>
+                                <td colspan="4" style="border-top: 1px solid #000; line-height: 1.5; vertical-align: middle; padding: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <span style="font-weight: bold; font-size: 20px;">ตัวอักษร:</span>
+                                            <span style="font-size: 20px; font-weight: bold;" t-esc="doc.amount_total_words"/>
+                                        </div>
+                                        <span style="font-weight: bold; font-size: 20px;">รวมทั้งสิ้น (Grand Total)</span>
                                     </div>
-                                  </td>
-                                  
-                              
-                                <!-- Right: This Payment Total -->
-                                <td colspan="2" style="text-align: right; border-top: 1px solid #000; line-height: 1.5; font-size: 19px; vertical-align: top; padding: 6px; font-weight: bold;">
-                                    <span t-field="doc.amount_total" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
                                 </td>
-                            </tr>
-                            <!-- Cumulative Paid (Invoice Total - Residual for all lines) -->
-                            <tr>
-                                <td colspan="5" style="border-top: 1px solid #000; line-height: 1.5; vertical-align: top; padding: 6px; text-align: right;">
-                                    <span style="font-weight: bold;">มูลค่าใบกำกับภาษีรวม (Invoice Total)</span>
-                                </td>
-                                <td colspan="2" style="text-align: right; border-top: 1px solid #000; line-height: 1.5; font-size: 19px; vertical-align: top; padding: 6px;">
-                                    <span t-field="doc.amount_invoice_total" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                <td style="text-align: right; border-top: 1px solid #000; line-height: 1.5; font-size: 19px; vertical-align: middle; padding: 6px; font-weight: bold;">
+                                    <span t-esc="'{:,.2f}'.format(doc.amount_total)"/>
                                 </td>
                             </tr>
                         </tfoot>
@@ -388,7 +375,7 @@
                 </div></t>
 
                  <!-- เงื่อนไขแสดงลายเซ็นเฉพาะหน้าสุดท้าย -->
-                 <t t-if="page_number == len(groups_of_7)">
+                 <t t-if="page_number == len(groups_of_10)">
                      <!-- ลายเซ็นหรือหมายเหตุ -->
                  </t>
 
@@ -405,7 +392,7 @@
                                           <br/>
                                           *กรุณาจ่ายเช็คขีดคร่อมเฉพาะในนาม*
                                           <br/>
-                                          *บริษัท โมเก้น จำกัด* และขีดฆ่าหรือผู้ถือ
+                                          *<span t-field="doc.company_id.name"/>* และขีดฆ่าหรือผู้ถือ
                                       </div>
                                   </div>
                                   <div class="footer-box" style="text-align: center; font-size: 18px;">
@@ -420,13 +407,13 @@
                                   <div class="footer-box" style="text-align: center; font-size: 18px;">
                                       ในนาม
                                       <br/>
-                                      บริษัท โมเก้น จำกัด
+                                      <span t-field="doc.company_id.name"/>
                                       <br/>
                                       ___________________________
-                                      <br/> 
+                                      <br/>
                                       ผู้มีอำนาจลงนาม
                                       <br/>
-                                     
+
                                   </div>
                               </div>
                   

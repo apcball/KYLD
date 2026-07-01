@@ -15,15 +15,15 @@ class AccountBankTransfer(models.Model):
         ('cancel', 'Cancelled')
     ], string='Status', required=True, readonly=True, copy=False, tracking=True, default='draft')
 
-    journal_id = fields.Many2one('account.journal', string='Source Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], tracking=True)
-    destination_journal_id = fields.Many2one('account.journal', string='Destination Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], tracking=True)
+    journal_id = fields.Many2one('account.journal', string='Source Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], check_company=True, tracking=True)
+    destination_journal_id = fields.Many2one('account.journal', string='Destination Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], check_company=True, tracking=True)
     
     amount = fields.Monetary(string='Amount', required=True, tracking=True)
     currency_id = fields.Many2one('res.currency', related='journal_id.currency_id', string='Currency', readonly=True)
     company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
 
-
     payment_id = fields.Many2one('account.payment', string='Payment', readonly=True, copy=False)
+    buz_payment_voucher_id = fields.Many2one('account.payment.voucher', string='Payment Voucher', readonly=True, copy=False)
     move_id = fields.Many2one('account.move', string='Journal Entry', related='payment_id.move_id', readonly=True, store=True)
     
     # For report compatibility
@@ -32,28 +32,9 @@ class AccountBankTransfer(models.Model):
     ref = fields.Char(string='Memo')
 
     @api.model
-    def _get_next_sequence(self, company, seq_date):
-        """Get next sequence number for bank transfer, auto-creating company sequence if needed."""
-        code = 'account.bank.transfer'
-        seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
-        if not seq:
-            self.env['ir.sequence'].sudo().create({
-                'name': 'Bank Transfer - %s' % company.name,
-                'code': code,
-                'prefix': 'TR%(y)s',
-                'padding': 4,
-                'company_id': company.id,
-            })
-            seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
-        return seq or '/'
-
-    @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            company_id = vals.get('company_id') or self.env.company.id
-            company = self.env['res.company'].browse(company_id)
-            seq_date = vals.get('date') or fields.Date.context_today(self)
-            vals['name'] = self._get_next_sequence(company, seq_date)
+            vals['name'] = self.env['ir.sequence'].next_by_code('account.bank.transfer') or '/'
         return super(AccountBankTransfer, self).create(vals)
     
     def action_confirm(self):
@@ -73,9 +54,11 @@ class AccountBankTransfer(models.Model):
             'date': self.date,
             'ref': self.name + (f" - {self.ref}" if self.ref else ""),
             'currency_id': self.currency_id.id or self.company_id.currency_id.id,
-            'company_id': self.company_id.id,
         }
         
+        if self.buz_payment_voucher_id:
+            payment_vals['buz_payment_voucher_id'] = self.buz_payment_voucher_id.id
+
         payment = self.env['account.payment'].create(payment_vals)
         payment.action_post()
         

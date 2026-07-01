@@ -38,7 +38,8 @@ class BillDisplayWizard(models.TransientModel):
             ('partner_id', '=', self.partner_id.id),
             ('move_type', 'in', ['in_invoice', 'in_refund']),
             ('state', '=', 'posted'),
-            ('payment_state', 'in', ['not_paid', 'partial'])
+            ('payment_state', 'in', ['not_paid', 'partial']),
+            ('company_id', '=', self.env.company.id),
         ])
         
         # Clear existing lines and create new ones

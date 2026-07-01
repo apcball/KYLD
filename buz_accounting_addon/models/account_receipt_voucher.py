@@ -44,40 +44,16 @@ class AccountReceiptVoucher(models.Model):
     )
 
     @api.model
-    def _get_next_sequence(self, company, seq_date):
-        """Get next sequence number for receipt voucher, auto-creating company sequence if needed."""
-        code = 'buz.account.receipt.voucher'
-        seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
-        if not seq:
-            self.env['ir.sequence'].sudo().create({
-                'name': 'buz Account Receipt Voucher - %s' % company.name,
-                'code': code,
-                'prefix': 'RV/%(year)s/',
-                'padding': 4,
-                'company_id': company.id,
-            })
-            seq = self.env['ir.sequence'].sudo().with_company(company).next_by_code(code, sequence_date=seq_date)
-        return seq or '/'
-
-    @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            company_id = vals.get('company_id') or self.env.company.id
-            company = self.env['res.company'].browse(company_id)
-            seq_date = vals.get('date') or fields.Date.context_today(self)
-            vals['name'] = self._get_next_sequence(company, seq_date)
+            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.receipt.voucher') or '/'
         if 'date' not in vals or not vals['date']:
             vals['date'] = fields.Date.context_today(self)
         return super().create(vals)
 
     def write(self, vals):
-        for rec in self:
-            if vals.get('name') == '/' or (not rec.name and vals.get('name') == '/'):
-                company = rec.company_id or self.env.company
-                seq_date = vals.get('date') or rec.date or fields.Date.context_today(self)
-                rec.sudo().write({
-                    'name': self._get_next_sequence(company, seq_date)
-                })
+        if vals.get('name', '/') == '/':
+            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.receipt.voucher') or '/'
         return super().write(vals)
 
     @api.depends("line_ids.amount_to_receive")
@@ -361,7 +337,6 @@ class AccountReceiptVoucherLine(models.Model):
         help="Amount to receive from this receipt in the voucher"
     )
     currency_id = fields.Many2one(related="voucher_id.currency_id", store=True, readonly=True)
-    company_id = fields.Many2one(related="voucher_id.company_id", readonly=True)
     
     # Link to related payments
     payment_ids = fields.Many2many(
@@ -512,7 +487,6 @@ class AccountReceiptVoucherLine(models.Model):
             'buz_voucher_line_id': self.id,
             # Pass the receipt ID as well, so payment can be linked to receipt too
             'buz_receipt_id': receipt.id,
-            'default_company_id': self.voucher_id.company_id.id,
         }
     
         # Try to get and set default journal if available

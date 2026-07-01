@@ -31,10 +31,9 @@
                     <group>
                         <group>
                             <field name="name"/>
-                            <field name="company_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
                             <field name="is_default"/>
                         </group>
-
                         <group string="Font Settings (ตั้งค่าขนาดตัวอักษร)">
                             <label for="font_size" string="Font Size (px)"/>
                             <div class="o_row">
@@ -278,10 +277,9 @@
         <field name="arch" type="xml">
             <tree string="Receipt Configurations">
                 <field name="name"/>
-                <field name="company_id"/>
+                <field name="company_id" groups="base.group_multi_company"/>
                 <field name="is_default"/>
                 <field name="paper_size"/>
-
                 <field name="font_size"/>
                 <field name="active"/>
             </tree>

@@ -70,13 +70,4 @@ class PurchaseOrder(models.Model):
         default['buz_source_type'] = 'manual_allowed'
         return super(PurchaseOrder, self.with_context(allow_create_rfq=True)).copy(default)
 
-    def buz_action_duplicate(self):
-        self.ensure_one()
-        new_rfq = self.copy()
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'purchase.order',
-            'res_id': new_rfq.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
+

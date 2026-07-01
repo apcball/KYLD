@@ -9,9 +9,6 @@
                 <attribute name="create">false</attribute>
                 <attribute name="duplicate">false</attribute>
             </xpath>
-            <xpath expr="//button[@name='action_rfq_send']" position="before">
-                <button name="buz_action_duplicate" string="Duplicate" type="object" class="btn-secondary"/>
-            </xpath>
             <xpath expr="//field[@name='partner_ref']" position="after">
                 <field name="buz_source_type" readonly="1" force_save="1"/>
             </xpath>

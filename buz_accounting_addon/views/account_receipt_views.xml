@@ -10,7 +10,6 @@
         <field name="partner_id" string="Customer"/>
         <field name="amount_total" string="Total Amount" sum="Total Amount" widget="monetary"/>
         <field name="state" string="Status" widget="badge"/>
-        <field name="company_id"/>
       </tree>
     </field>
   </record>
@@ -70,7 +69,7 @@
             <group name="basic_info" string="Receipt Details" colspan="2">
               <field name="date" widget="date" string="Receipt Date"/>
               <field name="partner_id" options="{'no_create': True}" readonly="state != 'draft'" string="Customer"/>
-              <field name="company_id" readonly="state != 'draft'" string="Company"/>
+              <field name="company_id" readonly="1" string="Company"/>
               <field name="currency_id" readonly="1" string="Currency"/>
               <!-- used_move_ids is required in the view because the tree inline domain references parent.used_move_ids -->
               <field name="used_move_ids" invisible="1"/>
@@ -153,7 +152,6 @@ action = records.action_create_receipt_voucher_from_receipts()
     <field name="name">Receipts</field>
     <field name="res_model">account.receipt</field>
     <field name="view_mode">tree,form</field>
-    <field name="domain">[('company_id', '=', allowed_company_ids[0])]</field>
     <field name="search_view_id" ref="view_buz_accounting_addon_search"/>
   </record>
 

@@ -121,10 +121,6 @@
                                                 <strong>เลขที่เอกสาร:</strong>
                                                 <span t-field="doc.name"/>
                                             </div>
-                                            <div class="company-info text-end">
-                                                <strong>วันที่เอกสาร:</strong>
-                                                <span t-field="doc.date" t-options='{"widget": "date"}'/>
-                                            </div>
                                         </div>
                                     </div>
                                     <!-- Document Title -->

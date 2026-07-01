@@ -12,7 +12,7 @@
                 <field name="destination_journal_id"/>
                 <field name="amount"/>
                 <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'posted'" decoration-muted="state == 'cancel'"/>
-                <field name="company_id"/>
+                <field name="company_id" groups="base.group_multi_company"/>
             </tree>
         </field>
     </record>
@@ -44,7 +44,7 @@
                             <field name="journal_id" options="{'no_create': True}" readonly="state != 'draft'"/>
                             <field name="amount" readonly="state != 'draft'"/>
                             <field name="date" readonly="state != 'draft'"/>
-                            <field name="company_id" readonly="state != 'draft'"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
                         </group>
                         <group>
                             <field name="destination_journal_id" options="{'no_create': True}" readonly="state != 'draft'"/>
@@ -67,7 +67,6 @@
         <field name="name">Bank Transfer</field>
         <field name="res_model">account.bank.transfer</field>
         <field name="view_mode">tree,form</field>
-        <field name="domain">[('company_id', '=', allowed_company_ids[0])]</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Create a new Bank Transfer
