@@ -23,6 +23,7 @@ class IrActionsReport(models.Model):
             'buz_custom_invoice.action_report_cerdit_notevendor_credit_note',
             'buz_custom_invoice.action_report_ecommerce_receipt_report',
             'buz_custom_invoice.action_report_payment_receipt_modern',
+            'buz_accounting_addon.action_report_buz_accounting_addon',
         ]
 
         if report_ref in buz_invoice_reports:

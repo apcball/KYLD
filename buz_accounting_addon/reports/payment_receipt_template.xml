@@ -165,8 +165,8 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-4 text-end">
-                                <img t-if="doc.company_id.logo_web" t-att-src="image_data_uri(doc.company_id.logo_web)"
+                            <div class="col-4 text-end" t-if="doc.company_id.logo_web">
+                                <img t-att-src="image_data_uri(doc.company_id.logo_web)"
                                      style="width: 180px; height: auto; object-fit: contain;" alt="Logo"/>
                             </div>
                         </div>
@@ -248,7 +248,6 @@
                                     <div style="display: flex; justify-content: space-between;">
                                         <div style="width: 49%;">
                                             <strong>พนักงานขาย:</strong>
-                                            <span t-if="doc.line_ids and doc.line_ids[0].move_id" t-esc="doc.line_ids[0].move_id.invoice_user_id and doc.line_ids[0].move_id.invoice_user_id.name or ''"/>
                                         </div>
                                         <div style="width: 49%;">
                                             <strong>เงื่อนไข:</strong>
@@ -384,7 +383,7 @@
 
                               <!-- Footer Section -->
                               <div class="footer-section">
-                                  <div class="footer-box" style="font-size: 17px;">
+                                  <div class="footer-box" style="font-size: 16px;">
                                       <div style="text-align: left;">
                                          ใบเสร็จรับเงินนี้จะถือว่าเป็นการถูกต้องและสมบูรณ์ต่อเมื่อมีลายเซ็นของผู้รับมอบอำนาจและพนักงานเก็บเงินในกรณีที่ได้ชำระเงินเป็นเช็คจะต้องให้ธนาคารผ่านบัญชีเป็นที่เรียบร้อยแล้ว
                                       </div>
