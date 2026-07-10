@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Weekly Budget Control',
-    'version': '17.0.1.0.1',
+    'version': '17.0.1.0.3',
     'category': 'Purchase',
     'summary': 'Weekly budget control for purchase orders',
     'description': """

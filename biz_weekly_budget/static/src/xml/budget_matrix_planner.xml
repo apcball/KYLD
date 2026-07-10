@@ -58,8 +58,8 @@
                                                         <span class="text-muted small mr-1" style="width: 30px;">Limit:</span>
                                                         <input type="number" 
                                                                class="form-control form-control-sm cell-input font-weight-bold text-center" 
-                                                               t-att-value="cell.limit" 
-                                                               t-on-change="(ev) => this.updateCellLimit(cell.line_id, ev)"/>
+                                                               t-att-value="cell.limit"
+                                                               readonly="readonly"/>
                                                     </div>
                                                     <div class="d-flex align-items-center mb-1">
                                                         <span class="text-muted small mr-1" style="width: 30px;">Fcst:</span>

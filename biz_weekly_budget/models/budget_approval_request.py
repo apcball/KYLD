@@ -119,11 +119,27 @@ class BuzBudgetApprovalRequest(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
+            # Approval state and audit fields are server-controlled. Without
+            # this, any user with create access could submit an already-approved
+            # request through RPC.
+            vals['state'] = 'pending'
+            vals['requester_id'] = self.env.uid
+            vals.pop('approver_id', None)
+            vals.pop('approved_date', None)
             if vals.get('name', _('New')) == _('New'):
                 vals['name'] = self.env['ir.sequence'].next_by_code(
                     'buz.budget.approval.request'
                 ) or _('New')
         return super().create(vals_list)
+
+    def write(self, vals):
+        if 'state' in vals and not self.env.context.get('_budget_state_transition'):
+            raise UserError(_('Use the approval actions to change request status.'))
+        return super().write(vals)
+
+    def _ensure_budget_manager(self):
+        if not self.env.user.has_group('biz_weekly_budget.group_budget_manager'):
+            raise UserError(_('Only Budget Managers can process budget requests.'))
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -167,8 +183,11 @@ class BuzBudgetApprovalRequest(models.Model):
 
     def _do_approve(self):
         """Budget Manager approves the request (called from wizard)."""
+        self._ensure_budget_manager()
         for rec in self:
-            rec.write({
+            if rec.state != 'pending':
+                raise UserError(_('Only pending requests can be approved.'))
+            rec.with_context(_budget_state_transition=True).write({
                 'state': 'approved',
                 'approver_id': self.env.uid,
                 'approved_date': fields.Datetime.now(),
@@ -184,10 +203,13 @@ class BuzBudgetApprovalRequest(models.Model):
 
     def _do_reject(self):
         """Budget Manager rejects the request (called from wizard)."""
+        self._ensure_budget_manager()
         for rec in self:
+            if rec.state != 'pending':
+                raise UserError(_('Only pending requests can be rejected.'))
             if not rec.note:
                 raise ValidationError(_('Please provide a rejection reason.'))
-            rec.write({
+            rec.with_context(_budget_state_transition=True).write({
                 'state': 'rejected',
                 'approver_id': self.env.uid,
                 'approved_date': fields.Datetime.now(),
@@ -206,7 +228,11 @@ class BuzBudgetApprovalRequest(models.Model):
         for rec in self:
             if rec.state not in ('pending',):
                 raise UserError(_('Only pending requests can be cancelled.'))
-            rec.state = 'cancelled'
+            if rec.requester_id != self.env.user:
+                raise UserError(_('Only the requester can cancel this request.'))
+            rec.with_context(_budget_state_transition=True).write({
+                'state': 'cancelled',
+            })
 
     def _notify_requester(self, decision):
         """Send a chatter message to the requester when the request is processed."""

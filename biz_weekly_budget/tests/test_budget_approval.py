@@ -30,7 +30,9 @@ class TestBudgetApproval(common.TransactionCase):
             'login': 'budget_manager',
             'email': 'manager@test.com',
             'groups_id': [
-                (4, cls.env.ref('biz_weekly_budget.group_budget_manager').id),
+                fields.Command.link(
+                    cls.env.ref('biz_weekly_budget.group_budget_manager').id
+                ),
             ],
         })
 
@@ -174,6 +176,53 @@ class TestBudgetApproval(common.TransactionCase):
         })
         with self.assertRaises(UserError):
             req.action_approve()
+
+    def test_non_manager_cannot_call_private_approve(self):
+        req = self.env['buz.budget.approval.request'].create({
+            'document_type': 'po',
+            'amount_requested': 60000.0,
+        })
+        with self.assertRaises(UserError):
+            req._do_approve()
+
+    def test_non_manager_cannot_approve_through_wizard_rpc(self):
+        req = self.env['buz.budget.approval.request'].create({
+            'document_type': 'po',
+            'amount_requested': 60000.0,
+        })
+        wizard = self.env['budget.approval.reason.wizard'].create({
+            'request_id': req.id,
+            'action_type': 'approve',
+            'note': 'Forged approval',
+        })
+        with self.assertRaises(UserError):
+            wizard.action_confirm()
+
+    def test_direct_state_write_is_blocked(self):
+        req = self.env['buz.budget.approval.request'].create({
+            'document_type': 'po',
+            'amount_requested': 60000.0,
+        })
+        with self.assertRaises(UserError):
+            req.write({'state': 'approved'})
+
+    def test_create_cannot_forge_approved_state(self):
+        req = self.env['buz.budget.approval.request'].create({
+            'document_type': 'po',
+            'amount_requested': 60000.0,
+            'state': 'approved',
+            'approver_id': self.manager_user.id,
+        })
+        self.assertEqual(req.state, 'pending')
+        self.assertFalse(req.approver_id)
+
+    def test_other_user_cannot_cancel_request(self):
+        req = self.env['buz.budget.approval.request'].create({
+            'document_type': 'po',
+            'amount_requested': 60000.0,
+        })
+        with self.assertRaises(UserError):
+            req.with_user(self.manager_user).action_cancel()
 
     def test_approve_non_pending_raises(self):
         req = self.env['buz.budget.approval.request'].create({

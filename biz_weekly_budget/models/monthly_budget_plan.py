@@ -218,7 +218,6 @@ class MonthlyBudgetPlan(models.Model):
         self.env['budget.move'].sudo().search([
             ('allocation_id', 'in', plan_allocs.ids)
         ]).unlink()
-        self.env.cr.commit()
 
         date_from, date_to = self.date_from, self.date_to
 
@@ -241,7 +240,6 @@ class MonthlyBudgetPlan(models.Model):
             records = self.env[model_name].sudo().search(domain)
             if records:
                 records._update_budget_moves()
-            self.env.cr.commit()
 
         # Re-read to show fresh computed fields
         self.invalidate_recordset(['total_used', 'total_reserved', 'total_remaining', 'usage_percentage'])
@@ -263,8 +261,7 @@ class MonthlyBudgetPlan(models.Model):
 
         Strategy:
         - Delete ALL budget moves at the start (catches orphaned records).
-        - Process each document type in its own commit step so the
-          transaction log never grows too large.
+        - Rebuild atomically so an error cannot leave the ledger partially empty.
         - Skip linked-doc triggers (PO↔PR/MR, bill↔PO) because the cron
           processes every doc once per step anyway.
         - Pre-populate an allocation cache so the thousands of per-line
@@ -278,7 +275,6 @@ class MonthlyBudgetPlan(models.Model):
         self = self.with_context(**ctx)
 
         self.env['budget.move'].sudo().search([]).unlink()
-        self.env.cr.commit()
 
         steps = [
             ('employee.purchase.requisition', [('state', '!=', 'draft')]),
@@ -291,4 +287,3 @@ class MonthlyBudgetPlan(models.Model):
             records = self.env[model_name].sudo().search(domain)
             if records:
                 records._update_budget_moves()
-            self.env.cr.commit()

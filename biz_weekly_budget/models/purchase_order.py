@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.tools import float_is_zero
 
 _logger = logging.getLogger(__name__)
 
@@ -67,22 +68,64 @@ class PurchaseOrder(models.Model):
             ], limit=1, order='id desc')
             rec.buz_budget_approval_id = req
 
-    @api.depends('invoice_ids.state', 'invoice_ids.amount_total', 'amount_total')
+    @api.depends(
+        'invoice_ids.state',
+        'invoice_ids.move_type',
+        'invoice_ids.invoice_line_ids.price_subtotal',
+        'invoice_ids.invoice_line_ids.purchase_line_id',
+        'order_line.product_qty',
+        'order_line.qty_invoiced',
+        'order_line.price_subtotal',
+    )
     def _compute_billed_amount(self):
         for order in self:
-            posted_bills = order.invoice_ids.filtered(
-                lambda m: m.move_type == 'in_invoice' and m.state in ('draft', 'posted')
+            active_bills = order.invoice_ids.filtered(
+                lambda move: move.move_type in ('in_invoice', 'in_refund')
+                and move.state in ('draft', 'posted')
             )
-            # Use invoice lines related to this purchase order to calculate the actual billed amount against this PO
             amount = 0.0
-            for bill in posted_bills:
-                # Calculate proportion of this bill that belongs to this PO
+            for bill in active_bills:
+                sign = -1.0 if bill.move_type == 'in_refund' else 1.0
                 for line in bill.invoice_line_ids:
                     if line.purchase_line_id and line.purchase_line_id.order_id.id == order.id:
-                        amount += line.price_total
+                        # Budget is controlled on untaxed amounts, so billed and
+                        # reserved figures must use the same tax basis.
+                        amount += sign * line.price_subtotal
 
             order.billed_amount = amount
-            order.remaining_to_bill = max(0.0, order.amount_untaxed - order.billed_amount)
+            order.remaining_to_bill = sum(
+                order._get_unbilled_line_amount(line)
+                for line in order.order_line
+                if line.display_type in (False, 'product', '')
+            )
+
+    def _get_unbilled_line_amount(self, line):
+        """Return the PO-currency commitment not yet replaced by a bill.
+
+        The ratio is based on Odoo's ``qty_invoiced`` so UoM conversions and
+        refunds follow the standard purchase flow. Negative adjustment lines
+        intentionally remain negative: they release previously reserved budget.
+        """
+        self.ensure_one()
+        rounding = line.product_uom.rounding if line.product_uom else 0.01
+        if float_is_zero(line.product_qty, precision_rounding=rounding):
+            return 0.0
+
+        remaining_ratio = (line.product_qty - line.qty_invoiced) / line.product_qty
+        remaining_ratio = min(1.0, max(0.0, remaining_ratio))
+        return line.price_subtotal * remaining_ratio
+
+    def _convert_po_amount_to_budget(self, amount, budget_line, budget_date):
+        """Convert a PO-currency amount into the allocation's currency."""
+        self.ensure_one()
+        if not budget_line or self.currency_id == budget_line.currency_id:
+            return amount
+        return self.currency_id._convert(
+            amount,
+            budget_line.currency_id,
+            self.company_id,
+            budget_date,
+        )
 
     # Budget info fields (computed on demand via button)
     budget_check_result = fields.Html(
@@ -345,6 +388,15 @@ class PurchaseOrder(models.Model):
                     if mr_line.requisition_id:
                         mrs |= mr_line.requisition_id
 
+            # Re-allocated Procurement Pool lines may no longer have a reliable
+            # direct MR-line link on the PO line.
+            alloc_mrs = self.env['purchase.allocation'].sudo().search([
+                ('po_id', '=', po.id),
+                ('po_id.state', '!=', 'cancel'),
+            ]).mapped('mr_id')
+            if alloc_mrs:
+                mrs |= alloc_mrs
+
         if prs:
             prs._update_budget_moves()
         if mrs:
@@ -397,19 +449,9 @@ class PurchaseOrder(models.Model):
                     
                 amount = line.price_subtotal
                 if po.state in ('purchase', 'done'):
-                    qty_billed = 0.0
-                    for inv_line in line.invoice_lines:
-                        if inv_line.move_id.state in ('draft', 'posted'):
-                            if inv_line.move_id.move_type == 'in_invoice':
-                                qty_billed += inv_line.quantity
-                            elif inv_line.move_id.move_type == 'in_refund':
-                                qty_billed -= inv_line.quantity
-                    qty_unbilled = line.product_qty - qty_billed
-                    if qty_unbilled <= 0:
-                        continue
-                    amount = (qty_unbilled / line.product_qty) * line.price_subtotal if line.product_qty else 0
-                    
-                if amount <= 0:
+                    amount = po._get_unbilled_line_amount(line)
+
+                if po.currency_id.is_zero(amount):
                     continue
                     
                 dists = BudgetMove.extract_analytic_distribution(line)
@@ -422,6 +464,9 @@ class PurchaseOrder(models.Model):
                         budget_date, dept_obj, po.company_id
                     )
                     if bline:
+                        budget_amount = po._convert_po_amount_to_budget(
+                            dist_amount, bline, budget_date
+                        )
                         BudgetMove.create({
                             'name': f"{po.name} - {line.name or 'Line'}",
                             'allocation_id': bline.id,
@@ -430,7 +475,7 @@ class PurchaseOrder(models.Model):
                             'source_line_id': line.id,
                             'analytic_account_id': dist['analytic_account_id'],
                             'department_id': dist['department_id'],
-                            'amount': dist_amount,
+                            'amount': budget_amount,
                             'move_type': 'reserved',
                             'date': budget_date,
                         })
@@ -450,7 +495,9 @@ class PurchaseOrder(models.Model):
                 continue
             
             amount = line.price_subtotal
-            if amount <= 0:
+            if self.state in ('purchase', 'done'):
+                amount = self._get_unbilled_line_amount(line)
+            if self.currency_id.is_zero(amount):
                 continue
                 
             dists = BudgetMove.extract_analytic_distribution(line)
@@ -460,14 +507,10 @@ class PurchaseOrder(models.Model):
                 
                 budget_line = self._find_budget_allocation_for_date(target_date, department_id=dist['department_id'])
                 if budget_line:
-                    result[budget_line] += dist_amount
+                    result[budget_line] += self._convert_po_amount_to_budget(
+                        dist_amount, budget_line, target_date
+                    )
                     
-        if not result and self.amount_untaxed:
-            # Fallback
-            budget_line = self._find_budget_allocation_for_date(target_date, department_id=self.department_id.id)
-            if budget_line:
-                result[budget_line] = self.amount_untaxed
-
         return result
 
     def _find_budget_allocation_for_date(self, target_date, department_id=False):
@@ -482,7 +525,14 @@ class PurchaseOrder(models.Model):
         )
         return allocations[:1] if allocations else False
 
-    @api.depends('amount_total', 'payment_date', 'state')
+    @api.depends(
+        'amount_total',
+        'payment_date',
+        'state',
+        'order_line.price_subtotal',
+        'order_line.qty_invoiced',
+        'order_line.department_id',
+    )
     def _compute_budget_check_result(self):
         for order in self:
             if not order.order_line:
@@ -518,9 +568,6 @@ class PurchaseOrder(models.Model):
                 limit_amt = budget_line.amount
 
                 po_projected = po_amount
-                if order.state in ['purchase', 'done']:
-                    ratio = order.remaining_to_bill / order.amount_untaxed if order.amount_untaxed else 0
-                    po_projected = po_amount * ratio
 
                 source_reserved = order._get_source_reserved_amount(budget_line)
                 other_reserved = max(0.0, reserved - source_reserved)
@@ -600,12 +647,15 @@ class PurchaseOrder(models.Model):
         self.ensure_one()
         month_amounts = self._get_monthly_budget_allocation_for_po()
         budget_line = next(iter(month_amounts), False)
-        po_amount = month_amounts.get(budget_line, self.amount_total) if budget_line else self.amount_total
+        po_amount = month_amounts.get(budget_line, self.amount_untaxed) if budget_line else self.amount_untaxed
 
         used = budget_line.amount_used if budget_line else 0.0
         reserved = budget_line.amount_reserved if budget_line else 0.0
         limit_amt = budget_line.amount if budget_line else 0.0
-        overage = max(0.0, used + reserved - limit_amt)
+        po_projected = po_amount
+        source_reserved = self._get_source_reserved_amount(budget_line) if budget_line else 0.0
+        other_reserved = max(0.0, reserved - source_reserved)
+        overage = max(0.0, used + other_reserved + po_projected - limit_amt)
 
         return {
             'name': _('Request Budget Approval'),
@@ -620,7 +670,7 @@ class PurchaseOrder(models.Model):
                 'default_budget_allocation_id': budget_line.id if budget_line else False,
                 'default_amount_requested': po_amount,
                 'default_amount_used': used,
-                'default_amount_reserved': reserved,
+                'default_amount_reserved': other_reserved,
                 'default_amount_limit': limit_amt,
                 'default_amount_overage': overage,
             }
@@ -747,9 +797,6 @@ class PurchaseOrder(models.Model):
             limit_amt = budget_line.amount
             source_reserved = self._get_source_reserved_amount(budget_line)
             po_projected = po_amount
-            if self.state in ('purchase', 'done'):
-                ratio = self.remaining_to_bill / self.amount_untaxed if self.amount_untaxed else 0
-                po_projected = po_amount * ratio
 
             total_after = used + max(0.0, reserved - source_reserved) + po_projected
             overage = total_after - limit_amt
@@ -860,5 +907,7 @@ class PurchaseOrder(models.Model):
                     po_name=self.name,
                     po_user=self.env.user.name,
                 ).send_mail(self.id, force_send=False)
-            except Exception as e:
-                pass
+            except Exception:
+                _logger.exception(
+                    "Failed to queue budget-exceeded email for %s", user.email
+                )

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
 
 class ProcurementPool(models.Model):
     _inherit = 'procurement.pool'
@@ -75,8 +74,6 @@ class ProcurementPool(models.Model):
             # Since this pool is an estimate, we check if it fits the budget limit minus used amount
             total_after = used + reserved + pool_amount
             remaining = limit_amt - total_after
-            is_over = remaining < 0
-
             # Changed to Info logic because budget was already checked at MR level
             pool.budget_warning = False
             status_class = 'info'

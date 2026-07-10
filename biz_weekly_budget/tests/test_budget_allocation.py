@@ -118,6 +118,31 @@ class TestBudgetAllocation(common.TransactionCase):
             self.alloc_dept1.amount - self.alloc_dept1.amount_used - self.alloc_dept1.amount_reserved
         )
 
+    def test_forecast_available_includes_used_and_reserved(self):
+        BudgetMove = self.env['budget.move'].sudo()
+        common_vals = {
+            'allocation_id': self.alloc_dept1.id,
+            'source_model': 'purchase.order',
+            'source_id': 0,
+            'date': fields.Date.today(),
+        }
+        BudgetMove.create({
+            **common_vals,
+            'name': 'Reserved',
+            'amount': 1000.0,
+            'move_type': 'reserved',
+        })
+        BudgetMove.create({
+            **common_vals,
+            'name': 'Forecast',
+            'amount': 2000.0,
+            'move_type': 'forecast',
+        })
+        self.assertAlmostEqual(
+            self.alloc_dept1.amount_available_forecast,
+            self.alloc_dept1.amount - 1000.0 - 2000.0,
+        )
+
     def test_zero_budget_no_division_error(self):
         plan = self.env['monthly.budget.plan'].create({
             'month': str(fields.Date.today().month).zfill(2),
@@ -141,6 +166,18 @@ class TestBudgetAllocation(common.TransactionCase):
             'source_id': 0,
             'amount': self.alloc_dept1.amount + 1,
             'move_type': 'used',
+            'date': fields.Date.today(),
+        })
+        self.assertEqual(self.alloc_dept1.status, 'exceeded')
+
+    def test_reserved_amount_can_set_exceeded_status(self):
+        self.env['budget.move'].sudo().create({
+            'name': 'Reserved over limit',
+            'allocation_id': self.alloc_dept1.id,
+            'source_model': 'purchase.order',
+            'source_id': 0,
+            'amount': self.alloc_dept1.amount + 1,
+            'move_type': 'reserved',
             'date': fields.Date.today(),
         })
         self.assertEqual(self.alloc_dept1.status, 'exceeded')

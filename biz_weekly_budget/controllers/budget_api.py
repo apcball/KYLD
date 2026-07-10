@@ -44,7 +44,7 @@ class BudgetAPI(http.Controller):
                 'forecast': line.forecast_amount,
                 'used': line.amount_used,
                 'reserved': line.amount_reserved,
-                'available': line.amount_available
+                'available': line.amount_available_forecast
             }
 
         return {
@@ -54,21 +54,30 @@ class BudgetAPI(http.Controller):
 
     @http.route('/budget/api/update_cell', type='json', auth='user')
     def update_budget_cell(self, line_id, amount_limit=None, forecast_amount=None):
+        if not request.env.user.has_group('biz_weekly_budget.group_budget_manager'):
+            return {'error': 'Only Budget Managers can update forecasts'}
+        if amount_limit is not None:
+            return {
+                'error': 'Budget limit is derived from the plan allocation percentage'
+            }
         line = request.env['monthly.budget.allocation'].browse(line_id)
         if line.exists():
             if forecast_amount is not None:
+                forecast_amount = float(forecast_amount)
+                if forecast_amount < 0:
+                    return {'error': 'Forecast amount cannot be negative'}
                 request.env['budget.move'].search([
                     ('allocation_id', '=', line.id),
                     ('move_type', '=', 'forecast')
                 ]).unlink()
-                if float(forecast_amount) > 0:
+                if forecast_amount > 0:
                     request.env['budget.move'].create({
                         'name': 'Manual Forecast',
                         'allocation_id': line.id,
                         'source_model': 'monthly.budget.allocation',
                         'source_id': line.id,
                         'department_id': line.department_id.id,
-                        'amount': float(forecast_amount),
+                        'amount': forecast_amount,
                         'move_type': 'forecast',
                         'date': line.date_to or fields.Date.today()
                     })
@@ -82,7 +91,9 @@ class BudgetAPI(http.Controller):
         if selectedPlanId and selectedPlanId != 'all':
             domain.append(('plan_id', '=', int(selectedPlanId)))
             
-        BudgetAllocation = request.env['monthly.budget.allocation'].sudo()
+        # Respect ACLs and multi-company record rules. The dashboard must not
+        # expose other companies' budgets merely because the route is auth=user.
+        BudgetAllocation = request.env['monthly.budget.allocation']
         lines = BudgetAllocation.search(domain, order='date_from asc')
         
         if selectedYear and selectedYear != 'all':

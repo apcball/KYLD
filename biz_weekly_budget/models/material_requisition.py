@@ -111,35 +111,90 @@ class MaterialRequisition(models.Model):
             if moves:
                 moves.unlink()
 
+    def _get_remaining_budget_amount(self):
+        """Return the estimated amount that has not yet been converted to confirmed PO qty."""
+        self.ensure_one()
+
+        remaining_amount = 0.0
+        for line in self.line_ids:
+            remaining_amount += self._get_remaining_line_budget_amount(line)
+        return remaining_amount
+
+    def _get_remaining_line_budget_amount(self, line):
+        """Return the estimated amount that must stay on the MR for one line."""
+        self.ensure_one()
+        POLine = self.env['purchase.order.line'].sudo()
+        PurchaseAllocation = self.env['purchase.allocation'].sudo()
+        BudgetMove = self.env['budget.move']
+        BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
+
+        direct_po_lines = POLine.search([
+            ('material_requisition_line_id', '=', line.id),
+            ('order_id.state', 'in', ['purchase', 'done']),
+        ])
+        allocation_lines = PurchaseAllocation.search([
+            ('mr_line_id', '=', line.id),
+            ('po_id.state', 'in', ['purchase', 'done']),
+        ])
+
+        # If a PO line has explicit purchase-allocation rows, those rows are
+        # authoritative. The direct MR-line link may be stale after reallocation.
+        explicitly_allocated_po_lines = PurchaseAllocation.search([
+            ('po_line_id', 'in', direct_po_lines.ids),
+            ('po_id.state', 'in', ['purchase', 'done']),
+        ]).mapped('po_line_id')
+        direct_po_lines -= explicitly_allocated_po_lines
+
+        dists = BudgetMove.extract_analytic_distribution(line)
+
+        def po_line_has_budget(po_line):
+            for dist in dists:
+                dept_obj = self.env['hr.department'].browse(dist['department_id']) if dist['department_id'] else False
+                budget_date = po_line.order_id.payment_date or fields.Date.to_date(po_line.order_id.date_order)
+                if BudgetAllocation._get_allocation(budget_date, dept_obj, po_line.order_id.company_id):
+                    return True
+            return False
+
+        def quantity_in_mr_uom(quantity, source_uom):
+            if source_uom and line.uom_id and source_uom.category_id == line.uom_id.category_id:
+                return source_uom._compute_quantity(quantity, line.uom_id, round=False)
+            return quantity
+
+        ordered_qty = 0.0
+        for po_line in direct_po_lines:
+            if po_line_has_budget(po_line):
+                ordered_qty += quantity_in_mr_uom(
+                    po_line.product_qty, po_line.product_uom
+                )
+
+        for allocation in allocation_lines:
+            po_line = allocation.po_line_id
+            if po_line and po_line_has_budget(po_line):
+                ordered_qty += quantity_in_mr_uom(
+                    allocation.qty,
+                    allocation.uom_id or po_line.product_uom,
+                )
+
+        remaining_qty = max(0.0, line.quantity - ordered_qty)
+        return remaining_qty * line.estimated_cost
+
     def _update_budget_moves(self):
         """Rebuild 'reserved' budget.move entries for this MR.
 
-        Instead of all-or-nothing (skip entire MR if any confirmed PO exists),
-        this now calculates per-line coverage:
-        - For each MR line, find linked PO lines (any state except cancel)
-        - Compute uncovered_amount = MR line cost − sum(PO line subtotals)
-        - Reserve ONLY the uncovered amount
+        Budget remains on the MR only for quantities that have not yet been
+        converted into confirmed PO lines. Price differences move to the PO
+        reservation and should not remain parked on the MR.
         """
         self._clear_budget_moves()
         BudgetMove = self.env['budget.move'].sudo()
         BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
-        POLine = self.env['purchase.order.line'].sudo()
-
         for req in self.filtered(lambda r: r.state not in ('draft', 'cancelled', 'cancel')):
             budget_date = req.payment_date
             if not budget_date:
                 continue
 
             for line in req.line_ids:
-                mr_line_cost = line.total_cost
-
-                # Calculate how much of this MR line is already covered by PO lines
-                po_lines = POLine.search([
-                    ('material_requisition_line_id', '=', line.id),
-                    ('order_id.state', 'in', ['purchase', 'done']),
-                ])
-                po_covered_amount = sum(po_lines.mapped('price_subtotal'))
-                uncovered_amount = max(0, mr_line_cost - po_covered_amount)
+                uncovered_amount = req._get_remaining_line_budget_amount(line)
 
                 if uncovered_amount <= 0:
                     continue
@@ -187,7 +242,7 @@ class MaterialRequisition(models.Model):
                 req.budget_warning = False
                 continue
 
-            mr_amount = req.total_cost or sum(req.line_ids.mapped('total_cost'))
+            mr_amount = req._get_remaining_budget_amount()
             used = budget_line.amount_used
             reserved = budget_line.amount_reserved
 
@@ -268,7 +323,7 @@ class MaterialRequisition(models.Model):
         self.ensure_one()
         target_date = self.payment_date
         budget_line = self._find_budget_allocation_for_date(target_date) if target_date else False
-        mr_amount = self.total_cost or sum(self.line_ids.mapped('total_cost'))
+        mr_amount = self._get_remaining_budget_amount()
 
         used = budget_line.amount_used if budget_line else 0.0
         reserved = budget_line.amount_reserved if budget_line else 0.0
@@ -333,7 +388,7 @@ class MaterialRequisition(models.Model):
         if not budget_line:
             raise UserError(_('No active monthly budget plan found for the expected payment date.'))
 
-        mr_amount = self.total_cost or sum(self.line_ids.mapped('total_cost'))
+        mr_amount = self._get_remaining_budget_amount()
         used = budget_line.amount_used
         reserved = budget_line.amount_reserved
 

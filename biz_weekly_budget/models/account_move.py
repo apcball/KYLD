@@ -2,6 +2,7 @@
 import logging
 
 from odoo import api, fields, models, _
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -89,12 +90,26 @@ class AccountMove(models.Model):
 
     def _trigger_linked_po_recompute(self):
         """When a bill is cancelled or draft, the PO might need to re-reserve its unbilled amount."""
+        linked_pos = self.env['purchase.order']
         for bill in self:
             for line in bill.invoice_line_ids:
                 po_line = getattr(line, 'purchase_line_id', False)
                 if po_line and po_line.order_id:
-                    po = po_line.order_id
-                    po._update_budget_moves()
+                    linked_pos |= po_line.order_id
+        if linked_pos:
+            linked_pos._update_budget_moves()
+
+    def _convert_bill_amount_to_budget(self, amount, budget_line, budget_date):
+        """Convert a bill-currency amount into the allocation's currency."""
+        self.ensure_one()
+        if self.currency_id == budget_line.currency_id:
+            return amount
+        return self.currency_id._convert(
+            amount,
+            budget_line.currency_id,
+            self.company_id,
+            budget_date,
+        )
 
     def _update_budget_moves(self):
         """Generate budget.move entries for Vendor Bills (draft or posted).
@@ -148,12 +163,17 @@ class AccountMove(models.Model):
                         dept_id = bill.department_id.id
 
                     if not dept_id:
-                        _logger.warning(
-                            "Budget: cannot create 'used' move for bill %s line %s — "
-                            "no department found. Set department on the bill or its PO.",
-                            bill.name, line.name or line.id
-                        )
-                        continue
+                        message = _(
+                            "Cannot record budget usage for vendor bill %(bill)s, "
+                            "line %(line)s because no department was found."
+                        ) % {
+                            'bill': bill.name or '/',
+                            'line': line.name or line.id,
+                        }
+                        if self.env.context.get('_skip_trigger_linked'):
+                            _logger.warning(message)
+                            continue
+                        raise UserError(message)
 
                     # Use centralized _get_allocation() for consistent
                     # multi-company priority logic (same as PR/MR/PO)
@@ -163,6 +183,9 @@ class AccountMove(models.Model):
                     )
 
                     if bline:
+                        budget_amount = bill._convert_bill_amount_to_budget(
+                            dist_amount, bline, budget_date
+                        )
                         BudgetMove.create({
                             'name': f"{bill.name} - {line.name or 'Line'}",
                             'allocation_id': bline.id,
@@ -171,18 +194,31 @@ class AccountMove(models.Model):
                             'source_line_id': line.id,
                             'analytic_account_id': acc_id,
                             'department_id': dept_id,
-                            'amount': dist_amount,
+                            'amount': budget_amount,
                             'move_type': 'used',
                             'date': budget_date,
                         })
                     else:
-                        _logger.warning(
-                            "Budget: no confirmed allocation found for bill %s, dept %s, date %s",
-                            bill.name, dept_id, budget_date
-                        )
+                        if self.env.context.get('_skip_trigger_linked'):
+                            _logger.warning(
+                                "Budget recompute: no confirmed allocation for bill %s, "
+                                "department %s, date %s",
+                                bill.name,
+                                dept_id,
+                                budget_date,
+                            )
+                            continue
+                        raise UserError(_(
+                            "No confirmed budget allocation found for vendor bill %(bill)s, "
+                            "department %(dept)s, date %(date)s."
+                        ) % {
+                            'bill': bill.name or '/',
+                            'dept': dept_id,
+                            'date': budget_date,
+                        })
 
         # Trigger PO recompute ONCE after processing all bills (not inside the loop).
         # This reduces the PO's 'reserved' moves to reflect only the unbilled remainder.
-        # Skiped in bulk cron mode because the cron already processes all POs.
+        # Skipped in bulk cron mode because the cron already processes all POs.
         if not self.env.context.get('_skip_trigger_linked'):
             self._trigger_linked_po_recompute()

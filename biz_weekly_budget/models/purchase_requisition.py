@@ -111,28 +111,77 @@ class EmployeePurchaseRequisition(models.Model):
             if moves:
                 moves.unlink()
 
+    def _get_confirmed_pos(self):
+        self.ensure_one()
+        return self.env['purchase.order'].sudo().search([
+            ('state', 'in', ('purchase', 'done')),
+            '|', ('requisition_order', '=', self.name),
+                 ('pr_number', '=', self.name),
+        ])
+
+    def _get_remaining_line_amounts(self):
+        """Return remaining estimated amount per PR line based on ordered qty."""
+        self.ensure_one()
+
+        # Aggregate in the product's reference UoM. PR and PO lines can use
+        # different UoMs (for example Units vs Dozens).
+        qty_by_key = {}
+        for po_line in self._get_confirmed_pos().mapped('order_line').filtered(
+            lambda line: line.display_type in (False, 'product', '') and line.product_id
+        ):
+            budget_date = po_line.order_id.payment_date or fields.Date.to_date(po_line.order_id.date_order)
+            budget_line = po_line.order_id._find_budget_allocation_for_date(
+                budget_date,
+                department_id=po_line.department_id.id if po_line.department_id else False,
+            )
+            if not budget_line:
+                continue
+
+            vendor_id = po_line.order_id.partner_id.id if po_line.order_id.partner_id else False
+            key = (po_line.product_id.id, vendor_id)
+            reference_uom = po_line.product_id.uom_id
+            ordered_qty = po_line.product_uom._compute_quantity(
+                po_line.product_qty, reference_uom, round=False
+            )
+            qty_by_key[key] = qty_by_key.get(key, 0.0) + ordered_qty
+
+        remaining_amounts = {}
+        for line in self.requisition_order_ids:
+            key = (line.product_id.id, line.partner_id.id if line.partner_id else False)
+            reference_uom = line.product_id.uom_id
+            requested_qty = line.uom._compute_quantity(
+                line.quantity, reference_uom, round=False
+            ) if line.uom else line.quantity
+            remaining_qty = requested_qty
+            if line.product_id and qty_by_key.get(key):
+                covered_qty = min(remaining_qty, qty_by_key[key])
+                remaining_qty -= covered_qty
+                qty_by_key[key] -= covered_qty
+            if line.uom:
+                remaining_qty = reference_uom._compute_quantity(
+                    remaining_qty, line.uom, round=False
+                )
+            remaining_amounts[line.id] = max(0.0, remaining_qty) * line.unit_price
+
+        return remaining_amounts
+
+    def _get_remaining_budget_amount(self):
+        self.ensure_one()
+        return sum(self._get_remaining_line_amounts().values())
+
     def _update_budget_moves(self):
         self._clear_budget_moves()
         BudgetMove = self.env['budget.move'].sudo()
         BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
         
-        for req in self.filtered(lambda r: r.state != 'draft'):
-            # Skip if linked to confirmed PO
-            confirmed_pos = self.env['purchase.order'].sudo().search([
-                ('state', 'in', ('purchase', 'done')),
-                '|', ('requisition_order', '=', req.name),
-                     ('pr_number', '=', req.name)
-            ], limit=1)
-            
-            if confirmed_pos:
-                continue
-                
+        for req in self.filtered(lambda r: r.state not in ('draft', 'cancelled', 'cancel')):
             budget_date = req.payment_date
             if not budget_date:
                 continue
-                
+
+            remaining_amounts = req._get_remaining_line_amounts()
             for line in req.requisition_order_ids:
-                amount = line.price_subtotal
+                amount = remaining_amounts.get(line.id, 0.0)
                 dists = BudgetMove.extract_analytic_distribution(line)
                 for dist in dists:
                     dist_amount = amount * dist['percentage']
@@ -175,7 +224,7 @@ class EmployeePurchaseRequisition(models.Model):
                 req.budget_warning = False
                 continue
 
-            pr_amount = sum(req.requisition_order_ids.mapped('price_subtotal'))
+            pr_amount = req._get_remaining_budget_amount()
             used = budget_line.amount_used
             reserved = budget_line.amount_reserved
 
@@ -256,7 +305,7 @@ class EmployeePurchaseRequisition(models.Model):
         self.ensure_one()
         target_date = self.payment_date
         budget_line = self._find_budget_allocation_for_date(target_date) if target_date else False
-        pr_amount = sum(self.requisition_order_ids.mapped('price_subtotal'))
+        pr_amount = self._get_remaining_budget_amount()
 
         used = budget_line.amount_used if budget_line else 0.0
         reserved = budget_line.amount_reserved if budget_line else 0.0
@@ -324,7 +373,7 @@ class EmployeePurchaseRequisition(models.Model):
         if not budget_line:
             raise UserError(_('No active monthly budget plan found for the expected payment date.'))
 
-        pr_amount = sum(self.requisition_order_ids.mapped('price_subtotal'))
+        pr_amount = self._get_remaining_budget_amount()
         used = budget_line.amount_used
         reserved = budget_line.amount_reserved
 

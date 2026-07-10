@@ -78,7 +78,7 @@ export class WeeklyBudgetDashboard extends Component {
             const plans = await this.rpc("/web/dataset/call_kw/monthly.budget.plan/search_read", {
                 model: "monthly.budget.plan",
                 method: "search_read",
-                args: [[['state', '=', 'confirmed']], ['id', 'name']],
+                args: [[['state', '=', 'confirmed']], ['id', 'name', 'year']],
                 kwargs: {},
             });
             this.state.plans = plans || [];
@@ -87,18 +87,10 @@ export class WeeklyBudgetDashboard extends Component {
         }
     }
 
-    async loadYears() {
-        try {
-            const years = await this.rpc("/web/dataset/call_kw/weekly.budget.report/get_available_years", {
-                model: "weekly.budget.report",
-                method: "get_available_years",
-                args: [],
-                kwargs: {},
-            });
-            this.state.years = years || [];
-        } catch (error) {
-            console.error("Failed to load available years", error);
-        }
+    loadYears() {
+        this.state.years = [
+            ...new Set(this.state.plans.map((plan) => plan.year).filter(Boolean)),
+        ].sort();
     }
 
     async loadData() {

@@ -29,7 +29,8 @@ class BudgetMove(models.Model):
         ('purchase.order', 'Purchase Order'),
         ('employee.purchase.requisition', 'Purchase Requisition'),
         ('material.requisition', 'Material Requisition'),
-        ('account.move', 'Vendor Bill')
+        ('account.move', 'Vendor Bill'),
+        ('monthly.budget.allocation', 'Budget Forecast'),
     ], string='Source Model', required=True)
     
     source_id = fields.Integer(string='Source Record ID', required=True, index=True)
@@ -50,7 +51,7 @@ class BudgetMove(models.Model):
     week_key = fields.Char(string='Week Key', compute='_compute_keys', store=True)
 
     reservation_date = fields.Date(string='Reservation Date', default=fields.Date.context_today)
-    aging_days = fields.Integer(string='Aging Days', compute='_compute_aging_days', store=True)
+    aging_days = fields.Integer(string='Aging Days', compute='_compute_aging_days')
     
     amount = fields.Float(string='Amount', required=True)
     move_type = fields.Selection([
@@ -106,7 +107,7 @@ class BudgetMove(models.Model):
 
             rec.company_id = company
 
-    @api.depends('reservation_date')
+    @api.depends('reservation_date', 'move_type')
     def _compute_aging_days(self):
         today = fields.Date.context_today(self)
         for rec in self:
@@ -214,11 +215,19 @@ class BudgetMove(models.Model):
         # Deleting the move is cleaner and aligns with '_clear_budget_moves' behavior for resetting.
         # However, we only do this for purely aged PR/MR without linked POs? 
         # Actually simplest is just to unlink them entirely or add an offsetting minus move.
-        moves = self.search([('move_type', '=', 'reserved')])
+        moves = self.search([
+            ('move_type', '=', 'reserved'),
+            ('source_model', 'in', (
+                'employee.purchase.requisition',
+                'material.requisition',
+            )),
+        ])
         for move in moves:
             limit = move._get_aging_limit()
             if limit and move.aging_days > limit:
-                _logger.info(f"Releasing aged reservation {move.id} for {move.name}")
+                _logger.info(
+                    "Releasing aged reservation %s for %s", move.id, move.name
+                )
                 move.unlink()
 
     def _get_aging_limit(self):

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo import fields, models, _
 
 class BudgetRequestReasonWizard(models.TransientModel):
     _name = 'budget.request.reason.wizard'
@@ -91,6 +90,7 @@ class BudgetApprovalReasonWizard(models.TransientModel):
 
     def action_confirm(self):
         self.ensure_one()
+        self.request_id._ensure_budget_manager()
         self.request_id.note = self.note
         if self.action_type == 'approve':
             self.request_id._do_approve()
