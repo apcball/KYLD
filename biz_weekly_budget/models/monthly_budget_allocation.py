@@ -82,6 +82,11 @@ class MonthlyBudgetAllocation(models.Model):
         string='Company',
         store=True,
     )
+    currency_id = fields.Many2one(
+        related='plan_id.currency_id',
+        string='Currency',
+        store=True,
+    )
     all_companies = fields.Boolean(
         related='plan_id.all_companies',
         string='All Companies',
@@ -127,13 +132,22 @@ class MonthlyBudgetAllocation(models.Model):
         for line in self:
             line.amount_remaining = line.amount - line.amount_used
             line.amount_available = line.amount - line.amount_used - line.amount_reserved
-            line.amount_available_forecast = line.amount - line.forecast_amount
+            line.amount_available_forecast = (
+                line.amount
+                - line.amount_used
+                - line.amount_reserved
+                - line.forecast_amount
+            )
             # Fix: Prevent ZeroDivisionError when amount is 0
             line.usage_percentage = (
                 ((line.amount_used + line.amount_reserved) / line.amount * 100)
                 if line.amount and line.amount != 0 else 0.0
             )
-            line.status = 'exceeded' if line.amount_used > line.amount else 'normal'
+            line.status = (
+                'exceeded'
+                if line.amount_used + line.amount_reserved > line.amount
+                else 'normal'
+            )
 
     def action_adjust_budget(self):
         """Open the budget adjustment wizard."""
@@ -236,4 +250,3 @@ class MonthlyBudgetAllocation(models.Model):
             budget_cache[cache_key] = alloc.id if alloc else False
 
         return alloc or self.browse()
-
