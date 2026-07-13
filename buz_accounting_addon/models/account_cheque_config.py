@@ -61,8 +61,8 @@ class AccountChequeConfig(models.Model):
                     other_defaults.write({'is_default': False})
 
     @api.model
-    def get_default_config(self):
-        company = self.env.company
+    def get_default_config(self, company_id=None):
+        company = self.env['res.company'].browse(company_id) if company_id else self.env.company
         config = self.search([('is_default', '=', True), ('company_id', '=', company.id)], limit=1)
         if not config:
             config = self.search([('company_id', '=', company.id)], limit=1)

@@ -379,8 +379,8 @@ class AccountReceipt(models.Model):
             if not rec.line_ids:
                 raise UserError(_("No lines to post."))
             if rec.name == "/":
-                rec.name = self.env["ir.sequence"].next_by_code(
-                    "buz.account.receipt", sequence_date=rec.date
+                rec.name = self.env["ir.sequence"].next_by_code_company(
+                    "buz.account.receipt", rec.company_id, sequence_date=rec.date
                 ) or "/"
             rec.state = "posted"
         return True

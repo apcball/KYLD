@@ -72,7 +72,7 @@
   <template id="account_receipt_report_preprint">
     <t t-call="web.basic_layout">
       <t t-foreach="docs" t-as="o">
-        <t t-set="config" t-value="request.env['account.receipt.config'].sudo().get_default_config()"/>
+        <t t-set="config" t-value="request.env['account.receipt.config'].sudo().get_default_config(company_id=o.company_id.id)"/>
         <!-- Convert px to mm: 96 DPI = 1px = 0.2646mm -->
         <t t-set="px_to_mm" t-value="0.2646"/>
         

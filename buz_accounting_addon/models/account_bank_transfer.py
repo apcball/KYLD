@@ -15,8 +15,8 @@ class AccountBankTransfer(models.Model):
         ('cancel', 'Cancelled')
     ], string='Status', required=True, readonly=True, copy=False, tracking=True, default='draft')
 
-    journal_id = fields.Many2one('account.journal', string='Source Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], check_company=True, tracking=True)
-    destination_journal_id = fields.Many2one('account.journal', string='Destination Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], check_company=True, tracking=True)
+    journal_id = fields.Many2one('account.journal', string='Source Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], tracking=True)
+    destination_journal_id = fields.Many2one('account.journal', string='Destination Journal', required=True, domain=[('type', 'in', ('bank', 'cash'))], tracking=True)
     
     amount = fields.Monetary(string='Amount', required=True, tracking=True)
     currency_id = fields.Many2one('res.currency', related='journal_id.currency_id', string='Currency', readonly=True)
@@ -34,7 +34,8 @@ class AccountBankTransfer(models.Model):
     @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('account.bank.transfer') or '/'
+            company = self.env['res.company'].browse(vals.get('company_id')) if vals.get('company_id') else self.env.company
+            vals['name'] = self.env['ir.sequence'].next_by_code_company('account.bank.transfer', company) or '/'
         return super(AccountBankTransfer, self).create(vals)
     
     def action_confirm(self):

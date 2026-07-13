@@ -12,8 +12,24 @@ class AccountReceiptReportPDF(models.AbstractModel):
         Override to ensure proper UTF-8 encoding for Thai language support
         and provide additional context for the receipt report
         """
-        docs = self.env['account.receipt'].browse(docids)
+        docs = self.env['account.receipt'].sudo().browse(docids)
         
+        return {
+            'doc_ids': docids,
+            'doc_model': 'account.receipt',
+            'docs': docs,
+            'data': data,
+        }
+
+
+class AccountReceiptReportLegacyPDF(models.AbstractModel):
+    _name = 'report.buz_accounting_addon.report_buz_accounting_addon'
+    _description = 'Account Receipt PDF'
+
+    @api.model
+    def _get_report_values(self, docids, data=None):
+        docs = self.env['account.receipt'].sudo().browse(docids)
+
         return {
             'doc_ids': docids,
             'doc_model': 'account.receipt',

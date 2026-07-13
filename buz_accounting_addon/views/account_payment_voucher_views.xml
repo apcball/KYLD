@@ -91,6 +91,7 @@
                             <field name="payment_method_line_id" required="payment_type != 'cash'" invisible="payment_type == 'cash'"/>
                             <field name="bank_free_dis" string="Bank Fee"/>
                             <field name="other_income_dis" string="Other Income"/>
+                            <field name="wht_description" string="WHT Description"/>
                             <field name="check_pay_to" string="Pay To"/>
                             <field name="check_number" string="Cheque No."/>
                         </group>

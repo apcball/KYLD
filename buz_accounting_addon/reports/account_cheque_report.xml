@@ -36,7 +36,7 @@
     <template id="report_print_cheque_template">
         <t t-call="web.basic_layout">
             <t t-foreach="docs" t-as="o">
-                <t t-set="config" t-value="request.env['account.cheque.config'].sudo().get_default_config()"/>
+                <t t-set="config" t-value="request.env['account.cheque.config'].sudo().get_default_config(company_id=o.company_id.id)"/>
                 <t t-set="px_to_mm" t-value="0.2646"/> <!-- 96 DPI conversion -->
                 
                 <div class="page" t-attf-style="width: {{config.page_width_mm}}mm; height: {{config.page_height_mm}}mm; position: relative; font-family: {{config.font_family}}; font-size: {{config.font_size}}px; overflow: hidden; margin: 0; padding: 0;">

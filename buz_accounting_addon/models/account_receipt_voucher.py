@@ -46,14 +46,16 @@ class AccountReceiptVoucher(models.Model):
     @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.receipt.voucher') or '/'
+            company = self.env['res.company'].browse(vals.get('company_id')) if vals.get('company_id') else self.env.company
+            vals['name'] = self.env['ir.sequence'].next_by_code_company('buz.account.receipt.voucher', company) or '/'
         if 'date' not in vals or not vals['date']:
             vals['date'] = fields.Date.context_today(self)
         return super().create(vals)
 
     def write(self, vals):
         if vals.get('name', '/') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.receipt.voucher') or '/'
+            company = vals.get('company_id') and self.env['res.company'].browse(vals['company_id']) or self.env.company
+            vals['name'] = self.env['ir.sequence'].next_by_code_company('buz.account.receipt.voucher', company) or '/'
         return super().write(vals)
 
     @api.depends("line_ids.amount_to_receive")
