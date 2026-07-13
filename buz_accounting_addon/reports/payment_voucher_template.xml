@@ -41,10 +41,9 @@
 
                         <!-- Header Area -->
                         <div class="row mb-2">
-                            <!-- Left: Logo -->
-                            <div class="col-4">
-                                <img t-if="o.company_id.logo_web" t-att-src="image_data_uri(o.company_id.logo_web)"
-                                     style="max-height: 80px; max-width: 200px;" alt="Company Logo"/>
+                            <!-- Left: Company Name -->
+                            <div class="col-4" style="display: flex; align-items: center; height: 80px;">
+                                <span style="font-size: 24px; font-weight: bold;" t-field="o.company_id.name"/>
                             </div>
 
                             <!-- Center: Title -->
@@ -92,12 +91,12 @@
                                     <td style="vertical-align: middle;">
                                         <span t-field="o.partner_id.name"/>
                                     </td>
-                                    <td colspan="2" style="padding: 0;">
+                                    <td colspan="3" style="padding: 0;">
                                         <!-- Bill Numbers List -->
                                         <table style="width: 100%; border-collapse: collapse; margin: 0; border: none;">
                                             <tr t-foreach="o.line_ids" t-as="line" style="height: 20px;">
-                                                <!-- Inner TD 1: Clear inherited borders, add right border, add bottom if not last -->
-                                                <td t-att-style="'width: 50%; text-align: center; padding: 2px; border: none; border-right: 1px solid black; ' + ('border-bottom: 1px solid black;' if not line_last else '')">
+                                                <!-- Inner TD 1: doc type -->
+                                                <td t-att-style="'width: 30%; text-align: center; padding: 2px; border: none; border-right: 1px solid black; ' + ('border-bottom: 1px solid black;' if not line_last else '')">
                                                     <t t-if="line.move_id">
                                                         <span t-if="line.move_id.move_type == 'in_invoice'">ใบรับวางบิล</span>
                                                         <span t-elif="line.move_id.move_type == 'in_refund'">ใบลดหนี้</span>
@@ -105,16 +104,17 @@
                                                     </t>
                                                     <span t-else="">-</span>
                                                 </td>
-                                                <!-- Inner TD 2: Clear inherited borders, add bottom if not last -->
-                                                <td t-att-style="'width: 50%; text-align: center; padding: 2px; border: none; ' + ('border-bottom: 1px solid black;' if not line_last else '')">
+                                                <!-- Inner TD 2: doc number -->
+                                                <td t-att-style="'width: 30%; text-align: center; padding: 2px; border: none; border-right: 1px solid black; ' + ('border-bottom: 1px solid black;' if not line_last else '')">
                                                     <span t-if="line.move_id" t-field="line.move_id.name"/>
                                                     <span t-else="">-</span>
                                                 </td>
+                                                <!-- Inner TD 3: amount per bill -->
+                                                <td t-att-style="'width: 40%; text-align: end; padding: 2px; border: none; ' + ('border-bottom: 1px solid black;' if not line_last else '')">
+                                                    <span t-field="line.amount_to_pay_gross" t-options='{"widget": "float", "precision": 2}'/>
+                                                </td>
                                             </tr>
                                         </table>
-                                    </td>
-                                    <td class="text-end" style="vertical-align: middle;">
-                                        <span t-field="o.amount_total_gross" t-options='{"widget": "float", "precision": 2}'/>
                                     </td>
                                 </tr>
                                 <!-- Total Row -->
@@ -211,7 +211,8 @@
                                         หัก ณ.ที่จ่าย
                                     </td>
                                     <td>
-                                        ค่าบริการ <!-- Or try to fetch name from first tax: o.line_ids[:1].wht_tax_id.name -->
+                                        <span t-if="o.wht_description" t-esc="o.wht_description"/>
+                                        <span t-else="">ค่าบริการ</span>
                                     </td>
                                     <td></td>
                                     <td class="text-center">
@@ -237,10 +238,14 @@
                             </tbody>
                         </table>
 
-                        <!-- 3. Journal Entry Preview Table -->
+                        <!-- 3. Simulated accounting entries from the Payment Voucher -->
                         <div class="text-end" style="margin-top: 5px; font-weight: bold; border-top: 1px solid transparent;">
-                            Amount
+                            รายการลงบัญชี
                         </div>
+                        <!--
+                            Keep this section independent from posted account.move records.
+                            It must match the accounting preview generated by the voucher form.
+                        -->
                         <t t-set="preview_lines" t-value="o.get_preview_moves()"/>
                         <table class="table-bordered" style="margin-top: 0px; padding-top: 5px; table-layout: fixed;">
                             <thead>

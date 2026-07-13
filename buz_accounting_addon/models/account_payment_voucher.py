@@ -36,8 +36,7 @@ class AccountPaymentVoucher(models.Model):
     destination_journal_id = fields.Many2one(
         'account.journal',
         string="Payment Journal",
-        domain="[('type', 'in', ('bank', 'cash')), ('company_id', '=', company_id)]",
-        check_company=True,
+        domain="[('type', 'in', ('bank', 'cash'))]",
         tracking=True
     )
     payment_method_line_id = fields.Many2one(
@@ -71,6 +70,7 @@ class AccountPaymentVoucher(models.Model):
     amount_total_net = fields.Monetary(string="Total Net", currency_field="currency_id", compute="_compute_amount_totals", store=True)
     amount_total_bank_fee = fields.Monetary(string="Total Bank Fee", currency_field="currency_id", compute="_compute_amount_totals", store=True)
     amount_total_other_income = fields.Monetary(string="Total Other Income", currency_field="currency_id", compute="_compute_amount_totals", store=True)
+    wht_description = fields.Char(string="WHT Description", help="Description for WHT withholding tax entries in the report.")
     
     # Payment status based on amount paid
     payment_state = fields.Selection([
@@ -121,14 +121,16 @@ class AccountPaymentVoucher(models.Model):
     @api.model
     def create(self, vals):
         if vals.get('name', '/') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.payment.voucher') or '/'
+            company = self.env['res.company'].browse(vals.get('company_id')) if vals.get('company_id') else self.env.company
+            vals['name'] = self.env['ir.sequence'].next_by_code_company('buz.account.payment.voucher', company) or '/'
         if 'date' not in vals or not vals['date']:
             vals['date'] = fields.Date.context_today(self)
         return super().create(vals)
 
     def write(self, vals):
         if vals.get('name') == '/':
-            vals['name'] = self.env['ir.sequence'].next_by_code('buz.account.payment.voucher') or '/'
+            company = vals.get('company_id') and self.env['res.company'].browse(vals['company_id']) or self.env.company
+            vals['name'] = self.env['ir.sequence'].next_by_code_company('buz.account.payment.voucher', company) or '/'
         return super().write(vals)
 
     @api.depends("line_ids.amount_to_pay_gross", "line_ids.wht_amount", "bank_free_dis", "other_income_dis")
@@ -579,7 +581,6 @@ class AccountPaymentVoucher(models.Model):
         
         # Calculate totals
         total_gross = sum(line.amount_to_pay_gross for line in self.line_ids)
-        total_wht = sum(line.wht_amount for line in self.line_ids)
         total_net = sum(line.amount_to_pay_net for line in self.line_ids)
         bank_fee = self.bank_free_dis or 0.0
         other_income = self.other_income_dis or 0.0
@@ -605,52 +606,49 @@ class AccountPaymentVoucher(models.Model):
                 'credit': 0.0,
             })
 
-        # 2. Credit Line (WHT)
-        if total_wht > 0:
-            # 1. Specific Account Code (213102)
-            wht_account = self.env['account.account'].search([
-                ('code', '=', '213102'),
-                ('company_id', '=', self.company_id.id)
-            ], limit=1)
+        # 2. Credit Line(s) (WHT) — grouped by the real WHT account
+        #    (account.withholding.tax.account_id), matching what
+        #    action_register_batch_payment posts as write-off.
+        wht_by_account = {}
+        for line in self.line_ids.filtered(lambda l: l.wht_amount > 0):
+            account = line.buz_wht_tax_id.account_id if line.buz_wht_tax_id else self.env['account.account']
+            key = account.id or 0
+            if key not in wht_by_account:
+                wht_by_account[key] = {'account': account, 'amount': 0.0}
+            wht_by_account[key]['amount'] += line.wht_amount
 
-            # 2. Search by Name/Code pattern if not found
-            if not wht_account:
-                wht_account = self.env['account.account'].search([
-                    ('code', '=ilike', '%wht%payable%'),
+        for entry in wht_by_account.values():
+            account = entry['account']
+            if not account:
+                # Fallback only when line has no WHT tax configured
+                account = self.env['account.account'].search([
+                    ('code', '=', '213102'),
                     ('company_id', '=', self.company_id.id)
                 ], limit=1)
-            
-            # 3. Fallback to generic liability
-            if not wht_account:
-                wht_account = self.env['account.account'].search([
-                    ('account_type', '=', 'liability_current'),
+            if not account:
+                account = self.env['account.account'].search([
+                    ('name', 'ilike', 'ภาษีหัก ณ ที่จ่าย%'),
                     ('company_id', '=', self.company_id.id)
                 ], limit=1)
-                
             lines.append({
-                'code': wht_account.code if wht_account else '213102',
-                'name': wht_account.name if wht_account else 'ภาษีหัก ณ ที่จ่ายค้างจ่าย',
+                'code': account.code if account else '213102',
+                'name': account.name if account else 'ภาษีหัก ณ ที่จ่ายค้างจ่าย',
                 'ref': voucher_name,
                 'date': date,
                 'debit': 0.0,
-                'credit': total_wht,
+                'credit': entry['amount'],
             })
 
         # 3. Debit Line (Bank Fee Expense)
         if bank_fee > 0:
             bank_fee_account = self.env['account.account'].search([
-                ('code', '=', '533201'),
+                ('code', '=', '733321'),
                 ('company_id', '=', self.company_id.id)
             ], limit=1)
-            if not bank_fee_account:
-                bank_fee_account = self.env['account.account'].search([
-                    ('account_type', '=', 'expense'),
-                    ('company_id', '=', self.company_id.id)
-                ], limit=1)
 
             lines.append({
-                'code': bank_fee_account.code if bank_fee_account else '533201',
-                'name': bank_fee_account.name if bank_fee_account else _('Bank Fee Expense'),
+                'code': bank_fee_account.code if bank_fee_account else '733321',
+                'name': bank_fee_account.name if bank_fee_account else _('ค่าธรรมเนียมธนาคาร'),
                 'ref': voucher_name,
                 'date': date,
                 'debit': bank_fee,
