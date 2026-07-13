@@ -155,22 +155,6 @@ class JobCostSheet(models.Model):
             # FIX ISSUE #3: Ensure overhead is not double-counted
             record.actual_overhead_cost = sum(record.overhead_cost_ids.mapped('actual_cost'))
             record.actual_total_cost = record.actual_material_cost + record.actual_labour_cost + record.actual_overhead_cost
-            
-            # Debug logging
-            import logging
-            _logger = logging.getLogger(__name__)
-            _logger.info(f"Job Cost Sheet {record.name} actual costs:")
-            _logger.info(f"  - Material lines count: {len(record.material_cost_ids)}")
-            _logger.info(f"  - Labour lines count: {len(record.labour_cost_ids)}")
-            _logger.info(f"  - Overhead lines count: {len(record.overhead_cost_ids)}")
-            _logger.info(f"  - actual_material_cost: {record.actual_material_cost}")
-            _logger.info(f"  - actual_labour_cost: {record.actual_labour_cost}")
-            _logger.info(f"  - actual_overhead_cost: {record.actual_overhead_cost}")
-            _logger.info(f"  - actual_total_cost: {record.actual_total_cost}")
-            
-            # Debug individual labour cost lines
-            for labour_line in record.labour_cost_ids:
-                _logger.info(f"  - Labour line {labour_line.name}: actual_cost={labour_line.actual_cost}, timesheet_count={len(labour_line.timesheet_ids)}")
     
     @api.depends('total_material_cost', 'actual_material_cost', 'total_labour_cost', 'actual_labour_cost',
                  'total_overhead_cost', 'actual_overhead_cost', 'total_cost', 'actual_total_cost')
@@ -635,7 +619,9 @@ class JobCostLine(models.Model):
         for record in self:
             record.active_total_cost = record.active_planned_qty * record.unit_cost
     
-    @api.depends('planned_qty', 'boq_line_id', 'cost_sheet_id', 'product_id')
+    @api.depends('planned_qty', 'boq_line_id', 'cost_sheet_id', 'product_id',
+                 'boq_line_id.requisition_line_ids.quantity',
+                 'boq_line_id.requisition_line_ids.requisition_state')
     def _compute_active_planned_qty(self):
         """
         Compute active planned quantity by filtering out cancelled/rejected Material Requisitions.
@@ -676,22 +662,15 @@ class JobCostLine(models.Model):
                         lambda l: l.requisition_state not in ['cancelled', 'rejected']
                     )
                     record.active_planned_qty = sum(active_mr_lines.mapped('quantity')) if active_mr_lines else 0.0
-                    
-                    # Debug logging
-                    import logging
-                    _logger = logging.getLogger(__name__)
-                    _logger.info(f"Job Cost Line {record.name} (NO BOQ LINK):")
-                    _logger.info(f"  Product: {record.product_id.name}")
-                    _logger.info(f"  Found {len(mr_lines)} MR Lines for this product")
-                    _logger.info(f"  Active MR Lines: {len(active_mr_lines)}")
-                    _logger.info(f"  planned_qty={record.planned_qty}, active_planned_qty={record.active_planned_qty}")
-            
+
             else:
                 # No BOQ Line and no product/cost sheet - use full planned qty
                 record.active_planned_qty = record.planned_qty
     
     @api.depends('purchase_order_line_ids.product_qty', 'purchase_order_line_ids.qty_received',
-                 'timesheet_ids.unit_amount', 'invoice_line_ids.quantity')
+                 'purchase_order_line_ids.order_id.state',
+                 'timesheet_ids.unit_amount',
+                 'invoice_line_ids.quantity', 'invoice_line_ids.move_id.state')
     def _compute_actual_qty(self):
         for record in self:
             if record.cost_type == 'material':
@@ -727,8 +706,11 @@ class JobCostLine(models.Model):
                 else:
                     record.actual_qty = po_qty
     
-    @api.depends('purchase_order_line_ids.price_unit', 'purchase_order_line_ids.product_qty', 
-                 'timesheet_ids.amount', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity')
+    @api.depends('purchase_order_line_ids.price_unit', 'purchase_order_line_ids.product_qty',
+                 'purchase_order_line_ids.price_subtotal', 'purchase_order_line_ids.order_id.state',
+                 'timesheet_ids.amount', 'timesheet_ids.unit_amount',
+                 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity',
+                 'invoice_line_ids.price_subtotal', 'invoice_line_ids.move_id.state')
     def _compute_actual_unit_cost(self):
         for record in self:
             total_cost = 0
