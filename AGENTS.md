@@ -21,10 +21,10 @@ Hosted on Contabo VPS, Dockerized (`odoo:17.0` base). Postgres 16.
 ```bash
 # Deploy to DEV server
 rsync -az --delete "./<module>/" root@217.216.32.33:/srv/docker/odoo_kyld/custom-addons/<module>/
-ssh root@217.216.32.33 "docker exec odoo_kyld odoo -d kyld_dev -u <module> --stop-after-init --no-http"
+ssh root@217.216.32.33 "docker exec odoo_kyld odoo -d KYLD-DEV -u <module> --stop-after-init --no-http"
 
-# Deploy to PROD server 1
-rsync -az --delete "./<module>/" mogenit@119.13.29.46:/srv/docker/odoo_mogen/custom-addons/<module>/
+# Deploy to PROD server 
+rsync -az --delete "./<module>/" mogenit@119.13.29.46:/srv/docker/odoo_kyld/custom-addons/<module>/
 ssh mogenit@119.13.29.46 "docker exec odoo odoo -d KYLD_LIVE -u <module> --stop-after-init --no-http"
 
 # Test on live DB — IRREVERSIBLE SIDE EFFECTS. Use isolated test below instead.
@@ -85,7 +85,7 @@ Standard Odoo 17: `models/`, `views/`, `security/`, `data/`, `wizard/`, `report/
 | Server                                                                                  | Host                     | Docker root                |
 | --------------------------------------------------------------------------------------- | ------------------------ | -------------------------- |
 | DEV                                                                                     | `root@217.216.32.33`   | `/srv/docker/odoo_kyld/custom-addons`      |
-| PROD 1                                                                                  | `mogenit@119.13.29.46` | `/srv/docker/odoo_kyld/custom-addons` |
+| PROD                                                                                   | `mogenit@119.13.29.46` | `/srv/docker/odoo_kyld/custom-addons` |
 | Container addons path:`/mnt/custom-addons` (volume mapped from `./custom-addons/`). |                          |                            |
 
 Config: `%DOCKER_ROOT%/config/odoo.conf`
