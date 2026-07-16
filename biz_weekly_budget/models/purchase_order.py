@@ -382,11 +382,10 @@ class PurchaseOrder(models.Model):
                 mrs |= mr
 
             # MRs: PO-line level link (Procurement Pool etc.)
-            mr_lines_linked = getattr(po.order_line, 'material_requisition_line_id', False)
-            if mr_lines_linked:
-                for mr_line in mr_lines_linked:
-                    if mr_line.requisition_id:
-                        mrs |= mr_line.requisition_id
+            for line in po.order_line:
+                mr_line = getattr(line, 'material_requisition_line_id', False)
+                if mr_line and getattr(mr_line, 'requisition_id', False):
+                    mrs |= mr_line.requisition_id
 
             # Re-allocated Procurement Pool lines may no longer have a reliable
             # direct MR-line link on the PO line.

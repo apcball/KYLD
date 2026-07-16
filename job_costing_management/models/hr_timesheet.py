@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import logging
-
-from odoo import models, fields, api, _
-
-_logger = logging.getLogger(__name__)
+from odoo import models, fields, api
 
 
 class AccountAnalyticLine(models.Model):
@@ -37,6 +33,9 @@ class AccountAnalyticLine(models.Model):
     
     def _auto_link_to_job_cost_line(self):
         """Auto-link timesheet to appropriate job cost line"""
+        import logging
+        _logger = logging.getLogger(__name__)
+        
         if not self.account_id:
             return
             
@@ -126,7 +125,9 @@ class AccountAnalyticLine(models.Model):
         FIX ISSUE #2: Prevents duplicate cost lines.
         """
         self.ensure_one()
-
+        import logging
+        _logger = logging.getLogger(__name__)
+        
         # Check if already linked
         if self.job_cost_line_id:
             _logger.info(f"Timesheet {self.name} already linked to cost line {self.job_cost_line_id.id}")

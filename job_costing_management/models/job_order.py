@@ -161,14 +161,15 @@ class JobOrder(models.Model):
             vals['name'] = self.env['ir.sequence'].next_by_code('job.order') or '/'
         return super(JobOrder, self).create(vals)
 
-    @api.depends('name', 'project_id.name')
-    def _compute_display_name(self):
-        """Show project and job order name"""
+    def name_get(self):
+        """Custom name_get to show project and job order name"""
+        result = []
         for record in self:
             name = record.name
             if record.project_id:
                 name = f"[{record.project_id.name}] {name}"
-            record.display_name = name
+            result.append((record.id, name))
+        return result
     
     @api.onchange('project_id')
     def _onchange_project_id(self):

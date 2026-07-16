@@ -4,6 +4,7 @@ import logging
 
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
+from odoo.tools.float_utils import float_compare
 
 _logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ class MaterialRequisition(models.Model):
         ('dept_approved', 'Department Approved'),
         ('approved', 'Approved'),
         ('ordered', 'Ordered'),
-        ('received', 'Received'),
+        # Keep the technical value for compatibility with existing data and
+        # downstream BOQ tracking, but expose it as the final status.
+        ('received', 'Done'),
         ('rejected', 'Rejected'),
         ('cancelled', 'Cancelled')
     ], string='Status', default='draft', tracking=True)
@@ -144,6 +147,45 @@ class MaterialRequisition(models.Model):
                         has_gap = True
                         break
             record.has_unordered_qty = has_gap
+
+    def _check_and_mark_done(self):
+        """Mark requisitions done when all purchase/transfer lines are complete.
+
+        Purchase lines are complete when confirmed purchase orders cover the
+        requested quantity. Internal lines are complete only when every
+        linked internal transfer is done.
+        """
+        POLine = self.env['purchase.order.line'].sudo()
+        for requisition in self.filtered(
+                lambda req: req.state in ('approved', 'ordered')):
+            lines = requisition.line_ids.filtered(
+                lambda line: line.requisition_action in ('purchase', 'internal'))
+            if not lines:
+                continue
+
+            complete = True
+            for line in lines:
+                if line.requisition_action == 'purchase':
+                    po_lines = POLine.search([
+                        ('material_requisition_line_id', '=', line.id),
+                        ('order_id.state', 'in', ['purchase', 'done']),
+                    ])
+                    ordered_qty = sum(po_lines.mapped('product_qty'))
+                    rounding = (line.uom_id.rounding
+                                if line.uom_id else line.product_id.uom_id.rounding)
+                    if float_compare(
+                            ordered_qty, line.quantity,
+                            precision_rounding=rounding) < 0:
+                        complete = False
+                        break
+                else:
+                    pickings = line.picking_ids
+                    if not pickings or any(picking.state != 'done' for picking in pickings):
+                        complete = False
+                        break
+
+            if complete:
+                requisition.write({'state': 'received'})
 
     @api.depends('line_ids.total_cost')
     def _compute_total_amount(self):

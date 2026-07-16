@@ -106,26 +106,30 @@ class PurchaseOrder(models.Model):
         """Override button_confirm to update job cost sheet actual costs and pool state."""
         result = super(PurchaseOrder, self).button_confirm()
 
-        for order in self:
-            # Update job cost sheet actual costs
-            if order.job_cost_sheet_id:
-                order._update_job_cost_sheet_actual_costs()
+        requisitions = (
+            self.mapped('material_requisition_id')
+            | self.mapped('order_line.material_requisition_line_id.requisition_id')
+        )
+        requisitions.sudo()._check_and_mark_done()
+        
+        # Update job cost sheet actual costs
+        if self.job_cost_sheet_id:
+            self._update_job_cost_sheet_actual_costs()
 
-            # Update procurement pool state if linked
-            if order.procurement_pool_id and order.procurement_pool_id.state == 'rfq_created':
-                # Check if all POs for this pool are confirmed
-                pool_pos = self.env['purchase.order'].search([
-                    ('procurement_pool_id', '=', order.procurement_pool_id.id),
-                    ('state', '=', 'draft'),
-                ])
-                if not pool_pos:
-                    order.procurement_pool_id.action_mark_ordered()
-
+        # Update procurement pool state if linked
+        if self.procurement_pool_id and self.procurement_pool_id.state == 'rfq_created':
+            # Check if all POs for this pool are confirmed
+            pool_pos = self.env['purchase.order'].search([
+                ('procurement_pool_id', '=', self.procurement_pool_id.id),
+                ('state', '=', 'draft'),
+            ])
+            if not pool_pos:
+                self.procurement_pool_id.action_mark_ordered()
+            
         return result
     
     def _update_job_cost_sheet_actual_costs(self):
         """Update actual costs in job cost sheet from purchase order lines"""
-        self.ensure_one()
         if not self.job_cost_sheet_id:
             return
             
@@ -343,13 +347,11 @@ class PurchaseOrderLine(models.Model):
     def write(self, vals):
         """Override write to update job cost line when PO line changes"""
         result = super(PurchaseOrderLine, self).write(vals)
-
-        # If lines have a job cost line, update the actual costs
-        if 'qty_received' in vals:
-            cost_lines = self.mapped('job_cost_line_id')
-            if cost_lines:
-                cost_lines.update_actual_costs_from_purchases()
-
+        
+        # If this line has a job cost line, update the actual costs
+        if self.job_cost_line_id and 'qty_received' in vals:
+            self.job_cost_line_id.update_actual_costs_from_purchases()
+            
         return result
     
     @api.onchange('job_cost_sheet_id')

@@ -45,8 +45,6 @@
                                 class="btn-secondary" invisible="state != 'approved'"/>
                         <button name="action_create_picking" string="Create Internal Transfer" type="object" 
                                 class="oe_highlight" invisible="state != 'approved'"/>
-                        <button name="action_received" string="Mark as Received" type="object" 
-                                class="oe_highlight" invisible="state != 'ordered'"/>
                         <button name="action_reject" string="Reject" type="object" 
                                 invisible="state not in ('submitted', 'dept_approved')"/>
                         <button name="action_cancel" string="Cancel" type="object" 

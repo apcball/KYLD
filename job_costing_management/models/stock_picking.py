@@ -10,7 +10,7 @@ class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
     def button_validate(self):
-        """Override to auto-update purchase allocation received quantities."""
+        """Update allocations and complete linked material requisitions."""
         result = super(StockPicking, self).button_validate()
 
         for picking in self:
@@ -60,5 +60,10 @@ class StockPicking(models.Model):
                         'allocated qty for PO line %s',
                         picking.name, remaining_to_distribute,
                         move.product_id.display_name, po_line.order_id.name)
+
+        requisition_lines = self.env['material.requisition.line'].search([
+            ('picking_ids', 'in', self.ids),
+        ])
+        requisition_lines.mapped('requisition_id').sudo()._check_and_mark_done()
 
         return result

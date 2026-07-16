@@ -137,8 +137,7 @@ class EmployeePurchaseRequisition(models.Model):
             if not budget_line:
                 continue
 
-            vendor_id = po_line.order_id.partner_id.id if po_line.order_id.partner_id else False
-            key = (po_line.product_id.id, vendor_id)
+            key = po_line.product_id.id
             reference_uom = po_line.product_id.uom_id
             ordered_qty = po_line.product_uom._compute_quantity(
                 po_line.product_qty, reference_uom, round=False
@@ -147,7 +146,7 @@ class EmployeePurchaseRequisition(models.Model):
 
         remaining_amounts = {}
         for line in self.requisition_order_ids:
-            key = (line.product_id.id, line.partner_id.id if line.partner_id else False)
+            key = line.product_id.id
             reference_uom = line.product_id.uom_id
             requested_qty = line.uom._compute_quantity(
                 line.quantity, reference_uom, round=False
