@@ -66,7 +66,7 @@ class PurchaseOrder(models.Model):
                 # Invoice line values (keep only necessary sections).
                 for line in order.order_line.filtered(lambda line_select: (
                                                                                   line_select.is_product_select) or True not in
-                                                                          self.order_line.mapped(
+                                                                          order.order_line.mapped(
                                                                               'is_product_select') or
                                                                           line_select.display_type == 'line_section'):
                     if line.display_type == 'line_section':

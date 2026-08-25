@@ -25,7 +25,6 @@
         'data/mail_template_payment.xml',
         'data/ir_cron.xml',
         'report/paperformat.xml',
-
         'report/billing_note_report.xml',
         'report/billing_note_report_template.xml',
         'report/payment_note.xml',

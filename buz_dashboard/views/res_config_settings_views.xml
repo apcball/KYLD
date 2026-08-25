@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_dashboard" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.buz.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="25"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Dashboard API" string="Dashboard API" name="buz_dashboard"
+                     groups="buz_dashboard.group_buz_dashboard_manager">
+                    <block title="Cache" id="buz_dashboard_cache_settings">
+                        <setting id="buz_dashboard_cache_backend_setting" string="Cache Backend"
+                                 help="DB-backed cache is safe across multiple Odoo workers. Disable only for debugging.">
+                            <field name="buz_dashboard_cache_backend"/>
+                        </setting>
+                        <setting id="buz_dashboard_cache_ttl_setting" string="Cache TTL (seconds)"
+                                 help="How long a computed dashboard response is reused before recomputing.">
+                            <field name="buz_dashboard_cache_ttl"/>
+                        </setting>
+                    </block>
+                    <block title="Project Status Thresholds" id="buz_dashboard_threshold_settings">
+                        <setting id="buz_dashboard_threshold_warning_setting" string="Warning Threshold (%)"
+                                 help="Cost progress percentage at which a project is flagged 'warning'.">
+                            <field name="buz_dashboard_threshold_warning"/>
+                        </setting>
+                        <setting id="buz_dashboard_threshold_critical_setting" string="Critical Threshold (%)"
+                                 help="Cost progress percentage at which a project is flagged 'critical'.">
+                            <field name="buz_dashboard_threshold_critical"/>
+                        </setting>
+                    </block>
+                    <block title="External Access" id="buz_dashboard_cors_settings">
+                        <setting id="buz_dashboard_cors_origins_setting" string="Allowed CORS Origins"
+                                 help="Comma-separated list of origins allowed to call the dashboard API cross-origin. Leave empty to disable cross-origin requests.">
+                            <field name="buz_dashboard_cors_origins"
+                                   placeholder="https://dashboard.mogen.co.th,https://tv.mogen.co.th"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

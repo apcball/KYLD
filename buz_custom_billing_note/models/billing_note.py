@@ -222,7 +222,6 @@ class BillingNote(models.Model):
                 sequence_code = 'customer.billing.note'
             else:
                 sequence_code = 'vendor.billing.note'
-
             doc_date = vals.get('date')
             if doc_date:
                 vals['name'] = self.env['ir.sequence'].with_context(

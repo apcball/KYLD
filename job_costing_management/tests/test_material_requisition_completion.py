@@ -3,6 +3,7 @@
 from datetime import date
 
 from odoo import fields
+from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase
 
 
@@ -88,6 +89,51 @@ class TestMaterialRequisitionCompletion(TransactionCase):
         picking.write({'state': 'done'})
         requisition._check_and_mark_done()
         self.assertEqual(requisition.state, 'received')
+
+    def test_create_rfq_requires_selection(self):
+        requisition = self._create_requisition([('purchase', 5.0)])
+        requisition.state = 'approved'
+        with self.assertRaises(ValidationError):
+            requisition.action_create_purchase_order()
+
+    def test_create_rfq_only_selected_lines_and_remaining_qty(self):
+        requisition = self._create_requisition([
+            ('purchase', 5.0),
+            ('purchase', 3.0),
+        ])
+        requisition.state = 'approved'
+        line_a, line_b = requisition.line_ids
+
+        # Partially cover line_a with an existing (non-cancelled) PO first.
+        self._create_purchase_order(line_a, 2.0)
+
+        line_a.select_for_rfq = True
+        requisition.action_create_purchase_order()
+
+        self.assertFalse(line_a.select_for_rfq, 'checkbox should reset after RFQ creation')
+        self.assertFalse(line_b.select_for_rfq)
+        self.assertEqual(requisition.state, 'ordered')
+
+        po_lines_a = self.env['purchase.order.line'].search([
+            ('material_requisition_line_id', '=', line_a.id),
+        ])
+        # 2.0 already on the earlier PO + 3.0 remaining now placed = 5.0 total.
+        self.assertEqual(sum(po_lines_a.mapped('product_qty')), 5.0)
+
+        po_lines_b = self.env['purchase.order.line'].search([
+            ('material_requisition_line_id', '=', line_b.id),
+        ])
+        self.assertFalse(po_lines_b, 'unselected line should not get a PO')
+
+        # Second round: select line_b while requisition is already 'ordered'.
+        line_b.select_for_rfq = True
+        requisition.action_create_purchase_order()
+
+        po_lines_b = self.env['purchase.order.line'].search([
+            ('material_requisition_line_id', '=', line_b.id),
+        ])
+        self.assertEqual(sum(po_lines_b.mapped('product_qty')), 3.0)
+        self.assertFalse(line_b.select_for_rfq)
 
     def test_mixed_requisition_requires_purchase_and_transfer_completion(self):
         requisition = self._create_requisition([

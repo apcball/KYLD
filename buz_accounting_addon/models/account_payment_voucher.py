@@ -162,16 +162,18 @@ class AccountPaymentVoucher(models.Model):
     @api.depends('line_ids.payment_ids', 'line_ids.payment_ids.state', 'bank_transfer_ids', 'bank_transfer_ids.state')
     def _compute_amount_paid(self):
         for voucher in self:
-            total_paid = 0
-            for line in voucher.line_ids:
-                for payment in line.payment_ids:
-                    if payment.state == 'posted':
-                        total_paid += payment.amount
+            # mapped() dedupes: one payment can be reconciled with several lines
+            # of the same voucher and must only be counted once.
+            payments = voucher.line_ids.mapped('payment_ids').filtered(
+                lambda p: p.state == 'posted'
+            )
+            total_paid = sum(payments.mapped('amount'))
             for bt in voucher.bank_transfer_ids:
                 if bt.state == 'posted' and bt.payment_id and bt.payment_id.state == 'posted':
                     total_paid += bt.amount
             voucher.amount_paid = total_paid
 
+    @api.depends('amount_total_net', 'amount_paid')
     def _compute_amount_residual(self):
         for voucher in self:
             voucher.amount_residual = voucher.amount_total_net - voucher.amount_paid
@@ -231,7 +233,7 @@ class AccountPaymentVoucher(models.Model):
     def action_register_batch_payment(self):
         """Open payment register wizard with WHT handling (Thai Localization support)"""
         self.ensure_one()
-        
+
         # Check if voucher is posted
         if self.state != 'posted':
              raise UserError(_("Voucher must be posted before registering payment."))
@@ -794,11 +796,8 @@ class AccountPaymentVoucherLine(models.Model):
         for line in self:
             payments = self.env['account.payment']
             if line.move_id:
-                # 1. Try standard helper
                 payments |= line.move_id._get_reconciled_payments()
-                # 2. Try inverse search on payments (robust for batch/grouped payments)
-                payments |= self.env['account.payment'].search([('reconciled_invoice_ids', 'in', line.move_id.id)])
-            
+
             line.payment_ids = payments
     
     # Payment status for the line

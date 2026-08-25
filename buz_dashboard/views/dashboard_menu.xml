@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <menuitem id="menu_buz_dashboard_root"
+                  name="Dashboard API"
+                  sequence="100"
+                  groups="group_buz_dashboard_manager"/>
+
+        <menuitem id="menu_buz_dashboard_config"
+                  name="Dashboards"
+                  parent="menu_buz_dashboard_root"
+                  action="action_buz_dashboard"
+                  sequence="10"/>
+
+        <menuitem id="menu_buz_dashboard_widget_config"
+                  name="Widgets"
+                  parent="menu_buz_dashboard_root"
+                  action="action_buz_dashboard_widget"
+                  sequence="20"/>
+
+    </data>
+</odoo>

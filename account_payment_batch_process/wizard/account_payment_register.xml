@@ -32,11 +32,21 @@
                     </tree>
                 </field>
             </xpath>
-            <xpath expr="//footer/button[@name='action_create_payments']" position="before">
-                <button string="Auto Fill" name="auto_fill_payments" type="object" class="oe_highlight"/>
+            <!-- Standard buttons stay in place for every non-batch flow, and are
+                 hidden only once default_get has filled invoice_payments. -->
+            <xpath expr="//footer/button[@name='action_create_payments'][@invisible='total_payments_amount == 1']" position="attributes">
+                <attribute name="invisible">total_payments_amount == 1 or invoice_payments</attribute>
             </xpath>
-            <xpath expr="//footer/button[@name='action_create_payments']" position="attributes">
-                <attribute name="name">make_payments</attribute>
+            <xpath expr="//footer/button[@name='action_create_payments'][@invisible='total_payments_amount != 1']" position="attributes">
+                <attribute name="invisible">total_payments_amount != 1 or invoice_payments</attribute>
+            </xpath>
+            <!-- Batch buttons. make_payments only works when default_get filled
+                 invoice_payments, which happens with 'batch' in the context. -->
+            <xpath expr="//footer/button[@name='action_create_payments']" position="before">
+                <button string="Auto Fill" name="auto_fill_payments" type="object" class="oe_highlight"
+                        invisible="not invoice_payments"/>
+                <button string="Create Payments" name="make_payments" type="object" class="oe_highlight"
+                        invisible="not invoice_payments"/>
             </xpath>
         </field>
     </record>

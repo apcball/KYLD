@@ -76,8 +76,8 @@
                             <div class="row mb-2" style="padding-top: 0;">
                                 <div class="col-8">
                                     <div style="font-size: 20px;">
-                                        <div class="mb-1"><strong t-esc="doc.sudo().company_id.name or ''"/></div>
-                                        <div style="font-size: 18px;"><span t-field="doc.sudo().company_id.street"/> <span t-field="doc.sudo().company_id.street2"/></div>
+                                        <div class="mb-1"><strong t-esc="doc.sudo().company_id.name or ''"/> <t t-if="doc.sudo().company_id.branch == '00000'">(สำนักงานใหญ่)</t><t t-else=""><span t-field="doc.sudo().company_id.branch"/></t></div>
+                                        <div style="font-size: 18px;"><span t-field="doc.sudo().company_id.street"/> <span t-field="doc.sudo().company_id.street2"/> <span t-field="doc.sudo().company_id.city"/> จ.<span t-field="doc.sudo().company_id.state_id.name"/> <span t-field="doc.sudo().company_id.zip"/></div>
                                         <div style="font-size: 18px;">เลขที่ประจําตัวผู้เสียภาษี <span t-field="doc.sudo().company_id.vat"/></div>
                                         <div style="font-size: 18px;">โทร <span t-field="doc.sudo().company_id.phone"/> E-mail: <span t-field="doc.sudo().company_id.email"/></div>
                                     </div>

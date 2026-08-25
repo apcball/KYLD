@@ -123,6 +123,27 @@ class TestBudgetMove(common.TransactionCase):
         self.assertEqual(len(dists), 1)
         self.assertAlmostEqual(dists[0]['percentage'], 1.0)
 
+    def test_extract_analytic_distribution_uses_expense_sheet_department(self):
+        employee = self.env['hr.employee'].create({
+            'name': 'Expense Sheet Employee',
+            'department_id': self.department.id,
+        })
+        sheet = self.env['hr.expense.sheet'].new({
+            'employee_id': employee.id,
+            'department_id': self.department.id,
+        })
+        bill = self.env['account.move'].new({
+            'move_type': 'in_invoice',
+            'expense_sheet_id': sheet,
+        })
+        bill.department_id = False
+        line = self.env['account.move.line'].new({'move_id': bill})
+        self.assertFalse(bill.department_id)
+
+        dists = self.env['budget.move'].extract_analytic_distribution(line)
+
+        self.assertEqual(dists[0]['department_id'], self.department.id)
+
     def test_budget_move_company_fallback(self):
         move = self._create_budget_move()
         self.assertTrue(move.company_id)

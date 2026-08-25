@@ -199,6 +199,12 @@ class BudgetMove(models.Model):
             if not dept_id:
                 dept_id = getattr(order, 'department_id', None) or getattr(order, 'dept_id', None) or False
 
+            # Vendor bills created from expense sheets do not always copy the
+            # employee's department onto the bill header.
+            if not dept_id:
+                expense_sheet = getattr(order, 'expense_sheet_id', None)
+                dept_id = getattr(expense_sheet, 'department_id', None) or False
+
         # Budgets are mapped 100% strictly to the line's department, ignoring analytic splits.
         res.append({
             'analytic_account_id': acc_id.id if hasattr(acc_id, 'id') else (acc_id or False),

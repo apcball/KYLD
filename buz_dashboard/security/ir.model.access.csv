@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_buz_dashboard_user,buz.dashboard.user,model_buz_dashboard,group_buz_dashboard_user,1,0,0,0
+access_buz_dashboard_manager,buz.dashboard.manager,model_buz_dashboard,group_buz_dashboard_manager,1,1,1,1
+access_buz_dashboard_widget_user,buz.dashboard.widget.user,model_buz_dashboard_widget,group_buz_dashboard_user,1,0,0,0
+access_buz_dashboard_widget_manager,buz.dashboard.widget.manager,model_buz_dashboard_widget,group_buz_dashboard_manager,1,1,1,1
+access_buz_dashboard_cache_system,buz.dashboard.cache.system,model_buz_dashboard_cache,base.group_system,1,1,1,1

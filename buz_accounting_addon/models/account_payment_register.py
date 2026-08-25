@@ -20,7 +20,7 @@ class AccountPaymentRegister(models.TransientModel):
     def _create_payments(self):
         """Override to link created payments to voucher, voucher line and receipt if context provided"""
         payments = super()._create_payments()
-        
+
         # Link payments to payment voucher if context provided
         payment_voucher_id = self._context.get('buz_payment_voucher_id')
         if payment_voucher_id and payments:

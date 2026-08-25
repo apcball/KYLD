@@ -61,7 +61,9 @@ class MaterialRequisition(models.Model):
     
     # Other fields
     purpose = fields.Text(string='Purpose/Reason')
-    delivery_to = fields.Many2one('stock.picking.type', string='Delivery To')
+    delivery_to = fields.Many2one(
+        'stock.picking.type', string='Delivery To',
+        domain="[('code', '=', 'incoming')]")
     notes = fields.Text(string='Notes')
     priority = fields.Selection([
         ('low', 'Low'),
@@ -297,11 +299,26 @@ class MaterialRequisition(models.Model):
             record.write({'state': 'draft'})
     
     def action_create_purchase_order(self):
-        # Check if there are any purchase lines
-        purchase_lines = self.line_ids.filtered(lambda l: l.requisition_action == 'purchase' and l.vendor_id)
+        # Only selected lines with remaining (not yet RFQ'd) quantity are used,
+        # so the user can create RFQs in several rounds until fully covered.
+        selected_lines = self.line_ids.filtered(
+            lambda l: l.select_for_rfq and l.requisition_action == 'purchase')
+        if not selected_lines:
+            raise ValidationError(_(
+                'No lines selected for RFQ. Tick the "RFQ" checkbox on the '
+                'purchase lines you want to include.'))
+
+        missing_vendor = selected_lines.filtered(lambda l: not l.vendor_id)
+        if missing_vendor:
+            raise ValidationError(_(
+                'The following selected lines have no vendor assigned:\n%s'
+            ) % '\n'.join(['- %s' % l.product_id.display_name for l in missing_vendor]))
+
+        purchase_lines = selected_lines.filtered(lambda l: l.rfq_remaining_qty > 0)
         if not purchase_lines:
-            raise ValidationError(_('No purchase lines found with vendors assigned.'))
-        
+            raise ValidationError(_(
+                'All selected lines are already fully covered by RFQs / Purchase Orders.'))
+
         # Group lines by vendor
         vendor_lines = {}
         for line in purchase_lines:
@@ -321,14 +338,19 @@ class MaterialRequisition(models.Model):
                 'dept_id': self.department_id.id if self.department_id else False,
                 'order_line': []
             }
-            if self.delivery_to:
+            # Only an incoming (Receipts) operation type is valid on a PO.
+            # An outgoing/internal type has no receipt destination location and
+            # makes purchase confirmation fail on stock.picking.location_dest_id.
+            if (self.delivery_to and self.delivery_to.code == 'incoming'
+                    and (not self.delivery_to.company_id
+                         or self.delivery_to.company_id == self.company_id)):
                 po_vals['picking_type_id'] = self.delivery_to.id
             
             for line in lines:
                 po_line_vals = {
                     'product_id': line.product_id.id,
                     'name': line.description,
-                    'product_qty': line.quantity,
+                    'product_qty': line.rfq_remaining_qty,
                     'product_uom': line.uom_id.id,
                     'price_unit': line.estimated_cost,
                     'material_requisition_line_id': line.id,  # Link to requisition line
@@ -346,8 +368,9 @@ class MaterialRequisition(models.Model):
                     raise ValidationError(_('Error creating purchase order for vendor %s: %s') % (vendor.name, str(e)))
         
         if purchase_orders:
+            purchase_lines.write({'select_for_rfq': False})
             self.write({'state': 'ordered'})
-            
+
             # Use our custom purchase order view to avoid approval_state errors
             tree_view = self.env.ref('job_costing_management.view_purchase_order_tree_job_costing', False)
             
@@ -595,6 +618,15 @@ class MaterialRequisitionLine(models.Model):
     estimated_cost = fields.Float(string='Estimated Unit Cost')
     total_cost = fields.Float(string='Total Cost', compute='_compute_total_cost', store=True)
     
+    # RFQ selection — user ticks lines to include in the next "Create RFQ" round
+    select_for_rfq = fields.Boolean(string='Select for RFQ', default=False, copy=False)
+    rfq_qty = fields.Float(
+        string='RFQ Opened', compute='_compute_rfq_tracking', store=False,
+        help='Total quantity already placed on non-cancelled Purchase Orders (RFQs).')
+    rfq_remaining_qty = fields.Float(
+        string='RFQ Remaining', compute='_compute_rfq_tracking', store=False,
+        help='Quantity not yet placed on any Purchase Order (RFQ).')
+
     # Requisition action
     requisition_action = fields.Selection([
         ('purchase', 'Purchase Order'),
@@ -664,7 +696,19 @@ class MaterialRequisitionLine(models.Model):
             ])
             record.ordered_qty = sum(po_lines.mapped('product_qty'))
             record.received_qty = sum(po_lines.mapped('qty_received'))
-    
+
+    def _compute_rfq_tracking(self):
+        """Compute qty already on non-cancelled POs, and qty still remaining for RFQ."""
+        POLine = self.env['purchase.order.line'].sudo()
+        for record in self:
+            po_lines = POLine.search([
+                ('material_requisition_line_id', '=', record.id),
+                ('order_id.state', 'not in', ['cancel']),
+            ])
+            rfq_qty = sum(po_lines.mapped('product_qty'))
+            record.rfq_qty = rfq_qty
+            record.rfq_remaining_qty = max(record.quantity - rfq_qty, 0.0)
+
     @api.depends('quantity', 'estimated_cost')
     def _compute_total_cost(self):
         for record in self:

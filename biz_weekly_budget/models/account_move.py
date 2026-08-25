@@ -27,6 +27,15 @@ class AccountMove(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            # Vendor bills generated from an expense sheet must inherit the
+            # sheet's own department, not the default (which falls back to
+            # the department of whichever user triggers the creation, e.g.
+            # the approving manager).
+            if not vals.get('department_id') and vals.get('expense_sheet_id'):
+                sheet = self.env['hr.expense.sheet'].browse(vals['expense_sheet_id'])
+                if sheet.department_id:
+                    vals['department_id'] = sheet.department_id.id
         moves = super().create(vals_list)
         moves.filtered(lambda m: m.state in ('draft', 'posted') and m.move_type in ('in_invoice', 'in_refund'))._update_budget_moves()
         return moves

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="group_buz_dashboard_user" model="res.groups">
+            <field name="name">Dashboard API User</field>
+            <field name="category_id" ref="base.module_category_project"/>
+            <field name="implied_ids" eval="[(4, ref('job_costing_management.group_job_costing_user')),
+                                              (4, ref('job_costing_management.group_material_requisition_user')),
+                                              (4, ref('purchase.group_purchase_user'))]"/>
+        </record>
+
+        <record id="group_buz_dashboard_manager" model="res.groups">
+            <field name="name">Dashboard API Manager</field>
+            <field name="category_id" ref="base.module_category_project"/>
+            <field name="implied_ids" eval="[(4, ref('group_buz_dashboard_user')),
+                                              (4, ref('job_costing_management.group_job_costing_manager')),
+                                              (4, ref('job_costing_management.group_material_requisition_manager'))]"/>
+        </record>
+
+        <record id="rule_dashboard_multi_company" model="ir.rule">
+            <field name="name">Dashboard: multi-company</field>
+            <field name="model_id" ref="model_buz_dashboard"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_dashboard_widget_multi_company" model="ir.rule">
+            <field name="name">Dashboard Widget: multi-company</field>
+            <field name="model_id" ref="model_buz_dashboard_widget"/>
+            <field name="domain_force">['|', ('dashboard_id.company_id', '=', False), ('dashboard_id.company_id', 'in', company_ids)]</field>
+        </record>
+
+        <record id="rule_dashboard_cache_multi_company" model="ir.rule">
+            <field name="name">Dashboard Cache: multi-company</field>
+            <field name="model_id" ref="model_buz_dashboard_cache"/>
+            <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        </record>
+
+    </data>
+</odoo>

@@ -20,6 +20,7 @@
     'depends': [
         'web',
         'purchase',
+        'hr_expense',
         'mail',
         'employee_purchase_requisition',
         'job_costing_management',

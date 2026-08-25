@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <data>
+
+        <record id="dashboard_job_costing_executive" model="buz.dashboard">
+            <field name="name">Job Costing Executive</field>
+            <field name="code">job_costing_executive</field>
+            <field name="sequence">10</field>
+            <field name="description">Executive KPI dashboard fed by /api/buz-dashboard/job-costing/*</field>
+        </record>
+
+        <record id="widget_total_contract" model="buz.dashboard.widget">
+            <field name="name">Total Contract</field>
+            <field name="code">total_contract</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">kpi</field>
+            <field name="endpoint">job_costing.overview</field>
+            <field name="sequence">10</field>
+        </record>
+
+        <record id="widget_actual_cost" model="buz.dashboard.widget">
+            <field name="name">Actual Cost</field>
+            <field name="code">actual_cost</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">kpi</field>
+            <field name="endpoint">job_costing.overview</field>
+            <field name="sequence">20</field>
+        </record>
+
+        <record id="widget_gross_profit" model="buz.dashboard.widget">
+            <field name="name">Gross Profit</field>
+            <field name="code">gross_profit</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">kpi</field>
+            <field name="endpoint">job_costing.overview</field>
+            <field name="sequence">30</field>
+        </record>
+
+        <record id="widget_profit_margin" model="buz.dashboard.widget">
+            <field name="name">Profit Margin</field>
+            <field name="code">profit_margin</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">gauge</field>
+            <field name="endpoint">job_costing.overview</field>
+            <field name="sequence">40</field>
+        </record>
+
+        <record id="widget_cost_variance" model="buz.dashboard.widget">
+            <field name="name">Cost Variance</field>
+            <field name="code">cost_variance</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">kpi</field>
+            <field name="endpoint">job_costing.variance</field>
+            <field name="sequence">50</field>
+        </record>
+
+        <record id="widget_project_status" model="buz.dashboard.widget">
+            <field name="name">Project Status</field>
+            <field name="code">project_status</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">table</field>
+            <field name="endpoint">job_costing.projects</field>
+            <field name="sequence">60</field>
+        </record>
+
+        <record id="widget_cost_trend" model="buz.dashboard.widget">
+            <field name="name">Cost Trend</field>
+            <field name="code">cost_trend</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">chart</field>
+            <field name="endpoint">job_costing.trends</field>
+            <field name="sequence">70</field>
+        </record>
+
+        <record id="widget_top_projects" model="buz.dashboard.widget">
+            <field name="name">Top Projects</field>
+            <field name="code">top_projects</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">ranking</field>
+            <field name="endpoint">job_costing.profitability</field>
+            <field name="sequence">80</field>
+        </record>
+
+        <record id="widget_material_variance" model="buz.dashboard.widget">
+            <field name="name">Material Variance</field>
+            <field name="code">material_variance</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">chart</field>
+            <field name="endpoint">job_costing.materials</field>
+            <field name="sequence">90</field>
+        </record>
+
+        <record id="widget_labour_variance" model="buz.dashboard.widget">
+            <field name="name">Labour Variance</field>
+            <field name="code">labour_variance</field>
+            <field name="dashboard_id" ref="dashboard_job_costing_executive"/>
+            <field name="widget_type">chart</field>
+            <field name="endpoint">job_costing.labour</field>
+            <field name="sequence">100</field>
+        </record>
+
+    </data>
+</odoo>
