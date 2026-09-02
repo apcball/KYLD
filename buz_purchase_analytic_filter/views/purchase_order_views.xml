@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="purchase_order_tree_view_inherit_analytic" model="ir.ui.view">
+        <field name="name">purchase.order.tree.analytic</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_tree"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="analytic_account_ids" widget="many2many_tags"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="purchase_order_kpis_tree_view_inherit_analytic" model="ir.ui.view">
+        <field name="name">purchase.order.kpis.tree.analytic</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_kpis_tree"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="analytic_account_ids" widget="many2many_tags"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="purchase_order_filter_view_inherit_analytic" model="ir.ui.view">
+        <field name="name">purchase.order.search.analytic</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.view_purchase_order_filter"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="analytic_account_ids" string="Analytic"/>
+            </field>
+        </field>
+    </record>
+</odoo>
