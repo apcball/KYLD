@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'buz Project Job Costing Management for Construction',
-    'version': '17.0.1.0.1',
+    'version': '17.0.1.0.2',
     'category': 'Project',
     'summary': 'Project Job Costing (Contracting) and Job Cost Sheet for Construction Management',
     'description': """

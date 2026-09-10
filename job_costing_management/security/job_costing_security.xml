@@ -37,7 +37,7 @@
             <field name="name">Job Cost Sheet: User Access</field>
             <field name="model_id" ref="model_job_cost_sheet"/>
             <field name="groups" eval="[(4, ref('group_job_costing_user'))]"/>
-            <field name="domain_force">['|', ('create_uid', '=', user.id), ('project_id.user_id', '=', user.id)]</field>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
         <record id="rule_job_cost_sheet_manager" model="ir.rule">
@@ -52,7 +52,7 @@
             <field name="name">Job Order: User Access</field>
             <field name="model_id" ref="model_job_order"/>
             <field name="groups" eval="[(4, ref('group_job_costing_user'))]"/>
-            <field name="domain_force">['|', ('user_id', '=', user.id), ('project_id.user_id', '=', user.id)]</field>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
         <record id="rule_job_order_manager" model="ir.rule">
@@ -71,7 +71,7 @@
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
             <field name="perm_unlink" eval="False"/>
-            <field name="domain_force">['|', ('employee_id.user_id', '=', user.id), ('employee_id', '=', False)]</field>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
         <record id="rule_material_requisition_dept_manager" model="ir.rule">
@@ -82,7 +82,7 @@
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
             <field name="perm_unlink" eval="False"/>
-            <field name="domain_force">['|', ('department_id.manager_id.user_id', '=', user.id), ('department_id', '=', False)]</field>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
         </record>
 
         <record id="rule_material_requisition_manager" model="ir.rule">
