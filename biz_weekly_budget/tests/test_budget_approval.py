@@ -240,3 +240,29 @@ class TestBudgetApproval(common.TransactionCase):
         req._do_approve()
         with self.assertRaises(UserError):
             req.action_approve()
+
+    def test_mr_shows_standard_and_budget_approval_dates(self):
+        project = self.env['project.project'].create({
+            'name': 'Budget Approval Date Test Project',
+            'company_id': self.company.id,
+        })
+
+        mr = self.env['material.requisition'].create({
+            'project_id': project.id,
+            'company_id': self.company.id,
+            'required_date': fields.Date.today(),
+        })
+        mr.action_approve()
+        self.assertEqual(mr.approved_date, fields.Date.today())
+
+        request = self.env['buz.budget.approval.request'].create({
+            'document_type': 'mr',
+            'ref_mr_id': mr.id,
+            'budget_allocation_id': self.allocation.id,
+            'amount_requested': 60000.0,
+        }).with_user(self.manager_user)
+        request.note = 'Approved for Material Requisition'
+        request._do_approve()
+
+        self.assertEqual(mr.buz_budget_approval_id, request)
+        self.assertEqual(mr.buz_budget_approved_date, request.approved_date)

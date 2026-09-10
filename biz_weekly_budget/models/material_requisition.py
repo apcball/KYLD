@@ -55,6 +55,11 @@ class MaterialRequisition(models.Model):
         related='buz_budget_approval_id.state',
         string='Budget Approval Status',
     )
+    buz_budget_approved_date = fields.Datetime(
+        related='buz_budget_approval_id.approved_date',
+        string='Budget Approved Date',
+        readonly=True,
+    )
     budget_warning = fields.Boolean(
         string='Budget Warning',
         compute='_compute_budget_check_result'

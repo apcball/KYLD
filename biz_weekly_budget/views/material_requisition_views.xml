@@ -34,6 +34,13 @@
             </xpath>
             <xpath expr="//field[@name='required_date']" position="after">
                 <field name="payment_date" string="Expected Payment"/>
+                <field name="approved_date"
+                       string="MR Approved Date"
+                       readonly="1"
+                       invisible="state not in ('approved', 'ordered', 'received')"/>
+                <field name="buz_budget_approved_date"
+                       readonly="1"
+                       invisible="buz_budget_approval_state != 'approved'"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Budget Check" name="budget_check">
