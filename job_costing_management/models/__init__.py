@@ -17,3 +17,4 @@ from . import account_move
 from . import hr_timesheet
 from . import boq
 from . import executive_dashboard
+from . import service_po

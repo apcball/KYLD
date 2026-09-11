@@ -941,9 +941,14 @@ class JobCostLine(models.Model):
                 _logger.info(f"Found existing cost line {existing.id} for invoice line {source_invoice_line_id}")
                 return existing
         
-        # Check by product if no source match
+        # Check by product if no source match. Also match on description when
+        # given, so distinct BOQ items that share a product (e.g. several
+        # differently-described doors under one service product) don't
+        # collapse onto the same cost line.
         if product_id:
             domain.append(('product_id', '=', product_id))
+            if vals.get('name'):
+                domain.append(('name', '=', vals['name']))
             existing = self.search(domain, limit=1)
             if existing:
                 _logger.info(f"Found existing cost line {existing.id} for product {product_id} in sheet {cost_sheet_id}")

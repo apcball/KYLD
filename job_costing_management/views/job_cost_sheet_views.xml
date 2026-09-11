@@ -165,25 +165,37 @@
                                 </field>
                             </page>
 
-                            <!-- Labour Costs Tab -->
-                            <page string="Labour Costs" name="labour_costs">
-                                <field name="labour_cost_ids" context="{'default_cost_type': 'labour', 'default_analytic_account_id': analytic_account_id}">
-                                    <tree editable="bottom">
-                                        <field name="sequence" widget="handle"/>
-                                        <field name="product_id" domain="[('detailed_type', '=', 'service')]"/>
-                                        <field name="name" required="1"/>
-                                        <field name="planned_qty"/>
-                                        <field name="actual_qty" readonly="1"/>
-                                        <field name="uom_id"/>
-                                        <field name="unit_cost"/>
-                                        <field name="actual_unit_cost" readonly="1" optional="hide"/>
-                                        <field name="total_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
-                                        <field name="actual_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
-                                        <field name="cost_variance" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
-                                        <field name="cost_type" column_invisible="1"/>
-                                        <field name="currency_id" column_invisible="1"/>
-                                        <button name="action_edit_cost_line" type="object" 
-                                                icon="fa-edit" title="Change Cost Type"/>
+                            <!-- Labour Costs Tab: shows confirmed Service PO lines instead of a
+                                 manually-edited planned/actual grid, since for this module labour
+                                 cost = service PO cost. -->
+                            <page string="Labour Costs" name="labour_costs" groups="purchase.group_purchase_user">
+                                <group>
+                                    <field name="service_po_currency_id" invisible="1"/>
+                                    <field name="service_po_ordered_total"/>
+                                </group>
+                                <div class="alert alert-warning" role="alert" invisible="not service_po_warning">
+                                    <field name="service_po_warning" nolabel="1"/>
+                                </div>
+                                <p>Confirmed service purchases before tax. Sheet amounts use allocated quantities when applicable and the exchange rate on the PO date. Budget and Actual costs are separate.</p>
+                                <field name="service_po_line_ids" readonly="1"
+                                       context="{'service_job_cost_sheet_id': id}">
+                                    <tree create="0" edit="0" delete="0" default_order="order_id,sequence,id"
+                                          decoration-warning="service_jcs_invalid">
+                                        <field name="order_id"/>
+                                        <field name="state"/>
+                                        <field name="product_id"/>
+                                        <field name="name" string="PO Description" widget="text"/>
+                                        <field name="product_qty"/>
+                                        <field name="product_uom"/>
+                                        <field name="price_unit"/>
+                                        <field name="price_subtotal" string="Full PO Line Subtotal"/>
+                                        <field name="currency_id"/>
+                                        <field name="service_jcs_qty"/>
+                                        <field name="service_jcs_subtotal"/>
+                                        <field name="service_jcs_currency_id" column_invisible="True"/>
+                                        <field name="service_jcs_amount"/>
+                                        <field name="service_jcs_invalid" column_invisible="True"/>
+                                        <button name="action_open_service_po" type="object" icon="fa-external-link" title="Open Purchase Order"/>
                                     </tree>
                                 </field>
                             </page>

@@ -116,6 +116,12 @@ class PurchaseOrder(models.Model):
         if self.job_cost_sheet_id:
             self._update_job_cost_sheet_actual_costs()
 
+        # Auto-link confirmed service lines to a labour cost line (covers
+        # pool/allocation-linked POs with no job_cost_sheet_id on the header)
+        self.order_line.filtered(
+            lambda l: l.product_id.detailed_type == 'service'
+        )._auto_link_labour_cost_line()
+
         # Update procurement pool state if linked
         if self.procurement_pool_id and self.procurement_pool_id.state == 'rfq_created':
             # Check if all POs for this pool are confirmed
@@ -241,7 +247,7 @@ class PurchaseOrderLine(models.Model):
                 # Find matching job cost line
                 if boq_line.cost_line_ids:
                     matching_cost_line = boq_line.cost_line_ids.filtered(
-                        lambda l: l.product_id == result.product_id
+                        lambda l: l.product_id == result.product_id and l.name == result.name
                     )
                     if matching_cost_line:
                         result.job_cost_line_id = matching_cost_line[0].id
@@ -272,12 +278,18 @@ class PurchaseOrderLine(models.Model):
                         ('source_po_line_id', '=', result.id)
                     ], limit=1)
                     
+                    is_service = result.product_id.detailed_type == 'service'
                     if not existing_line:
-                        # Also check by product
-                        existing_line = cost_sheet.material_cost_ids.filtered(
-                            lambda l: l.product_id == result.product_id
+                        # Also check by product + description, scoped to the matching
+                        # cost type: service products belong in labour, not material,
+                        # and description must match so distinct BOQ items sharing a
+                        # product don't collapse onto the same cost line.
+                        candidates = (cost_sheet.labour_cost_ids if is_service
+                                      else cost_sheet.material_cost_ids)
+                        existing_line = candidates.filtered(
+                            lambda l: l.product_id == result.product_id and l.name == result.name
                         )
-                    
+
                     if existing_line:
                         result.job_cost_line_id = existing_line[0].id
                         _logger.info(f"Using existing job cost line: {existing_line[0].id}")
@@ -285,11 +297,11 @@ class PurchaseOrderLine(models.Model):
                         # Create new cost line with source tracking
                         cost_line_vals = {
                             'cost_sheet_id': cost_sheet.id,
-                            'cost_type': 'material',
+                            'cost_type': 'labour' if is_service else 'material',
                             'product_id': result.product_id.id,
-                            'name': result.product_id.name,
+                            'name': result.name or result.product_id.name,
                             'planned_qty': result.product_qty,
-                            'unit_cost': result.price_unit,
+                            'unit_cost': max(result.price_unit, 0.0),
                             'uom_id': result.product_uom.id,
                             'analytic_account_id': cost_sheet.analytic_account_id.id if cost_sheet.analytic_account_id else False,
                             'source_po_line_id': result.id,  # Track source to prevent duplicates
@@ -311,12 +323,16 @@ class PurchaseOrderLine(models.Model):
                 ('source_po_line_id', '=', result.id)
             ], limit=1)
             
+            is_service = result.product_id.detailed_type == 'service'
             if not existing_line:
-                # Check by product
-                existing_line = cost_sheet.material_cost_ids.filtered(
-                    lambda l: l.product_id == result.product_id
+                # Check by product + description, scoped to the matching cost type
+                # (see the BOQ-project fallback above for why).
+                candidates = (cost_sheet.labour_cost_ids if is_service
+                              else cost_sheet.material_cost_ids)
+                existing_line = candidates.filtered(
+                    lambda l: l.product_id == result.product_id and l.name == result.name
                 )
-            
+
             if existing_line:
                 result.job_cost_line_id = existing_line[0].id
                 _logger.info(f"Found existing job cost line: {existing_line[0].id}")
@@ -324,11 +340,11 @@ class PurchaseOrderLine(models.Model):
                 # Create new cost line with source tracking
                 cost_line_vals = {
                     'cost_sheet_id': cost_sheet.id,
-                    'cost_type': 'material',
+                    'cost_type': 'labour' if is_service else 'material',
                     'product_id': result.product_id.id,
-                    'name': result.product_id.name,
+                    'name': result.name or result.product_id.name,
                     'planned_qty': result.product_qty,
-                    'unit_cost': result.price_unit,
+                    'unit_cost': max(result.price_unit, 0.0),
                     'uom_id': result.product_uom.id,
                     'analytic_account_id': cost_sheet.analytic_account_id.id if cost_sheet.analytic_account_id else False,
                     'source_po_line_id': result.id,  # Track source to prevent duplicates

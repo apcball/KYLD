@@ -72,6 +72,14 @@ class PurchaseAllocation(models.Model):
             record.display_name = '%s → %s: %s x %s' % (
                 mr_name, po_name, product_name, record.qty)
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records.mapped('po_line_id').filtered(
+            lambda line: line.order_id.state in ('purchase', 'done')
+        )._auto_link_labour_cost_line()
+        return records
+
     def update_received_qty(self, qty):
         """Update the received qty for this allocation."""
         self.ensure_one()
