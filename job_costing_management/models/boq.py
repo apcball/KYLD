@@ -208,142 +208,134 @@ class BOQ(models.Model):
             'target': 'current',
         }
     
-    def action_create_material_requisition(self):
-        """Create material requisition from BOQ lines"""
-        if not self.line_ids:
-            raise ValidationError(_('No BOQ lines to create requisition from.'))
-        
-        # Filter lines that have products and remaining quantities
-        lines_with_products = self.line_ids.filtered(lambda l: l.product_id)
-        if not lines_with_products:
-            raise ValidationError(_('No BOQ lines with products found to create requisition from.'))
-        
-        # Filter lines with remaining quantities
-        lines_with_remaining = lines_with_products.filtered(lambda l: l.remaining_qty > 0)
-        if not lines_with_remaining:
-            raise ValidationError(_(
-                'No BOQ lines with remaining quantities found to create requisition from.\n'
-                'All items have already been fully requisitioned.'
-            ))
-        
-        # Group lines by category or create single requisition
-        requisition_vals = {
-            'project_id': self.project_id.id,
-            'job_order_id': self.job_order_id.id if self.job_order_id else False,
-            'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,
-            'boq_id': self.id,
-            'purpose': f'Material requisition from BOQ: {self.name}',
-            'required_date': fields.Date.today(),
-            'line_ids': []
+    def _check_requisition_context(self):
+        self.ensure_one()
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        if self.state not in ('approved', 'locked'):
+            raise ValidationError(_('Approve or lock the BOQ before requesting materials.'))
+        self._check_work_context()
+
+    def _check_work_context(self):
+        """Validate links explicitly; these legacy relations have no company checks."""
+        self.ensure_one()
+        if self.company_id not in self.env.companies:
+            raise ValidationError(_('The BOQ company must be an allowed company.'))
+        for record in (self.project_id, self.job_order_id, self.job_cost_sheet_id):
+            if not record:
+                continue
+            record.check_access_rights('read')
+            record.check_access_rule('read')
+            if record.company_id and record.company_id != self.company_id:
+                raise ValidationError(_('The project, job order and cost sheet must belong to the BOQ company.'))
+        for record in (self.job_order_id, self.job_cost_sheet_id):
+            if record and record.project_id != self.project_id:
+                raise ValidationError(_('The job order and cost sheet must belong to the BOQ project.'))
+
+    def _open_requisition_wizard(self, selected_lines=None):
+        self._check_requisition_context()
+        return {
+            'name': _('Create Material Requisition'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'boq.material.requisition.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': dict(
+                self.env.context, default_boq_id=self.id,
+                active_model=self._name, active_id=self.id,
+                selected_boq_line_ids=selected_lines.ids if selected_lines else []),
         }
-        
-        for line in lines_with_remaining:
-            # Find the corresponding job cost line for this BOQ line
-            job_cost_line = False
-            if line.cost_line_ids:
-                job_cost_line = line.cost_line_ids[0]  # Take the first related cost line
-            
-            req_line_vals = {
-                'product_id': line.product_id.id,
+
+    def action_create_material_requisition(self):
+        return self._open_requisition_wizard()
+
+    def _create_material_requisition(self, lines, purpose, required_date, priority):
+        """Single creation path for both header and line requests."""
+        self._check_requisition_context()
+        commands = []
+        for line in lines:
+            source = line.boq_line_id
+            if source.boq_id != self:
+                raise ValidationError(_('All selected lines must belong to this BOQ.'))
+            if not source.product_id or not source.uom_id:
+                raise ValidationError(_('Each selected line needs a product and unit of measure.'))
+            if line.product_id != source.product_id or line.uom_id != source.uom_id:
+                raise ValidationError(_('BOQ product or unit of measure changed. Reopen the request.'))
+            if line.requested_quantity <= 0:
+                raise ValidationError(_('Requested quantity must be greater than zero for all selected lines.'))
+            cost_line = source._get_cost_line(self.job_cost_sheet_id)
+            commands.append(fields.Command.create({
+                'product_id': source.product_id.id,
                 'description': line.description,
-                'quantity': line.remaining_qty,  # Use remaining quantity instead of full quantity
-                'uom_id': line.uom_id.id,
-                'estimated_cost': line.unit_cost,
-                'boq_line_id': line.id,
-                'job_cost_line_id': job_cost_line.id if job_cost_line else False,
-            }
-            requisition_vals['line_ids'].append((0, 0, req_line_vals))
-        
-        if requisition_vals['line_ids']:
-            requisition = self.env['material.requisition'].create(requisition_vals)
-            return {
-                'name': 'Material Requisition',
-                'type': 'ir.actions.act_window',
-                'res_model': 'material.requisition',
-                'view_mode': 'form',
-                'res_id': requisition.id,
-            }
-    
+                'quantity': line.requested_quantity,
+                'uom_id': source.uom_id.id,
+                'estimated_cost': line.estimated_cost,
+                'boq_line_id': source.id,
+                'job_cost_line_id': cost_line.id,
+            }))
+        if not commands:
+            raise ValidationError(_('Select at least one BOQ line to request.'))
+        return self.env['material.requisition'].with_company(self.company_id).create({
+            'project_id': self.project_id.id,
+            'job_order_id': self.job_order_id.id,
+            'job_cost_sheet_id': self.job_cost_sheet_id.id,
+            'analytic_account_id': self.project_id.analytic_account_id.id,
+            'company_id': self.company_id.id,
+            'boq_id': self.id,
+            'purpose': purpose,
+            'required_date': required_date,
+            'priority': priority,
+            'state': 'draft',
+            'line_ids': commands,
+        })
+
     def action_create_job_cost_lines(self):
-        """Create job cost lines from BOQ"""
+        """Create missing BOQ lines without modifying existing baselines."""
+        self.ensure_one()
+        self.check_access_rights('read')
+        self.check_access_rule('read')
+        self._check_work_context()
         if not self.job_cost_sheet_id:
             raise ValidationError(_('Please specify a job cost sheet.'))
-        
-        # Check if there are any BOQ lines with products
-        lines_with_products = self.line_ids.filtered(lambda l: l.product_id)
-        if not lines_with_products:
+        lines = self.line_ids.filtered('product_id')
+        if not lines:
             raise ValidationError(_('No BOQ lines with products found to create job cost lines from.'))
-        
-        created_lines = []
-        skipped_lines = []
-        
-        for line in lines_with_products:
-            # Check if job cost line already exists for this BOQ line
-            existing_line = self.env['job.cost.line'].search([
-                ('cost_sheet_id', '=', self.job_cost_sheet_id.id),
-                ('boq_line_id', '=', line.id)
-            ], limit=1)
-            
-            if existing_line:
-                skipped_lines.append(line.description)
-                continue  # Skip if already exists
-            
-            # FIX ISSUE #3: Also check by product to prevent duplicate overhead costs
-            # when BOQ is processed multiple times
-            product_existing = self.env['job.cost.line'].search([
-                ('cost_sheet_id', '=', self.job_cost_sheet_id.id),
-                ('product_id', '=', line.product_id.id),
-                ('boq_line_id', '=', False)  # Not linked to any BOQ line yet
-            ], limit=1)
-            
-            if product_existing:
-                # Link the existing cost line to this BOQ line instead of creating new
-                product_existing.sudo().write({'boq_line_id': line.id})
-                skipped_lines.append(f"{line.description} (linked to existing)")
-                continue
-            
-            # Determine cost_type based on product type
-            # Service products → labour, storable/consumable → material
-            product = line.product_id
-            if product.detailed_type == 'service':
-                cost_type = 'labour'
-            else:
-                cost_type = 'material'
-
-            cost_line_vals = {
-                'cost_sheet_id': self.job_cost_sheet_id.id,
-                'cost_type': cost_type,
-                'product_id': product.id,
-                'name': line.description,
-                'planned_qty': line.quantity,
-                'uom_id': line.uom_id.id,
-                'unit_cost': line.unit_cost,
-                'boq_line_id': line.id,  # Link to BOQ line
-                # BOQ Baseline (set once, never changes)
-                'boq_qty': line.quantity,
-                'boq_unit_cost': line.unit_cost,
-            }
-            
-            try:
-                cost_line = self.env['job.cost.line'].create(cost_line_vals)
-                created_lines.append(cost_line.id)
-            except Exception as e:
-                raise ValidationError(_('Error creating job cost line for %s: %s') % (line.description, str(e)))
-        
-        if not created_lines:
-            if skipped_lines:
-                raise ValidationError(_('No new job cost lines were created. The following lines already exist: %s') % ', '.join(skipped_lines))
-            else:
-                raise ValidationError(_('No new job cost lines were created. They may already exist.'))
-        
-        # Return action to show the created job cost lines
+        # Update the sheet row to serialize concurrent create requests as well.
+        self.job_cost_sheet_id.check_access_rights('write')
+        self.job_cost_sheet_id.check_access_rule('write')
+        self.job_cost_sheet_id.write({'write_date': fields.Datetime.now()})
+        result = self.env['job.cost.line']
+        created_count = 0
+        for line in lines:
+            cost_line = line._get_cost_line(self.job_cost_sheet_id)
+            if not cost_line:
+                cost_line = self.env['job.cost.line'].create({
+                    'cost_sheet_id': self.job_cost_sheet_id.id,
+                    'cost_type': 'labour' if line.product_id.detailed_type == 'service' else 'material',
+                    'product_id': line.product_id.id,
+                    'name': line.description,
+                    'planned_qty': line.quantity,
+                    'uom_id': line.uom_id.id,
+                    'unit_cost': line.unit_cost,
+                    'boq_line_id': line.id,
+                    'boq_qty': line.quantity,
+                    'boq_unit_cost': line.unit_cost,
+                })
+                created_count += 1
+            result |= cost_line
         return {
-            'name': _('Job Cost Lines'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'job.cost.line',
-            'view_mode': 'tree,form',
-            'domain': [('id', 'in', created_lines)],
-            'context': {'res_model': 'job.cost.line'},
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {
+                'title': _('BOQ Cost Lines'),
+                'message': _('Created: %(created)s; already linked: %(existing)s.') % {
+                    'created': created_count, 'existing': len(result) - created_count},
+                'type': 'success', 'sticky': False,
+                'next': {
+                    'name': _('Job Cost Lines'), 'type': 'ir.actions.act_window',
+                    'res_model': 'job.cost.line', 'view_mode': 'tree,form',
+                    'domain': [('id', 'in', result.ids)],
+                },
+            },
         }
     
     def action_view_requisitions(self):
@@ -682,52 +674,24 @@ class BOQLine(models.Model):
             self.unit_cost = self.product_id.standard_price
             self.item_code = self.product_id.default_code or ''
     
+    def _get_cost_line(self, cost_sheet):
+        self.ensure_one()
+        if not cost_sheet:
+            return self.env['job.cost.line']
+        matches = self.env['job.cost.line'].search([
+            ('boq_line_id', '=', self.id), ('cost_sheet_id', '=', cost_sheet.id),
+        ])
+        if len(matches) > 1:
+            raise ValidationError(
+                _('Multiple cost lines are linked to BOQ item %s. Resolve the duplicates first.')
+                % self.description)
+        return matches
+
     def action_create_requisition(self):
-        """Create material requisition from this BOQ line"""
-        if not self.product_id:
-            raise ValidationError(_('Please specify a product for this BOQ line before creating a requisition.'))
-        
-        # Check remaining quantity
-        if self.remaining_qty <= 0:
-            raise ValidationError(_(
-                'No remaining quantity to requisition for this BOQ line.\n'
-                'BOQ Quantity: %s %s\n'
-                'Already Requisitioned: %s %s\n'
-                'Remaining: %s %s'
-            ) % (
-                self.adjusted_quantity, self.uom_id.name,
-                self.total_requisitioned_qty, self.uom_id.name,
-                self.remaining_qty, self.uom_id.name
-            ))
-        
-        # Use remaining quantity as default, but allow user to modify
-        default_qty = self.remaining_qty
-        
-        requisition_vals = {
-            'project_id': self.boq_id.project_id.id,
-            'job_order_id': self.boq_id.job_order_id.id if self.boq_id.job_order_id else False,
-            'job_cost_sheet_id': self.boq_id.job_cost_sheet_id.id if self.boq_id.job_cost_sheet_id else False,
-            'boq_id': self.boq_id.id,
-            'purpose': f'Material requisition for BOQ line: {self.description}',
-            'required_date': fields.Date.today(),
-            'line_ids': [(0, 0, {
-                'product_id': self.product_id.id,
-                'description': self.description,
-                'quantity': default_qty,
-                'uom_id': self.uom_id.id,
-                'estimated_cost': self.unit_cost,
-                'boq_line_id': self.id,
-            })]
-        }
-        
-        requisition = self.env['material.requisition'].create(requisition_vals)
-        return {
-            'name': 'Material Requisition',
-            'type': 'ir.actions.act_window',
-            'res_model': 'material.requisition',
-            'view_mode': 'form',
-            'res_id': requisition.id,
-        }
+        self.ensure_one()
+        if not self.product_id or self.remaining_qty <= 0:
+            raise ValidationError(_('This BOQ line needs a product and a remaining quantity.'))
+        return self.boq_id._open_requisition_wizard(self)
     
     def copy(self, default=None):
         """Override copy method to ensure proper copying of BOQ lines"""

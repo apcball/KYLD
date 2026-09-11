@@ -1,0 +1,40 @@
+name: kyld-job-costing-test
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: isolated-test
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  odoo:
+    image: odoo:17.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: isolated-test
+    volumes:
+      - ./:/mnt/custom-addons:ro
+    tmpfs:
+      - /var/lib/odoo:uid=101,gid=101
+    command:
+      - odoo
+      - --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/custom-addons
+      - --database=MOG_TEST
+      - --init=job_costing_management
+      - --without-demo=all
+      - --test-enable
+      - --test-tags=/job_costing_management
+      - --stop-after-init
+      - --no-http
+      - --max-cron-threads=0
+      - --workers=0

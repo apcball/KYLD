@@ -119,6 +119,22 @@ class EmployeePurchaseRequisition(models.Model):
                  ('pr_number', '=', self.name),
         ])
 
+    @staticmethod
+    def _safe_uom_qty(quantity, source_uom, target_uom):
+        """Convert quantity between UoMs, tolerating mismatched categories.
+
+        Legacy PR/PO lines sometimes carry a UoM from a different category
+        than the product's reference UoM (placeholder products kept in PCS
+        but ordered in 'ถัง' / 'ม้วน' / 'ถุง'). Odoo's _compute_quantity
+        raises on that; for budget estimation we fall back to the raw
+        quantity instead of blocking the document.
+        """
+        if not source_uom or not target_uom:
+            return quantity
+        if source_uom.category_id != target_uom.category_id:
+            return quantity
+        return source_uom._compute_quantity(quantity, target_uom, round=False)
+
     def _get_remaining_line_amounts(self):
         """Return remaining estimated amount per PR line based on ordered qty."""
         self.ensure_one()
@@ -139,8 +155,8 @@ class EmployeePurchaseRequisition(models.Model):
 
             key = po_line.product_id.id
             reference_uom = po_line.product_id.uom_id
-            ordered_qty = po_line.product_uom._compute_quantity(
-                po_line.product_qty, reference_uom, round=False
+            ordered_qty = self._safe_uom_qty(
+                po_line.product_qty, po_line.product_uom, reference_uom
             )
             qty_by_key[key] = qty_by_key.get(key, 0.0) + ordered_qty
 
@@ -148,8 +164,8 @@ class EmployeePurchaseRequisition(models.Model):
         for line in self.requisition_order_ids:
             key = line.product_id.id
             reference_uom = line.product_id.uom_id
-            requested_qty = line.uom._compute_quantity(
-                line.quantity, reference_uom, round=False
+            requested_qty = self._safe_uom_qty(
+                line.quantity, line.uom, reference_uom
             ) if line.uom else line.quantity
             remaining_qty = requested_qty
             if line.product_id and qty_by_key.get(key):
@@ -157,8 +173,8 @@ class EmployeePurchaseRequisition(models.Model):
                 remaining_qty -= covered_qty
                 qty_by_key[key] -= covered_qty
             if line.uom:
-                remaining_qty = reference_uom._compute_quantity(
-                    remaining_qty, line.uom, round=False
+                remaining_qty = self._safe_uom_qty(
+                    remaining_qty, reference_uom, line.uom
                 )
             remaining_amounts[line.id] = max(0.0, remaining_qty) * line.unit_price
 

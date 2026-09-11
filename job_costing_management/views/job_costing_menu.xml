@@ -19,12 +19,16 @@
                   sequence="20"/>
 
         <!-- Projects Menu -->
-        <menuitem id="menu_job_projects" name="Projects" parent="menu_job_costing_main" sequence="20"/>
+        <menuitem id="menu_job_projects" name="Projects" parent="menu_job_costing_main"
+                  action="project.open_view_project_all" sequence="20"/>
         
         <menuitem id="menu_projects" name="Projects" 
                   parent="menu_job_projects" 
                   action="project.open_view_project_all" 
                   sequence="10"/>
+        <record id="menu_projects" model="ir.ui.menu">
+            <field name="active" eval="False"/>
+        </record>
 
         <!-- Job Orders Menu -->
         <menuitem id="menu_job_orders" name="Job Orders" parent="menu_job_costing_main" sequence="30"/>
@@ -47,10 +51,6 @@
                   action="action_boq" 
                   sequence="05"/>
         
-        <menuitem id="menu_boq_templates" name="BOQ Templates" 
-                  parent="menu_materials_boq" 
-                  action="action_boq_template" 
-                  sequence="07"/>
         
         <menuitem id="menu_material_requisitions" name="Material Requisitions" 
                   parent="menu_materials_boq" 
@@ -85,6 +85,10 @@
 
         <!-- Configuration Menu -->
         <menuitem id="menu_job_configuration" name="Configuration" parent="menu_job_costing_main" sequence="90"/>
+        <menuitem id="menu_boq_templates" name="BOQ Templates"
+                  parent="menu_job_configuration"
+                  action="action_boq_template"
+                  sequence="07"/>
         
         <menuitem id="menu_job_types" name="Job Types" 
                   parent="menu_job_configuration" 

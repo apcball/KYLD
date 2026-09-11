@@ -100,6 +100,20 @@ class DashboardApiController(http.Controller):
             group_by=payload.get('group_by', 'month'))
 
     @http.route('/api/buz-dashboard/<path:subpath>', type='http',
-                auth='none', methods=['OPTIONS'], csrf=False)
+                # 'public' (not 'none') so the route is registered in the
+                # DB-bound routing map; see models/ir_http.py _match.
+                auth='public', methods=['OPTIONS'], csrf=False)
     def preflight(self, subpath, **kwargs):
+        return request.make_response('', headers=[])
+
+    @http.route('/web/session/<path:subpath>', type='http',
+                auth='public', methods=['OPTIONS'], csrf=False)
+    def preflight_web_session(self, subpath, **kwargs):
+        """CORS preflight for the dashboard login/session JSON-RPC calls."""
+        return request.make_response('', headers=[])
+
+    @http.route('/web/dataset/<path:subpath>', type='http',
+                auth='public', methods=['OPTIONS'], csrf=False)
+    def preflight_web_dataset(self, subpath, **kwargs):
+        """CORS preflight for dashboard search_read calls."""
         return request.make_response('', headers=[])

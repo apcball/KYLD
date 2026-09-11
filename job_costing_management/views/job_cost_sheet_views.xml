@@ -38,12 +38,9 @@
                                 class="btn-primary" invisible="state != 'draft'"/>
                         <button name="action_done" string="Mark as Done" type="object" 
                                 class="btn-primary" invisible="state != 'approved'"/>
-                        <button name="action_sync_actual_costs" string="Refresh Actual Costs" type="object" 
-                                class="btn-secondary" invisible="state not in ['approved', 'done']"
-                                help="Manually refresh actual costs from purchase orders, invoices, and timesheets"/>
-                        <button name="action_recalculate_active_costs" string="Recalculate Active Costs" type="object" 
+                        <button name="action_update_costs" string="Update Cost Totals" type="object"
                                 class="btn-secondary"
-                                help="Recalculate active planned costs (excluding cancelled/rejected Material Requisitions)"/>
+                                help="Update active planned costs and, for approved or completed sheets, actual costs."/>
                         <button name="action_cancel" string="Cancel" type="object" 
                                 invisible="state in ['done', 'cancelled']"/>
                         <button name="action_draft" string="Reset to Draft" type="object" 
@@ -154,7 +151,7 @@
                                         <field name="actual_qty" readonly="1"/>
                                         <field name="uom_id"/>
                                         <field name="unit_cost"/>
-                                        <field name="actual_unit_cost" readonly="1"/>
+                                        <field name="actual_unit_cost" readonly="1" optional="hide"/>
                                         <field name="total_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="active_total_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1" optional="show"
                                                decoration-warning="active_total_cost != total_cost"/>
@@ -163,7 +160,7 @@
                                         <field name="cost_type" column_invisible="1"/>
                                         <field name="currency_id" column_invisible="1"/>
                                         <button name="action_edit_cost_line" type="object" 
-                                                icon="fa-edit" title="Edit Cost Line"/>
+                                                icon="fa-edit" title="Change Cost Type"/>
                                     </tree>
                                 </field>
                             </page>
@@ -179,14 +176,14 @@
                                         <field name="actual_qty" readonly="1"/>
                                         <field name="uom_id"/>
                                         <field name="unit_cost"/>
-                                        <field name="actual_unit_cost" readonly="1"/>
+                                        <field name="actual_unit_cost" readonly="1" optional="hide"/>
                                         <field name="total_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="actual_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="cost_variance" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="cost_type" column_invisible="1"/>
                                         <field name="currency_id" column_invisible="1"/>
                                         <button name="action_edit_cost_line" type="object" 
-                                                icon="fa-edit" title="Edit Cost Line"/>
+                                                icon="fa-edit" title="Change Cost Type"/>
                                     </tree>
                                 </field>
                             </page>
@@ -202,14 +199,14 @@
                                         <field name="actual_qty" readonly="1"/>
                                         <field name="uom_id"/>
                                         <field name="unit_cost"/>
-                                        <field name="actual_unit_cost" readonly="1"/>
+                                        <field name="actual_unit_cost" readonly="1" optional="hide"/>
                                         <field name="total_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="actual_cost" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="cost_variance" widget="monetary" options="{'currency_field': 'currency_id'}" readonly="1"/>
                                         <field name="cost_type" column_invisible="1"/>
                                         <field name="currency_id" column_invisible="1"/>
                                         <button name="action_edit_cost_line" type="object" 
-                                                icon="fa-edit" title="Edit Cost Line"/>
+                                                icon="fa-edit" title="Change Cost Type"/>
                                     </tree>
                                 </field>
                             </page>

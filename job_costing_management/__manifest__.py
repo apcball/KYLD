@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'buz Project Job Costing Management for Construction',
-    'version': '17.0.1.0.2',
+    'version': '17.0.1.0.3',
     'category': 'Project',
     'summary': 'Project Job Costing (Contracting) and Job Cost Sheet for Construction Management',
     'description': """
@@ -56,6 +56,7 @@ Key Benefits:
         'portal',
         'contacts',  # Added dependency for contacts module
         'report_xlsx',
+        'l10n_th_partner',  # Subcontractor seed data uses res.partner.branch.
     ],
     'data': [
         # Security

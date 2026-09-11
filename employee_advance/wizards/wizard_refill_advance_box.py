@@ -20,7 +20,8 @@ class WizardRefillAdvanceBox(models.TransientModel):
         'hr.employee',
         string='Employee',
         related='box_id.employee_id',
-        readonly=True
+        readonly=True,
+        compute_sudo=True
     )
     
     # Accounting fields
@@ -182,7 +183,7 @@ class WizardRefillAdvanceBox(models.TransientModel):
             # Get employee partner
             partner_id = self.box_id._get_employee_partner()
             if not partner_id:
-                raise UserError(_('Cannot find partner for employee "%s". Please set the employee\'s private address.') % self.box_id.employee_id.name)
+                raise UserError(_('Cannot find partner for employee "%s". Please set the employee\'s private address.') % self.box_id.employee_id.sudo().name)
             
             # Verify partner exists
             partner = self.env['res.partner'].browse(partner_id)
@@ -190,7 +191,7 @@ class WizardRefillAdvanceBox(models.TransientModel):
                 raise UserError(_('Partner ID %s does not exist in the system.') % partner_id)
             
             _logger.info('✅ Using partner: %s (ID: %s) for employee: %s', 
-                        partner.name, partner_id, self.box_id.employee_id.name)
+                        partner.name, partner_id, self.box_id.employee_id.sudo().name)
             
             # Get credit account from journal
             if not self.credit_account_id:

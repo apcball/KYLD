@@ -4,9 +4,11 @@ from datetime import date
 
 from odoo import fields
 from odoo.exceptions import ValidationError
+from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
 
+@tagged('post_install', '-at_install')
 class TestMaterialRequisitionCompletion(TransactionCase):
 
     @classmethod

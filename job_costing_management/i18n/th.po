@@ -1,0 +1,212 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0\n"
+"Language: th_TH\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Only the user who opened this request can confirm it."
+msgstr "เฉพาะผู้ใช้ที่เปิดหน้าขอวัสดุนี้เท่านั้นที่สามารถยืนยันได้"
+
+#. module: job_costing_management
+#: model_terms:ir.ui.view,arch_db:job_costing_management.view_boq_material_requisition_wizard_form
+msgid "Create Draft Requisition"
+msgstr "สร้างใบขอฉบับร่าง"
+
+#. module: job_costing_management
+#: model_terms:ir.ui.view,arch_db:job_costing_management.view_boq_material_requisition_wizard_form
+msgid "Select the items and enter the quantities you need. Only selected items will be included in the draft requisition."
+msgstr "เลือกรายการและระบุจำนวนที่ต้องการ ระบบจะสร้างใบขอฉบับร่างเฉพาะรายการที่เลือก"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard_line__selected
+msgid "Select"
+msgstr "เลือก"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard__total_lines_count
+msgid "Selected Items"
+msgstr "รายการที่เลือก"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard_line__boq_quantity
+msgid "BOQ Quantity"
+msgstr "จำนวนตาม BOQ"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard_line__requisitioned_quantity
+msgid "Already Requisitioned"
+msgstr "ขอแล้ว"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard_line__remaining_quantity
+msgid "Remaining Quantity"
+msgstr "คงเหลือ"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard_line__requested_quantity
+msgid "Requested Quantity"
+msgstr "จำนวนที่ขอ"
+
+#. module: job_costing_management
+#: model:ir.model.fields,field_description:job_costing_management.field_boq_material_requisition_wizard__selected_total_cost
+msgid "Total Estimated Cost"
+msgstr "ต้นทุนประมาณการรวม"
+
+#. module: job_costing_management
+#: model_terms:ir.ui.view,arch_db:job_costing_management.view_job_cost_sheet_form
+msgid "Update Cost Totals"
+msgstr "อัปเดตยอดต้นทุน"
+
+#. module: job_costing_management
+#: model_terms:ir.ui.view,arch_db:job_costing_management.view_job_cost_sheet_form
+msgid "Update active planned costs and, for approved or completed sheets, actual costs."
+msgstr "อัปเดตต้นทุนตามแผนที่ใช้งาน และต้นทุนจริงสำหรับใบต้นทุนที่อนุมัติหรือเสร็จแล้ว"
+
+#. module: job_costing_management
+#: model_terms:ir.ui.view,arch_db:job_costing_management.view_job_cost_sheet_form
+msgid "Change Cost Type"
+msgstr "เปลี่ยนประเภทต้นทุน"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/job_cost_sheet.py:0
+#, python-format
+msgid "Costs Updated"
+msgstr "อัปเดตต้นทุนแล้ว"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/job_cost_sheet.py:0
+#, python-format
+msgid "Cost totals have been updated."
+msgstr "อัปเดตยอดต้นทุนเรียบร้อยแล้ว"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Remaining quantities changed"
+msgstr "ยอดคงเหลือเปลี่ยนแปลง"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Review the updated quantities, then create the requisition again."
+msgstr "ตรวจสอบยอดคงเหลือที่อัปเดตแล้ว จากนั้นกดสร้างใบขออีกครั้ง"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Select at least one BOQ line to request."
+msgstr "กรุณาเลือกรายการ BOQ อย่างน้อยหนึ่งรายการ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "The selected BOQ no longer exists."
+msgstr "ไม่พบ BOQ ที่เลือกในระบบแล้ว"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "No BOQ lines have remaining quantities to request."
+msgstr "ไม่มีรายการ BOQ ที่มียอดคงเหลือให้ขอ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "All selected lines must belong to this BOQ."
+msgstr "รายการที่เลือกทั้งหมดต้องเป็นของ BOQ นี้"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Select each BOQ line only once."
+msgstr "กรุณาเลือกแต่ละรายการ BOQ เพียงครั้งเดียว"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "BOQ Quantity Exceeded"
+msgstr "จำนวนเกิน BOQ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "The requested quantity exceeds the remaining BOQ quantity. You can still proceed if needed."
+msgstr "จำนวนที่ขอเกินยอดคงเหลือใน BOQ คุณยังสามารถดำเนินการต่อได้หากจำเป็น"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "Approve or lock the BOQ before requesting materials."
+msgstr "กรุณาอนุมัติหรือล็อก BOQ ก่อนขอวัสดุ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "The BOQ company must be an allowed company."
+msgstr "บริษัทของ BOQ ต้องอยู่ในบริษัทที่อนุญาตให้ใช้งาน"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "The project, job order and cost sheet must belong to the BOQ company."
+msgstr "โครงการ งาน และใบต้นทุนต้องเป็นของบริษัทเดียวกับ BOQ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "The job order and cost sheet must belong to the BOQ project."
+msgstr "งานและใบต้นทุนต้องอยู่ในโครงการเดียวกับ BOQ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "Each selected line needs a product and unit of measure."
+msgstr "รายการที่เลือกต้องมีสินค้าและหน่วยนับ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "BOQ product or unit of measure changed. Reopen the request."
+msgstr "สินค้าหรือหน่วยนับใน BOQ เปลี่ยนไป กรุณาเปิดหน้าขอวัสดุใหม่"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "Requested quantity must be greater than zero for all selected lines."
+msgstr "จำนวนที่ขอต้องมากกว่าศูนย์ทุกรายการที่เลือก"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "BOQ Cost Lines"
+msgstr "รายการต้นทุนจาก BOQ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "Created: %(created)s; already linked: %(existing)s."
+msgstr "สร้างใหม่: %(created)s รายการ; เชื่อมไว้แล้ว: %(existing)s รายการ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "Multiple cost lines are linked to BOQ item %s. Resolve the duplicates first."
+msgstr "รายการ BOQ %s เชื่อมกับต้นทุนมากกว่าหนึ่งรายการ กรุณาแก้รายการซ้ำก่อน"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/models/boq.py:0
+#, python-format
+msgid "This BOQ line needs a product and a remaining quantity."
+msgstr "รายการ BOQ นี้ต้องมีสินค้าและยอดคงเหลือ"
+
+#. module: job_costing_management
+#: code:addons/job_costing_management/wizard/boq_material_requisition_wizard.py:0
+#, python-format
+msgid "Material requisition from BOQ: %s"
+msgstr "ขอวัสดุจาก BOQ: %s"

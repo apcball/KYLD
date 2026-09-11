@@ -333,11 +333,16 @@ class MaterialRequisition(models.Model):
                 'origin': self.name,
                 'material_requisition_id': self.id,  # Link to material requisition
                 'job_cost_sheet_id': self.job_cost_sheet_id.id if self.job_cost_sheet_id else False,  # Pass job cost sheet
-                'employee_id': self.employee_id.id if self.employee_id else False,
-                'department_id': self.department_id.id if self.department_id else False,
-                'dept_id': self.department_id.id if self.department_id else False,
                 'order_line': []
             }
+            # These fields come from optional purchase extensions on DEV.
+            for field_name, value in {
+                'employee_id': self.employee_id.id,
+                'department_id': self.department_id.id,
+                'dept_id': self.department_id.id,
+            }.items():
+                if field_name in self.env['purchase.order']._fields:
+                    po_vals[field_name] = value
             # Only an incoming (Receipts) operation type is valid on a PO.
             # An outgoing/internal type has no receipt destination location and
             # makes purchase confirmation fail on stock.picking.location_dest_id.
@@ -358,7 +363,7 @@ class MaterialRequisition(models.Model):
                     'job_cost_line_id': line.job_cost_line_id.id if line.job_cost_line_id else False,  # Pass job cost line
                     'analytic_distribution': line.analytic_distribution,
                 }
-                po_vals['order_line'].append((0, 0, po_line_vals))
+                po_vals['order_line'].append(fields.Command.create(po_line_vals))
             
             if po_vals['order_line']:
                 try:

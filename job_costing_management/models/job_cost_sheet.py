@@ -435,66 +435,30 @@ class JobCostSheet(models.Model):
         }
     
     def action_recalculate_active_costs(self):
-        """Manually trigger recomputation of active costs (excluding cancelled MRs)"""
-        import logging
-        _logger = logging.getLogger(__name__)
-        _logger.info(f"\n{'='*80}")
-        _logger.info(f"MANUAL ACTIVE COST RECALCULATION FOR: {self.name}")
-        _logger.info(f"{'='*80}")
-        
-       # Recompute active costs for all cost lines
-        all_cost_lines = self.material_cost_ids | self.labour_cost_ids | self.overhead_cost_ids
-        _logger.info(f"Total cost lines to process: {len(all_cost_lines)}")
-        
-        for cost_line in all_cost_lines:
-            _logger.info(f"\n--- Processing Cost Line: {cost_line.name} ---")
-            _logger.info(f"  Product: {cost_line.product_id.name if cost_line.product_id else 'N/A'}")
-            _logger.info(f"  Cost Type: {cost_line.cost_type}")
-            _logger.info(f"  BOQ Line: {cost_line.boq_line_id.description if cost_line.boq_line_id else '⚠️ NOT LINKED'}")
-            
-            if cost_line.boq_line_id:
-                boq_line = cost_line.boq_line_id
-                _logger.info(f"  BOQ Line ID: {boq_line.id}")
-                
-                # Check requisition_line_ids field
-                try:
-                    mr_lines = boq_line.requisition_line_ids
-                    _logger.info(f"  BOQ has {len(mr_lines)} MR Lines:")
-                    
-                    for mr_line in mr_lines:
-                        _logger.info(f"    - MR: {mr_line.requisition_id.name}")
-                        _logger.info(f"      Qty: {mr_line.quantity}, State: {mr_line.requisition_state}")
-                    
-                    # Show active MR lines
-                    active_mrs = mr_lines.filtered(lambda l: l.requisition_state not in ['cancelled', 'rejected'])
-                    _logger.info(f"  Active MR Lines (not cancelled/rejected): {len(active_mrs)}")
-                    
-                except Exception as e:
-                    _logger.error(f"  ❌ ERROR accessing BOQ requisition_line_ids: {str(e)}")
-            
-            # Trigger recalculation
-            _logger.info(f"  BEFORE: planned_qty={cost_line.planned_qty}, active_planned_qty={cost_line.active_planned_qty}")
-            cost_line._compute_active_planned_qty()
-            cost_line._compute_active_total_cost()
-            _logger.info(f"  AFTER:  planned_qty={cost_line.planned_qty}, active_planned_qty={cost_line.active_planned_qty}")
-            _logger.info(f"  COSTS:  total_cost={cost_line.total_cost}, active_total_cost={cost_line.active_total_cost}")
-        
-        # Recompute totals on the sheet
-        _logger.info(f"\n--- Recomputing Sheet Totals ---")
-        _logger.info(f"BEFORE: total_material_cost={self.total_material_cost}, active_material_cost={self.active_material_cost}")
+        """Refresh active planned amounts using the existing computations."""
+        self.ensure_one()
+        lines = self.material_cost_ids | self.labour_cost_ids | self.overhead_cost_ids
+        lines._compute_active_planned_qty()
+        lines._compute_active_total_cost()
         self._compute_active_totals()
-        _logger.info(f"AFTER:  total_material_cost={self.total_material_cost}, active_material_cost={self.active_material_cost}")
-        _logger.info(f"{'='*80}\n")
-        
+        return self._cost_refresh_notification()
+
+    def _cost_refresh_notification(self):
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
+            'type': 'ir.actions.client', 'tag': 'display_notification',
             'params': {
-                'title': 'Active Costs Recalculated',
-                'message': f'Active Material: {self.active_material_cost} ฿ | Check server logs for details',
-                'type': 'info',
-            }
+                'title': _('Costs Updated'),
+                'message': _('Cost totals have been updated.'),
+                'type': 'success', 'sticky': False,
+                'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+            },
         }
+
+    def action_update_costs(self):
+        self.ensure_one()
+        if self.state in ('approved', 'done'):
+            self.action_sync_actual_costs()
+        return self.action_recalculate_active_costs()
     
     def action_create_rfq(self):
         """Open wizard to create RFQ from job cost sheet"""

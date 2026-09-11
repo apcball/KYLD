@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Main Wizard Form -->
+    <record id="view_boq_material_requisition_wizard_form" model="ir.ui.view">
+        <field name="name">boq.material.requisition.wizard.form</field>
+        <field name="model">boq.material.requisition.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Material Requisition from BOQ">
+                <field name="wizard_state" invisible="1"/>
+                <field name="currency_id" invisible="1"/>
+                
+                <!-- HEADER - Step Indicator -->
+                <header>
+                    <field name="wizard_state" widget="statusbar" statusbar_visible="select,configure"/>
+                </header>
+
+                <sheet>
+                    <div class="oe_title mb-3">
+                        <h1 class="d-flex align-items-center">
+                            <span class="me-2" invisible="wizard_state != 'select'">🔍 Select Materials</span>
+                            <span class="me-2" invisible="wizard_state != 'configure'">📝 Configure Requisition</span>
+                        </h1>
+                        <p class="text-muted" invisible="wizard_state != 'select'">
+                            Search and select materials from the Bill of Quantities.
+                        </p>
+                        <p class="text-muted" invisible="wizard_state != 'configure'">
+                            Review your selection and adjust requested quantities.
+                        </p>
+                    </div>
+                    
+                    <!-- Common Details (Readonly in generic way or just show at top) -->
+                    <group>
+                        <group>
+                            <field name="boq_id" readonly="1"/>
+                            <field name="project_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="purpose" placeholder="e.g. For Foundation Phase 1" required="1"/>
+                            <field name="required_date"/>
+                            <field name="priority" widget="priority"/>
+                        </group>
+                    </group>
+
+                    <!-- STEP 1: SELECT MATERIALS -->
+                    <div invisible="wizard_state != 'select'">
+                        <div class="alert alert-info">
+                            <i class="fa fa-info-circle"/> <strong>How to use:</strong> Click "Add a line" below to search and select materials from the BOQ. Only materials with remaining quantities are shown.
+                        </div>
+                        
+                        <field name="boq_line_selection_ids" widget="many2many" 
+                               domain="[('boq_id', '=', boq_id), ('remaining_qty', '>', 0)]">
+                            <tree string="Available Materials" limit="20">
+                                <field name="item_code" optional="show"/>
+                                <field name="product_id"/>
+                                <field name="description"/>
+                                <field name="category_id" optional="show"/>
+                                <field name="remaining_qty" string="Remaining Qty"/>
+                                <field name="uom_id"/>
+                                <field name="unit_cost" optional="hide"/>
+                            </tree>
+                        </field>
+                    </div>
+
+                    <!-- STEP 2: CONFIGURE QUANTITIES -->
+                    <div invisible="wizard_state != 'configure'">
+                         <!-- Statistics Bar -->
+                         <div class="row text-center bg-light p-3 rounded mb-3 mx-1">
+                            <div class="col-md-4">
+                                <h3 class="text-primary mb-0"><field name="total_lines_count" readonly="1"/></h3>
+                                <small class="text-muted">Selected Items</small>
+                            </div>
+                            <div class="col-md-4">
+                                <h3 class="text-info mb-0"><field name="selected_total_quantity" readonly="1"/></h3>
+                                <small class="text-muted">Total Quantity</small>
+                            </div>
+                            <div class="col-md-4">
+                                <h3 class="text-success mb-0"><field name="selected_total_cost" widget="monetary" readonly="1"/></h3>
+                                <small class="text-muted">Est. Cost</small>
+                            </div>
+                        </div>
+
+                        <field name="line_ids" mode="tree">
+                            <tree editable="bottom" create="0" delete="1"
+                                  decoration-warning="quantity_status == 'exceed'">
+                                <field name="product_id" readonly="1" force_save="1"/>
+                                <field name="description" readonly="1"/>
+                                <field name="category_id" optional="show" readonly="1"/>
+                                <field name="boq_quantity" optional="hide"/>
+                                <field name="requisitioned_quantity" optional="hide"/>
+                                <field name="remaining_quantity" readonly="1"/>
+                                <field name="requested_quantity" 
+                                       decoration-danger="requested_quantity &lt;= 0"
+                                       decoration-warning="requested_quantity > remaining_quantity"/>
+                                <field name="quantity_status" widget="badge" 
+                                       decoration-success="quantity_status == 'within'"
+                                       decoration-warning="quantity_status == 'exceed'"/>
+                                <field name="uom_id" readonly="1"/>
+                                <field name="estimated_cost" force_save="1" optional="show"/>
+                                <field name="total_cost" widget="monetary" sum="Total"/>
+                            </tree>
+                        </field>
+                    </div>
+
+                </sheet>
+                <footer>
+                     <!-- Buttons for Step 1 -->
+                    <button name="action_process_selection" string="Next: Configure Quantities" type="object" 
+                            class="btn-primary" icon="fa-arrow-right"
+                            invisible="wizard_state != 'select'"/>
+                    
+                    <!-- Buttons for Step 2 -->
+                    <button name="action_go_back_to_selection" string="Back to Selection" type="object" 
+                            class="btn-secondary" icon="fa-arrow-left"
+                            invisible="wizard_state != 'configure'"/>
+                    <button name="action_create_requisition" string="Create Requisition" type="object" 
+                            class="btn-primary" icon="fa-check"
+                            invisible="wizard_state != 'configure'"/>
+                            
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- BOQ Material Requisition Wizard Action -->
+    <record id="action_boq_material_requisition_wizard" model="ir.actions.act_window">
+        <field name="name">Create Material Requisition</field>
+        <field name="res_model">boq.material.requisition.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_boq_id': active_id}</field>
+    </record>
+</odoo>

@@ -85,7 +85,7 @@ class EmployeeAdvanceBox(models.Model):
     def _compute_name(self):
         for record in self:
             if record.employee_id:
-                record.name = f"{record.employee_id.name} - Advance Box"
+                record.name = f"{record.employee_id.sudo().name} - Advance Box"
             else:
                 record.name = "Advance Box"
 
@@ -97,15 +97,15 @@ class EmployeeAdvanceBox(models.Model):
         Use account_id (113001) with partner filtering for balance calculation.
         """
         for record in self:
-            _logger.info("🔍 BALANCE DEBUG: Computing for advance box %s (employee: %s)", 
-                       record.id, record.employee_id.name)
+            _logger.info("🔍 BALANCE DEBUG: Computing for advance box %s (employee: %s)",
+                       record.id, record.employee_id.sudo().name)
             
             # Get employee partner for filtering
             partner_id = record._get_employee_partner()
             
             if not partner_id:
-                _logger.warning("⚠️ BALANCE DEBUG: No partner found for employee %s, setting balance to 0", 
-                              record.employee_id.name)
+                _logger.warning("⚠️ BALANCE DEBUG: No partner found for employee %s, setting balance to 0",
+                              record.employee_id.sudo().name)
                 record.balance = 0.0
                 continue
             
@@ -206,20 +206,22 @@ class EmployeeAdvanceBox(models.Model):
         """Get the partner associated with the employee for advance transactions"""
         self.ensure_one()
         partner_id = False
-        
+        # Accountants running the refill wizard may lack read access to hr.employee.
+        employee = self.employee_id.sudo()
+
         # Method 1: Check if address_home_id exists (from hr_contract module) - Primary method
-        if hasattr(self.employee_id, 'address_home_id') and self.employee_id.sudo().address_home_id:
-            partner_id = self.employee_id.sudo().address_home_id.id
+        if hasattr(employee, 'address_home_id') and employee.address_home_id:
+            partner_id = employee.address_home_id.id
             _logger.info("🎯 ADVANCE BOX PARTNER: Found via address_home_id: %s", partner_id)
-        
+
         # Method 2: Get the related user's partner (which might contain private address)
-        if not partner_id and self.employee_id.user_id and self.employee_id.user_id.partner_id:
-            partner_id = self.employee_id.user_id.partner_id.id
+        if not partner_id and employee.user_id and employee.user_id.partner_id:
+            partner_id = employee.user_id.partner_id.id
             _logger.info("🎯 ADVANCE BOX PARTNER: Found via user.partner: %s", partner_id)
-        
+
         # Method 3: Default to employee's address_id (work address)
-        if not partner_id and self.employee_id.address_id:
-            partner_id = self.employee_id.address_id.id
+        if not partner_id and employee.address_id:
+            partner_id = employee.address_id.id
             _logger.info("🎯 ADVANCE BOX PARTNER: Found via address_id: %s", partner_id)
         
         # If still no partner found, try to create/find partner by employee name
@@ -227,18 +229,18 @@ class EmployeeAdvanceBox(models.Model):
             try:
                 # ลองหา Partner ที่มีชื่อเดียวกับ Employee ก่อน
                 employee_partner = self.env['res.partner'].search([
-                    ('name', '=', self.employee_id.name),
+                    ('name', '=', employee.name),
                     ('is_company', '=', False)
                 ], limit=1)
                 
                 if employee_partner:
                     partner_id = employee_partner.id
                     _logger.info("🎯 ADVANCE BOX PARTNER: Found existing partner %s (%s) for employee %s", 
-                               partner_id, employee_partner.name, self.employee_id.name)
+                               partner_id, employee_partner.name, employee.name)
                 else:
                     # สร้าง Partner ใหม่สำหรับ Employee
                     employee_partner = self.env['res.partner'].create({
-                        'name': self.employee_id.name,
+                        'name': employee.name,
                         'is_company': False,
                         'employee': True,
                         'supplier_rank': 0,
@@ -246,18 +248,18 @@ class EmployeeAdvanceBox(models.Model):
                     })
                     partner_id = employee_partner.id
                     _logger.info("🎯 ADVANCE BOX PARTNER: Created new partner %s (%s) for employee %s", 
-                               partner_id, employee_partner.name, self.employee_id.name)
-                    
+                               partner_id, employee_partner.name, employee.name)
+
             except Exception as e:
                 _logger.warning("⚠️ Could not create/find employee partner by name: %s", str(e))
                 # Final fallback using all methods
                 try:
-                    if hasattr(self.employee_id, 'address_home_id') and self.employee_id.sudo().address_home_id:
-                        partner_id = self.employee_id.sudo().address_home_id.id
-                    elif self.employee_id.user_id:
-                        partner_id = self.employee_id.user_id.partner_id.id
-                    elif self.employee_id.address_id:
-                        partner_id = self.employee_id.address_id.id
+                    if hasattr(employee, 'address_home_id') and employee.address_home_id:
+                        partner_id = employee.address_home_id.id
+                    elif employee.user_id:
+                        partner_id = employee.user_id.partner_id.id
+                    elif employee.address_id:
+                        partner_id = employee.address_id.id
                     _logger.info("🔄 ADVANCE BOX PARTNER: Using fallback partner %s", partner_id)
                 except Exception as e2:
                     _logger.warning("⚠️ All fallbacks failed: %s", str(e2))
