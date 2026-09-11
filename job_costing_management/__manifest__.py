@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'buz Project Job Costing Management for Construction',
-    'version': '17.0.1.0.3',
+    'version': '17.0.1.0.4',
     'category': 'Project',
     'summary': 'Project Job Costing (Contracting) and Job Cost Sheet for Construction Management',
     'description': """
@@ -45,6 +45,7 @@ Key Benefits:
     'website': 'https://www.yourcompany.com',
     'depends': [
         'base',
+        'web',
         'project',
         'purchase',
         'stock',
@@ -96,6 +97,7 @@ Key Benefits:
         
         # Menu (load after actions are defined)
         'views/job_costing_menu.xml',
+        'views/executive_dashboard.xml',
         
         # Reports
         'reports/job_cost_sheet_report.xml',
@@ -111,6 +113,13 @@ Key Benefits:
         'demo/job_cost_line_demo.xml',
     ],
 
+    'assets': {
+        'web.assets_backend': [
+            'job_costing_management/static/src/dashboard/dashboard.js',
+            'job_costing_management/static/src/dashboard/dashboard.xml',
+            'job_costing_management/static/src/dashboard/dashboard.scss',
+        ],
+    },
     'installable': True,
     'auto_install': False,
     'application': True,

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_executive_dashboard" model="ir.actions.client">
+        <field name="name">ภาพรวมต้นทุน</field>
+        <field name="tag">job_costing_management.executive_dashboard</field>
+    </record>
+    <menuitem id="menu_executive_dashboard" name="ภาพรวมต้นทุน"
+              parent="menu_job_costing_main" action="action_executive_dashboard"
+              groups="job_costing_management.group_job_costing_manager" sequence="1"/>
+</odoo>

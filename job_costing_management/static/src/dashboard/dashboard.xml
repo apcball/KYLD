@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="job_costing_management.ExecutiveDashboard">
+        <div class="o_executive_cost_dashboard" t-att-aria-busy="state.loading">
+            <header class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                <div><h1>ภาพรวมต้นทุน</h1><p class="text-muted mb-0">งบ BOQ เทียบต้นทุนจริงสะสมตาม Cost Sheet</p></div>
+                <button class="btn btn-primary" t-on-click="() => this.load()" t-att-disabled="state.loading">รีเฟรช</button>
+            </header>
+            <section class="cost_filters" aria-label="ตัวกรอง">
+                <label>บริษัท<select name="company_id" class="form-select" t-on-change="filter">
+                    <t t-if="state.data"><option t-foreach="state.data.companies" t-as="company" t-key="company.id" t-att-value="company.id" t-att-selected="company.id == state.filters.company_id"><t t-esc="company.name"/></option></t>
+                    <t t-else=""><option t-att-value="company.currentCompany.id"><t t-esc="company.currentCompany.name"/></option></t>
+                </select></label>
+                <label>โครงการ<select name="project_id" class="form-select" t-on-change="filter">
+                    <option value="" t-att-selected="!state.filters.project_id">ทุกโครงการ</option>
+                    <t t-if="state.data"><option t-foreach="state.data.projects" t-as="project" t-key="project.id" t-att-value="project.id" t-att-selected="project.id == state.filters.project_id"><t t-esc="project.name"/></option></t>
+                </select></label>
+                <label>วันเริ่ม Cost Sheet ตั้งแต่<input class="form-control" type="date" name="date_from" t-att-value="state.filters.date_from" t-on-change="filter"/></label>
+                <label>ถึง<input class="form-control" type="date" name="date_to" t-att-value="state.filters.date_to" t-on-change="filter"/></label>
+                <fieldset><legend>สถานะ</legend>
+                    <label><input type="checkbox" value="approved" t-att-checked="state.filters.states.includes('approved')" t-on-change="status"/> อนุมัติแล้ว</label>
+                    <label><input type="checkbox" value="done" t-att-checked="state.filters.states.includes('done')" t-on-change="status"/> เสร็จแล้ว</label>
+                    <label><input type="checkbox" value="draft" t-att-checked="state.filters.states.includes('draft')" t-on-change="status"/> ฉบับร่าง</label>
+                </fieldset>
+            </section>
+            <p class="text-muted small mt-2">วันที่ใช้กรองวันเริ่มเอกสาร ไม่ใช่ช่วงการบันทึกต้นทุน • ต้นทุนจริงไม่ใช่ยอดจ่ายเงิน • งบ BOQ อ่านจากค่าปัจจุบันใน Cost Sheet</p>
+            <div t-if="state.loading" class="alert alert-info" role="status">กำลังโหลดข้อมูล…</div>
+            <div t-elif="state.error" class="alert alert-danger" role="alert"><t t-esc="state.error"/> <button class="btn btn-outline-danger ms-2" t-on-click="() => this.load()">ลองใหม่</button></div>
+            <t t-elif="state.data">
+                <div t-if="!state.data.groups.length" class="alert alert-light">ไม่พบ Cost Sheet ตามตัวกรองที่เลือก</div>
+                <section t-foreach="state.data.groups" t-as="group" t-key="group.currency_id" class="cost_group">
+                    <h2><t t-esc="group.currency"/> <small class="text-muted">· <t t-esc="group.count"/> Cost Sheets</small></h2>
+                    <div t-if="group.fallback_count" class="alert alert-warning py-2">มี <t t-esc="group.fallback_count"/> เอกสารไม่ระบุสกุลเงิน ใช้สกุลเงินบริษัท</div>
+                    <div class="cost_kpis">
+                        <button t-on-click="() => this.open(group, 'budget')"><span>งบ BOQ</span><strong t-esc="money(group.budget, group)"/></button>
+                        <button t-on-click="() => this.open(group)"><span>ต้นทุนจริงทั้งหมด</span><strong t-esc="money(group.actual, group)"/></button>
+                        <button t-on-click="() => this.open(group, 'budget')"><span>งบคงเหลือ (เฉพาะงานมีงบ)</span><strong t-att-class="group.remaining &lt; 0 ? 'text-danger' : ''" t-esc="money(group.remaining, group)"/><small>ใช้งบ <t t-esc="percent(group.ratio)"/></small></button>
+                        <button t-on-click="() => this.open(group, 'over')"><span>Cost Sheet เกินงบ</span><strong class="text-danger" t-esc="group.over_count"/></button>
+                        <button t-on-click="() => this.open(group, 'unbudgeted')"><span>ไม่มีงบที่ใช้เปรียบเทียบได้</span><strong t-esc="group.unbudgeted_count"/><small>ต้นทุน <t t-esc="money(group.unbudgeted_actual, group)"/></small></button>
+                    </div>
+                    <div class="cost_panel">
+                        <h3>ต้นทุนแยกประเภท</h3><p class="small text-muted">เฉพาะ Cost Sheet ที่มีงบ BOQ มากกว่าศูนย์ · แถบสีน้ำเงิน = งบ / สีเขียว = ต้นทุนจริง · ความยาวเทียบภายในแต่ละประเภท</p>
+                        <div class="cost_categories">
+                            <div t-foreach="group.categories" t-as="category" t-key="category.key">
+                                <h4 t-esc="label(category.key)"/>
+                                <div>งบ <t t-esc="money(category.budget, group)"/></div><div class="cost_bar"><div class="budget" t-att-style="bar(category.budget, category)"/></div>
+                                <div>จริง <t t-esc="money(category.actual, group)"/></div><div class="cost_bar"><div class="actual" t-att-style="bar(category.actual, category)"/></div>
+                                <small t-if="category.actual &lt; 0 or category.budget &lt; 0">ยอดติดลบ: แถบแสดงขนาดของยอด</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="cost_panel table-responsive">
+                        <h3>สรุปตามโครงการ</h3>
+                        <table class="table table-hover"><thead><tr><th>โครงการ / เปิด Cost Sheet</th><th>จำนวน</th><th>งบ BOQ</th><th>ต้นทุนจริงทั้งหมด</th><th>คงเหลือ*</th><th>ใช้งบ*</th></tr></thead><tbody>
+                            <tr t-foreach="group.projects" t-as="project" t-key="project.id">
+                                <td><button class="btn btn-link p-0 text-start" t-on-click="() => this.open(group, 'all', project.id)" t-esc="project.name"/><small t-if="project.unbudgeted_count" class="d-block text-warning">ไม่มีงบ <t t-esc="project.unbudgeted_count"/> เอกสาร</small></td>
+                                <td t-esc="project.count"/><td t-esc="money(project.budget, group)"/><td t-esc="money(project.actual, group)"/><td t-att-class="project.remaining &lt; 0 ? 'text-danger' : ''" t-esc="project.budget > 0 ? money(project.remaining, group) : '—'"/><td t-esc="percent(project.ratio)"/>
+                            </tr>
+                        </tbody></table><small class="text-muted">* คำนวณเฉพาะเอกสารที่มีงบ BOQ มากกว่าศูนย์</small>
+                    </div>
+                </section>
+                <section t-if="state.data.groups.length" class="cost_panel table-responsive">
+                    <h2>งานที่ต้องติดตาม <small>(<t t-esc="state.data.attention_count"/>)</small></h2>
+                    <p t-if="!state.data.attention_count">ไม่มีงานที่เข้าเกณฑ์ติดตามตามตัวกรองนี้</p>
+                    <table t-else="" class="table"><thead><tr><th>Cost Sheet / โครงการ</th><th>สถานะ</th><th>สกุลเงิน</th><th>งบ BOQ</th><th>ต้นทุนจริง</th><th>คงเหลือ</th><th>ใช้งบ</th></tr></thead><tbody>
+                        <tr t-foreach="state.data.attention" t-as="row" t-key="row.id">
+                            <td><button class="btn btn-link p-0" t-on-click="() => this.openSheet(row.id)" t-esc="row.name"/><small class="d-block" t-esc="row.project"/></td>
+                            <td><span t-att-class="row.status === 'over' ? 'badge text-bg-danger' : 'badge text-bg-warning'" t-esc="label(row.status)"/></td>
+                            <td t-esc="row.currency"/><td t-esc="money(row.budget, row)"/><td t-esc="money(row.actual, row)"/><td t-esc="money(row.remaining, row)"/><td t-esc="percent(row.ratio)"/>
+                        </tr>
+                    </tbody></table>
+                    <div t-if="state.data.attention_count" class="d-flex gap-3 align-items-center"><button class="btn btn-secondary" t-att-disabled="state.data.page === 0" t-on-click="() => this.load(state.data.page - 1)">ก่อนหน้า</button><span>หน้า <t t-esc="state.data.page + 1"/></span><button class="btn btn-secondary" t-att-disabled="(state.data.page + 1) * state.data.page_size >= state.data.attention_count" t-on-click="() => this.load(state.data.page + 1)">ถัดไป</button></div>
+                </section>
+                <p class="text-muted small">ข้อมูล ณ <t t-esc="state.data.updated_at"/> UTC</p>
+            </t>
+        </div>
+    </t>
+</templates>

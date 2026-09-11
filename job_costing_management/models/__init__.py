@@ -16,3 +16,4 @@ from . import stock_picking
 from . import account_move
 from . import hr_timesheet
 from . import boq
+from . import executive_dashboard
