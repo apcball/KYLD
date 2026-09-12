@@ -234,7 +234,9 @@ class TestServicePO(TransactionCase):
         self.assertEqual(line.job_cost_line_id.cost_type, 'labour')
         self.assertEqual(line.job_cost_line_id.cost_sheet_id, self.sheet)
         self.assertEqual(self.sheet.total_labour_cost, 0)
-        self.assertEqual(self.sheet.actual_labour_cost, 500)
+        # Actual cost is bill-only since 2026-09-12 - confirming a PO is a
+        # commitment, not yet an actual cost until a vendor bill posts.
+        self.assertEqual(self.sheet.actual_labour_cost, 0)
 
     def test_allocation_created_after_confirm_auto_links_single_sheet(self):
         po = self._po(descriptions=('Pooled labour',), prices=(100,), job_cost_sheet_id=False)
@@ -244,7 +246,9 @@ class TestServicePO(TransactionCase):
         self._allocate(line, self.sheet, 5)
         self.assertTrue(line.job_cost_line_id)
         self.assertEqual(line.job_cost_line_id.cost_type, 'labour')
-        self.assertEqual(self._refresh().actual_labour_cost, 500)
+        # Actual cost is bill-only since 2026-09-12 - a PO commitment
+        # (even allocated/confirmed) isn't actual until a bill posts.
+        self.assertEqual(self._refresh().actual_labour_cost, 0)
 
     def test_split_allocation_does_not_auto_link(self):
         po = self._po(descriptions=('Split labour',), prices=(100,), job_cost_sheet_id=False)
