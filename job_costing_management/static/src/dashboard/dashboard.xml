@@ -2,77 +2,125 @@
 <templates xml:space="preserve">
     <t t-name="job_costing_management.ExecutiveDashboard">
         <div class="o_executive_cost_dashboard" t-att-aria-busy="state.loading">
-            <header class="d-flex justify-content-between align-items-start gap-3 mb-3">
-                <div><h1>ภาพรวมต้นทุน</h1><p class="text-muted mb-0">งบ BOQ เทียบต้นทุนจริงสะสมตาม Cost Sheet</p></div>
-                <button class="btn btn-primary" t-on-click="() => this.load()" t-att-disabled="state.loading">รีเฟรช</button>
+            <header class="cost_hero">
+                <div class="cost_hero_copy"><span class="cost_eyebrow">EXECUTIVE DASHBOARD</span>
+                    <h1>BOQ Job Cost by Project</h1><p>ภาพรวมต้นทุนโครงการก่อสร้างบ้าน</p>
+                    <div class="cost_updated">ข้อมูล ณ <t t-esc="state.data ? updatedAt(state.data.updated_at) : '—'"/></div>
+                </div>
+                <span class="cost_hero_signature" aria-hidden="true">Control Cost<br/><span>Build Success</span></span>
             </header>
             <section class="cost_filters" aria-label="ตัวกรอง">
                 <label>บริษัท<select name="company_id" class="form-select" t-on-change="filter">
-                    <t t-if="state.data"><option t-foreach="state.data.companies" t-as="company" t-key="company.id" t-att-value="company.id" t-att-selected="company.id == state.filters.company_id"><t t-esc="company.name"/></option></t>
+                    <t t-if="state.data"><option t-foreach="state.data.companies" t-as="item" t-key="item.id" t-att-value="item.id" t-att-selected="item.id == state.filters.company_id"><t t-esc="item.name"/></option></t>
                     <t t-else=""><option t-att-value="company.currentCompany.id"><t t-esc="company.currentCompany.name"/></option></t>
                 </select></label>
-                <label>โครงการ<select name="project_id" class="form-select" t-on-change="filter">
-                    <option value="" t-att-selected="!state.filters.project_id">ทุกโครงการ</option>
-                    <t t-if="state.data"><option t-foreach="state.data.projects" t-as="project" t-key="project.id" t-att-value="project.id" t-att-selected="project.id == state.filters.project_id"><t t-esc="project.name"/></option></t>
+                <label>โครงการ<select name="project_id" class="form-select" t-on-change="filter"><option value="" t-att-selected="!state.filters.project_id">ทุกโครงการ</option>
+                    <t t-if="state.data"><option t-foreach="state.data.projects" t-as="item" t-key="item.id" t-att-value="item.id" t-att-selected="item.id == state.filters.project_id"><t t-esc="item.name"/></option></t>
                 </select></label>
-                <label>วันเริ่ม Cost Sheet ตั้งแต่<input class="form-control" type="date" name="date_from" t-att-value="state.filters.date_from" t-on-change="filter"/></label>
+                <label>สถานะ Cost Sheet<select class="form-select" t-on-change="status">
+                    <option value="all" t-att-selected="selectedStatus === 'all'">ทั้งหมด (ไม่รวมยกเลิก)</option>
+                    <option value="approved" t-att-selected="selectedStatus === 'approved'">อนุมัติแล้ว</option>
+                    <option value="done" t-att-selected="selectedStatus === 'done'">เสร็จแล้ว</option>
+                    <option value="draft" t-att-selected="selectedStatus === 'draft'">ฉบับร่าง</option>
+                </select></label>
+                <label>วันที่เริ่ม Cost Sheet<input class="form-control" type="date" name="date_from" t-att-value="state.filters.date_from" t-on-change="filter"/></label>
                 <label>ถึง<input class="form-control" type="date" name="date_to" t-att-value="state.filters.date_to" t-on-change="filter"/></label>
-                <fieldset><legend>สถานะ</legend>
-                    <label><input type="checkbox" value="approved" t-att-checked="state.filters.states.includes('approved')" t-on-change="status"/> อนุมัติแล้ว</label>
-                    <label><input type="checkbox" value="done" t-att-checked="state.filters.states.includes('done')" t-on-change="status"/> เสร็จแล้ว</label>
-                    <label><input type="checkbox" value="draft" t-att-checked="state.filters.states.includes('draft')" t-on-change="status"/> ฉบับร่าง</label>
-                </fieldset>
+                <button class="btn btn-primary cost_refresh" t-on-click="() => this.load()" t-att-disabled="state.loading"><i t-att-class="'fa fa-refresh me-2 ' + (state.loading ? 'fa-spin' : '')" aria-hidden="true"/>รีเฟรช</button>
             </section>
-            <p class="text-muted small mt-2">วันที่ใช้กรองวันเริ่มเอกสาร ไม่ใช่ช่วงการบันทึกต้นทุน • ต้นทุนจริงไม่ใช่ยอดจ่ายเงิน • งบ BOQ อ่านจากค่าปัจจุบันใน Cost Sheet</p>
-            <div t-if="state.loading" class="alert alert-info" role="status">กำลังโหลดข้อมูล…</div>
-            <div t-elif="state.error" class="alert alert-danger" role="alert"><t t-esc="state.error"/> <button class="btn btn-outline-danger ms-2" t-on-click="() => this.load()">ลองใหม่</button></div>
+            <div t-if="state.loading" class="cost_loading" role="status"><span>กำลังโหลดภาพรวมต้นทุน…</span><div class="cost_skeleton_grid" aria-hidden="true"><div/><div/><div/><div/><div/><div/></div><div class="cost_skeleton_panel" aria-hidden="true"/></div>
+            <div t-elif="state.error" class="alert alert-danger mt-3" role="alert"><t t-esc="state.error"/> <button class="btn btn-outline-danger ms-2" t-on-click="() => this.load()">ลองใหม่</button></div>
             <t t-elif="state.data">
-                <div t-if="!state.data.groups.length" class="alert alert-light">ไม่พบ Cost Sheet ตามตัวกรองที่เลือก</div>
+                <div t-if="!state.data.groups.length" class="cost_empty"><i class="fa fa-folder-open-o" aria-hidden="true"/><h2>ไม่พบข้อมูลต้นทุน</h2><p>ลองเปลี่ยนโครงการ ช่วงวันที่ หรือสถานะ Cost Sheet</p></div>
                 <section t-foreach="state.data.groups" t-as="group" t-key="group.currency_id" class="cost_group">
-                    <h2><t t-esc="group.currency"/> <small class="text-muted">· <t t-esc="group.count"/> Cost Sheets</small></h2>
+                    <h2 t-if="state.data.groups.length > 1" class="cost_group_title"><t t-esc="group.currency"/> <small>· <t t-esc="group.count"/> Cost Sheets</small></h2>
                     <div t-if="group.fallback_count" class="alert alert-warning py-2">มี <t t-esc="group.fallback_count"/> เอกสารไม่ระบุสกุลเงิน ใช้สกุลเงินบริษัท</div>
                     <div class="cost_kpis">
-                        <button t-on-click="() => this.open(group, 'budget')"><span>งบ BOQ</span><strong t-esc="money(group.budget, group)"/></button>
-                        <button t-on-click="() => this.open(group)"><span>ต้นทุนจริงทั้งหมด</span><strong t-esc="money(group.actual, group)"/></button>
-                        <button t-on-click="() => this.open(group, 'budget')"><span>งบคงเหลือ (เฉพาะงานมีงบ)</span><strong t-att-class="group.remaining &lt; 0 ? 'text-danger' : ''" t-esc="money(group.remaining, group)"/><small>ใช้งบ <t t-esc="percent(group.ratio)"/></small></button>
-                        <button t-on-click="() => this.open(group, 'over')"><span>Cost Sheet เกินงบ</span><strong class="text-danger" t-esc="group.over_count"/></button>
-                        <button t-on-click="() => this.open(group, 'unbudgeted')"><span>ไม่มีงบที่ใช้เปรียบเทียบได้</span><strong t-esc="group.unbudgeted_count"/><small>ต้นทุน <t t-esc="money(group.unbudgeted_actual, group)"/></small></button>
+                        <button t-foreach="kpis(group)" t-as="kpi" t-key="kpi.key" t-att-class="'cost_kpi cost_' + kpi.color" t-att-title="kpi.hint" t-att-disabled="!kpi.kind" t-on-click="() => this.open(group, kpi.kind)">
+                            <i t-att-class="'cost_kpi_icon fa fa-' + kpi.icon" aria-hidden="true"/>
+                            <span class="cost_kpi_label" t-esc="kpi.label"/><strong t-esc="kpi.key === 'ratio' ? percent(kpi.value) : compactMoney(kpi.value, group)"/>
+                            <div t-if="kpi.key === 'ratio'" class="cost_utilization"><div t-att-style="utilization(kpi.value)"/></div>
+                            <small t-else="" t-esc="kpi.key === 'count' ? 'เอกสาร' : group.currency"/>
+                        </button>
                     </div>
-                    <div class="cost_panel">
-                        <h3>ต้นทุนแยกประเภท</h3><p class="small text-muted">เฉพาะ Cost Sheet ที่มีงบ BOQ มากกว่าศูนย์ · แถบสีน้ำเงิน = งบ / สีเขียว = ต้นทุนจริง · ความยาวเทียบภายในแต่ละประเภท</p>
-                        <div class="cost_categories">
-                            <div t-foreach="group.categories" t-as="category" t-key="category.key">
-                                <h4 t-esc="label(category.key)"/>
-                                <div>งบ <t t-esc="money(category.budget, group)"/></div><div class="cost_bar"><div class="budget" t-att-style="bar(category.budget, category)"/></div>
-                                <div>จริง <t t-esc="money(category.actual, group)"/></div><div class="cost_bar"><div class="actual" t-att-style="bar(category.actual, category)"/></div>
-                                <small t-if="category.actual &lt; 0 or category.budget &lt; 0">ยอดติดลบ: แถบแสดงขนาดของยอด</small>
+                    <div class="cost_chart_grid">
+                        <section class="cost_panel cost_category_panel">
+                            <h3><i class="fa fa-bar-chart" aria-hidden="true"/>BOQ vs Active vs Actual (ตามประเภทต้นทุน)</h3>
+                            <div class="cost_legend"><span><i class="budget"/>BOQ</span><span><i class="active"/>Active Planned</span><span><i class="actual"/>Actual</span><small t-esc="group.currency"/></div>
+                            <svg class="cost_chart" viewBox="0 0 610 205" role="img" aria-label="เปรียบเทียบงบและต้นทุนจริงแยกประเภท">
+                                <g t-foreach="categoryTicks(group)" t-as="tick" t-key="tick_index"><line x1="65" x2="590" t-att-y1="tick.y" t-att-y2="tick.y" class="cost_gridline"/><text x="57" t-att-y="tick.y + 4" text-anchor="end" t-esc="axisMoney(tick.value)"/></g>
+                                <g t-foreach="group.categories" t-as="category" t-key="category.key">
+                                    <rect t-att="categoryRect(category.budget, group, category_index)" fill="#b8c5d5" rx="2"><title>BOQ: <t t-esc="money(category.budget, group)"/></title></rect>
+                                    <rect t-att="categoryRect(category.active, group, category_index, 1)" fill="#2864ab" rx="2"><title>Active Planned: <t t-esc="money(category.active, group)"/></title></rect>
+                                    <rect t-att="categoryRect(category.actual, group, category_index, 2)" fill="#ff922b" rx="2"><title>Actual: <t t-esc="money(category.actual, group)"/></title></rect>
+                                    <text t-att-x="135 + category_index * 170" y="192" text-anchor="middle" t-esc="label(category.key)"/>
+                                </g>
+                            </svg>
+                            <p class="cost_note">BOQ ของงานมีงบ · Active และ Actual รวมงานไม่มีงบ</p>
+                        </section>
+                        <section class="cost_panel">
+                            <h3><i class="fa fa-bar-chart" aria-hidden="true"/>สัดส่วนต้นทุน (Actual Cost)</h3>
+                            <t t-set="parts" t-value="composition(group)"/>
+                            <div class="cost_donut_layout">
+                                <div class="cost_donut" t-att-style="donut(parts)" role="img" aria-label="สัดส่วนต้นทุนจริง"><div class="cost_donut_hole"><strong t-esc="compactMoney(group.actual, group)"/><small t-esc="group.currency"/></div></div>
+                                <div class="cost_donut_legend"><div t-foreach="parts" t-as="part" t-key="part.key"><span><i t-att-style="'background:' + part.color"/><t t-esc="part.label"/></span><strong><t t-esc="compactMoney(part.value, group)"/> <small>(<t t-esc="share(part.value, parts)"/>)</small></strong></div></div>
                             </div>
-                        </div>
+                            <p t-if="parts.some(part => part.value &lt; 0)" class="cost_note">มียอดติดลบ แสดงยอดจริงในคำอธิบายแทนสัดส่วน</p>
+                        </section>
+                        <section class="cost_panel">
+                            <h3><i class="fa fa-pie-chart" aria-hidden="true"/>Cost Variance (Actual vs BOQ)</h3>
+                            <t t-set="variance" t-value="varianceChart(group)"/>
+                            <svg class="cost_chart cost_variance_chart" viewBox="0 0 475 220" role="img" aria-label="ส่วนต่างต้นทุนจริงกับงบ สีแดงเกินงบ สีเขียวต่ำกว่างบ">
+                                <g t-foreach="variance.ticks" t-as="tick" t-key="tick_index"><line t-att-x1="tick.x" t-att-x2="tick.x" y1="20" y2="176" class="cost_gridline"/><text t-att-x="tick.x" y="192" text-anchor="middle" t-esc="axisMoney(tick.value)"/></g>
+                                <line x1="250" x2="250" y1="20" y2="176" stroke="#a8bbcf"/>
+                                <g t-foreach="variance.rows" t-as="row" t-key="row.key"><text x="8" t-att-y="row.y + 12" t-esc="row.label"/><rect t-att-x="row.x" t-att-y="row.y" t-att-width="row.width" height="19" rx="1" t-att-fill="row.value > 0 ? '#f4656a' : '#35b47a'"><title t-esc="signedMoney(row.value, group)"/></rect><text t-att-x="row.labelX" t-att-y="row.y + 13" t-att-text-anchor="row.value &lt; 0 ? 'end' : 'start'" t-att-class="row.value > 0 ? 'cost_red_text' : 'cost_green_text'" t-esc="axisMoney(row.value)"/></g>
+                                <text x="250" y="215" text-anchor="middle" t-esc="group.currency"/>
+                            </svg>
+                            <p class="cost_note">Actual − BOQ · รวมต้นทุนงานที่ไม่มีงบ</p>
+                        </section>
                     </div>
-                    <div class="cost_panel table-responsive">
-                        <h3>สรุปตามโครงการ</h3>
-                        <table class="table table-hover"><thead><tr><th>โครงการ / เปิด Cost Sheet</th><th>จำนวน</th><th>งบ BOQ</th><th>ต้นทุนจริงทั้งหมด</th><th>คงเหลือ*</th><th>ใช้งบ*</th></tr></thead><tbody>
-                            <tr t-foreach="group.projects" t-as="project" t-key="project.id">
-                                <td><button class="btn btn-link p-0 text-start" t-on-click="() => this.open(group, 'all', project.id)" t-esc="project.name"/><small t-if="project.unbudgeted_count" class="d-block text-warning">ไม่มีงบ <t t-esc="project.unbudgeted_count"/> เอกสาร</small></td>
-                                <td t-esc="project.count"/><td t-esc="money(project.budget, group)"/><td t-esc="money(project.actual, group)"/><td t-att-class="project.remaining &lt; 0 ? 'text-danger' : ''" t-esc="project.budget > 0 ? money(project.remaining, group) : '—'"/><td t-esc="percent(project.ratio)"/>
-                            </tr>
-                        </tbody></table><small class="text-muted">* คำนวณเฉพาะเอกสารที่มีงบ BOQ มากกว่าศูนย์</small>
+                    <div class="cost_detail_grid">
+                        <section class="cost_panel cost_summary">
+                            <div class="cost_panel_header"><h3><i class="fa fa-clipboard" aria-hidden="true"/>Project Cost Summary <span class="cost_heading_note" t-esc="group.currency"/></h3><button class="cost_view_all" t-on-click="() => this.open(group)">ดูทั้งหมด →</button></div>
+                            <div class="table-responsive cost_summary_scroll"><table class="table"><thead><tr><th>#</th><th>โครงการ</th><th>Sheets</th><th>BOQ Total</th><th>Active Planned</th><th>Actual</th><th>Remaining*</th><th>Used %*</th><th>Status</th></tr></thead><tbody>
+                                <tr t-foreach="group.projects" t-as="project" t-key="project.id"><td t-esc="project_index + 1"/><td><button class="cost_link" t-on-click="() => this.open(group, 'all', project.id)" t-esc="project.name"/><small t-if="project.unbudgeted_count" class="d-block">ไม่มีงบ <t t-esc="project.unbudgeted_count"/> เอกสาร</small></td><td t-esc="project.count"/><td t-esc="compactMoney(project.budget, group)"/><td t-esc="compactMoney(project.active, group)"/><td t-esc="compactMoney(project.actual, group)"/><td t-att-class="project.remaining &lt; 0 ? 'cost_red_text' : ''" t-esc="project.budget > 0 ? compactMoney(project.remaining, group) : '—'"/><td t-esc="percent(project.ratio)"/><td><span t-att-class="'cost_health_dot ' + tone(project.ratio)" t-att-title="label(tone(project.ratio))" t-att-aria-label="label(tone(project.ratio))" role="img"/></td></tr>
+                            </tbody></table></div><p class="cost_note">* เฉพาะงานมีงบ · เฝ้าระวัง ≥ 90% · เกินงบ &gt; 100%</p>
+                        </section>
+                        <section class="cost_panel cost_items">
+                            <div class="cost_panel_header"><h3><i class="fa fa-clipboard" aria-hidden="true"/>Top 5 BOQ Items Over/Under Budget</h3><button class="cost_view_all" t-on-click="() => this.openItems(group)">ดูทั้งหมด →</button></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>#</th><th>รายการ</th><th>โครงการ</th><th>BOQ Cost</th><th>Actual Cost</th><th>Variance</th><th>%</th></tr></thead><tbody>
+                                <tr t-foreach="group.items" t-as="row" t-key="row.id"><td t-esc="row_index + 1"/><td><button class="cost_link" t-on-click="() => this.openItem(row.id)" t-esc="row.name"/></td><td><button class="cost_link" t-on-click="() => this.open(group, 'all', row.project_id)" t-esc="row.project"/></td><td t-esc="compactMoney(row.budget, group)"/><td t-esc="compactMoney(row.actual, group)"/><td t-att-class="row.variance > 0 ? 'cost_red_text' : 'cost_green_text'" t-esc="signedMoney(row.variance, group)"/><td t-att-class="row.variance > 0 ? 'cost_red_text' : 'cost_green_text'"><t t-esc="row.ratio > 0 ? '+' : ''"/><t t-esc="percent(row.ratio)"/></td></tr>
+                                <tr t-if="!group.items.length"><td colspan="7" class="cost_table_empty">ไม่มีรายการ BOQ ที่มีส่วนต่างตามตัวกรองนี้</td></tr>
+                            </tbody></table></div><p class="cost_note">เรียงตามขนาดส่วนต่าง · เฉพาะต้นทุนที่ผูกกับรายการ BOQ ไม่รวมต้นทุนที่ยังไม่ได้ผูกกับรายการ</p>
+                        </section>
+                        <section class="cost_panel cost_trend_panel">
+                            <h3><i class="fa fa-line-chart" aria-hidden="true"/>Cost Trend <span class="cost_heading_note">ตามวันเริ่ม Cost Sheet</span></h3>
+                            <t t-set="trend" t-value="trendChart(group)"/>
+                            <div class="cost_legend"><span><i class="budget"/>BOQ</span><span><i class="active"/>Active (สะสม)</span><span><i class="actual"/>Actual (สะสม)</span><small t-esc="group.currency"/></div>
+                            <svg t-if="trend.rows.length" class="cost_chart cost_trend" viewBox="0 0 610 190" role="img" aria-label="ยอดปัจจุบันสะสมตามเดือนเริ่ม Cost Sheet">
+                                <g t-foreach="trend.ticks" t-as="tick" t-key="tick_index"><line x1="65" x2="570" t-att-y1="tick.y" t-att-y2="tick.y" class="cost_gridline"/><text x="57" t-att-y="tick.y + 4" text-anchor="end" t-esc="axisMoney(tick.value)"/></g>
+                                <polyline t-att-points="trend.budget" fill="none" stroke="#8b9fb9" stroke-width="2" stroke-dasharray="6 5"/>
+                                <polyline t-att-points="trend.active" fill="none" stroke="#0867dc" stroke-width="2.5"/>
+                                <polyline t-att-points="trend.actual" fill="none" stroke="#ff780d" stroke-width="2.5"/>
+                                <g t-foreach="trend.rows" t-as="point" t-key="point.month"><circle t-att-cx="point.x" t-att-cy="point.budgetY" r="3" fill="#8b9fb9"><title>BOQ <t t-esc="point.month"/>: <t t-esc="money(point.budget, group)"/></title></circle><circle t-att-cx="point.x" t-att-cy="point.activeY" r="3" fill="#0867dc"><title>Active <t t-esc="point.month"/>: <t t-esc="money(point.active, group)"/></title></circle><circle t-att-cx="point.x" t-att-cy="point.actualY" r="3.5" fill="#ff780d"><title>Actual <t t-esc="point.month"/>: <t t-esc="money(point.actual, group)"/></title></circle><text t-if="point.showLabel" t-att-x="point.x" y="181" text-anchor="middle" t-esc="monthLabel(point.month)"/></g>
+                            </svg>
+                            <div t-else="" class="cost_inline_empty">ไม่มีวันที่เริ่ม Cost Sheet สำหรับแสดงแนวโน้ม</div>
+                            <p class="cost_note">ยอดปัจจุบันสะสมตามวันเริ่มเอกสาร ไม่ใช่ประวัติต้นทุนรายเดือนหรือ Forecast</p>
+                        </section>
+                        <t t-call="job_costing_management.ExecutiveAttention"/>
                     </div>
+                    <details class="cost_definitions"><summary>รายละเอียดการคำนวณ · <t t-esc="group.count"/> Cost Sheets</summary><p>วันที่กรองเป็นวันเริ่ม Cost Sheet ต้นทุนจริงไม่ใช่ยอดจ่ายเงิน งบ BOQ เป็นค่าปัจจุบันใน Cost Sheet ส่วน Active Planned ตัดรายการยกเลิกและปฏิเสธแล้ว</p><p>งบคงเหลือและ Used % คำนวณเฉพาะงานมีงบ ส่วน Actual และกราฟ Variance รวมงานไม่มีงบ ไม่มีการสมมติยอดหรือเปอร์เซ็นต์เปลี่ยนแปลงจากช่วงก่อนหน้า</p><button class="cost_link" t-on-click="() => this.open(group, 'unbudgeted')">งานไม่มีงบ <t t-esc="group.unbudgeted_count"/> เอกสาร · ต้นทุน <t t-esc="money(group.unbudgeted_actual, group)"/> <t t-esc="group.currency"/></button></details>
                 </section>
-                <section t-if="state.data.groups.length" class="cost_panel table-responsive">
-                    <h2>งานที่ต้องติดตาม <small>(<t t-esc="state.data.attention_count"/>)</small></h2>
-                    <p t-if="!state.data.attention_count">ไม่มีงานที่เข้าเกณฑ์ติดตามตามตัวกรองนี้</p>
-                    <table t-else="" class="table"><thead><tr><th>Cost Sheet / โครงการ</th><th>สถานะ</th><th>สกุลเงิน</th><th>งบ BOQ</th><th>ต้นทุนจริง</th><th>คงเหลือ</th><th>ใช้งบ</th></tr></thead><tbody>
-                        <tr t-foreach="state.data.attention" t-as="row" t-key="row.id">
-                            <td><button class="btn btn-link p-0" t-on-click="() => this.openSheet(row.id)" t-esc="row.name"/><small class="d-block" t-esc="row.project"/></td>
-                            <td><span t-att-class="row.status === 'over' ? 'badge text-bg-danger' : 'badge text-bg-warning'" t-esc="label(row.status)"/></td>
-                            <td t-esc="row.currency"/><td t-esc="money(row.budget, row)"/><td t-esc="money(row.actual, row)"/><td t-esc="money(row.remaining, row)"/><td t-esc="percent(row.ratio)"/>
-                        </tr>
-                    </tbody></table>
-                    <div t-if="state.data.attention_count" class="d-flex gap-3 align-items-center"><button class="btn btn-secondary" t-att-disabled="state.data.page === 0" t-on-click="() => this.load(state.data.page - 1)">ก่อนหน้า</button><span>หน้า <t t-esc="state.data.page + 1"/></span><button class="btn btn-secondary" t-att-disabled="(state.data.page + 1) * state.data.page_size >= state.data.attention_count" t-on-click="() => this.load(state.data.page + 1)">ถัดไป</button></div>
-                </section>
-                <p class="text-muted small">ข้อมูล ณ <t t-esc="state.data.updated_at"/> UTC</p>
             </t>
         </div>
+    </t>
+    <t t-name="job_costing_management.ExecutiveAttention">
+        <section class="cost_panel cost_attention">
+            <div class="cost_panel_header"><h3><i class="fa fa-home" aria-hidden="true"/>Job Cost Sheets ที่ต้องติดตาม <span class="cost_heading_note" t-esc="group.currency"/></h3><span class="cost_heading_note"><t t-esc="state.data.attention_count"/> รายการ ทุกสกุลเงิน</span></div>
+            <div class="table-responsive"><table class="table"><thead><tr><th>วันที่เริ่ม</th><th>Job Cost Sheet</th><th>โครงการ</th><th>BOQ Total</th><th>Actual</th><th>Variance</th><th>สถานะ</th></tr></thead><tbody>
+                <tr t-foreach="state.data.attention.filter(row => row.currency_id === group.currency_id)" t-as="row" t-key="row.id"><td t-esc="row.date || '—'"/><td><button class="cost_link" t-on-click="() => this.openSheet(row.id)" t-esc="row.name"/></td><td t-esc="row.project"/><td t-esc="compactMoney(row.budget, row)"/><td t-esc="compactMoney(row.actual, row)"/><td t-att-class="row.remaining &lt; 0 ? 'cost_red_text' : 'cost_green_text'" t-esc="row.remaining === null ? '—' : signedMoney(-row.remaining, row)"/><td><span t-att-class="'cost_status ' + row.status" t-esc="label(row.status)"/></td></tr>
+                <tr t-if="!state.data.attention.some(row => row.currency_id === group.currency_id)"><td colspan="7" class="cost_table_empty" t-esc="state.data.attention_count ? 'ไม่มีรายการสกุลเงินนี้ในหน้าปัจจุบัน' : 'ไม่มีงานที่เข้าเกณฑ์ติดตาม'"/></tr>
+            </tbody></table></div>
+            <div t-if="state.data.attention_count > state.data.page_size" class="cost_pagination"><button class="cost_view_all" t-att-disabled="state.data.page === 0" t-on-click="() => this.load(state.data.page - 1)">ก่อนหน้า</button><span>หน้า <t t-esc="state.data.page + 1"/> · ทุกสกุลเงิน</span><button class="cost_view_all" t-att-disabled="(state.data.page + 1) * state.data.page_size >= state.data.attention_count" t-on-click="() => this.load(state.data.page + 1)">ถัดไป</button></div>
+        </section>
     </t>
 </templates>

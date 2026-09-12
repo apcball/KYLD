@@ -138,3 +138,43 @@ class TestExecutiveDashboard(TransactionCase):
         self.assertEqual(group['budget'], 1800)
         self.assertEqual(sum(c['budget'] for c in group['categories']), 1800)
         self.assertEqual(sum(c['actual'] for c in group['categories']), 350)
+
+    def test_active_trend_and_item_variance(self):
+        line = self.sheet.material_cost_ids
+        line.write({'planned_qty': 2, 'unit_cost': 75})
+        self.env.flush_all()
+        line.write({'actual_cost': 1200})
+        self.sheet.write({'actual_total_cost': 1200, 'actual_material_cost': 1200})
+        group = self.dashboard()['groups'][0]
+        self.assertEqual(group['active'], 150)
+        self.assertEqual(group['projects'][0]['active'], 150)
+        self.assertEqual(group['categories'][0]['active'], 150)
+        self.assertEqual(group['trend'], [{
+            'month': '2026-01', 'budget': 1000, 'actual': 1200, 'active': 150,
+        }])
+        self.assertEqual(group['items'][0]['variance'], 200)
+        self.assertEqual(group['items'][0]['ratio'], 20)
+        self.assertEqual(group['items'][0]['id'], line.id)
+
+    def test_composition_includes_unbudgeted_and_negative_costs(self):
+        self.sheet.material_cost_ids.boq_qty = 0
+        self.sheet.write({'actual_total_cost': -50, 'actual_material_cost': -50})
+        group = self.dashboard()['groups'][0]
+        self.assertEqual(group['composition']['material'], -50)
+        self.assertEqual(group['categories'][0]['actual'], -50)
+        self.assertEqual(group['budget'], 0)
+        self.assertFalse(group['items'])
+
+    def test_item_ranking_and_currency_isolation(self):
+        for index, actual in enumerate([1100, 900, 1400, 500, 1600, 300]):
+            line = self.env['job.cost.line'].create({
+                'cost_sheet_id': self.sheet.id, 'cost_type': 'material',
+                'name': 'Variance %s' % index, 'boq_qty': 1, 'boq_unit_cost': 1000,
+            })
+            self.env.flush_all()
+            line.actual_cost = actual
+        self.sheet.material_cost_ids[:1].actual_cost = 1000
+        group = self.dashboard()['groups'][0]
+        self.assertEqual(len(group['items']), 5)
+        self.assertEqual([abs(r['variance']) for r in group['items']], [700, 600, 500, 400, 100])
+        self.assertTrue(all(r['project_id'] == self.project.id for r in group['items']))
