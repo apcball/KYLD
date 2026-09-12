@@ -283,11 +283,21 @@ class PurchaseOrderLine(models.Model):
                         # Also check by product + description, scoped to the matching
                         # cost type: service products belong in labour, not material,
                         # and description must match so distinct BOQ items sharing a
-                        # product don't collapse onto the same cost line.
+                        # product don't collapse onto the same cost line. When this PO
+                        # line traces back to a specific BOQ line, also require the
+                        # candidate's boq_line_id to be blank or match that same BOQ
+                        # line - otherwise two BOQ items that happen to share both
+                        # product and description (e.g. copy-pasted line text across
+                        # BOQs) silently steal each other's actual cost. See prod
+                        # sheet 10: PO line from boq_line 3906 wrongly landed on the
+                        # job cost line for boq_line 1385 because both were named
+                        # identically and only the latter existed yet.
+                        req_boq_line = req_line.boq_line_id
                         candidates = (cost_sheet.labour_cost_ids if is_service
                                       else cost_sheet.material_cost_ids)
                         existing_line = candidates.filtered(
                             lambda l: l.product_id == result.product_id and l.name == result.name
+                            and (not l.boq_line_id or l.boq_line_id == req_boq_line)
                         )
 
                     if existing_line:
@@ -305,12 +315,13 @@ class PurchaseOrderLine(models.Model):
                             'uom_id': result.product_uom.id,
                             'analytic_account_id': cost_sheet.analytic_account_id.id if cost_sheet.analytic_account_id else False,
                             'source_po_line_id': result.id,  # Track source to prevent duplicates
+                            'boq_line_id': req_line.boq_line_id.id if req_line.boq_line_id else False,
                         }
                         # Use sudo() to allow creation of job cost lines by users without explicit access
                         new_cost_line = self.env['job.cost.line'].sudo().create(cost_line_vals)
                         result.job_cost_line_id = new_cost_line.id
                         _logger.info(f"Created new job cost line: {new_cost_line.id}")
-        
+
         # Auto-link to job cost sheet if job cost sheet is set but job cost line is not
         if result.job_cost_sheet_id and not result.job_cost_line_id and result.product_id:
             cost_sheet = result.job_cost_sheet_id
