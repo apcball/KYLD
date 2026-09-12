@@ -14,11 +14,21 @@ class TestServicePO(TransactionCase):
         cls.project = cls.env['project.project'].create({
             'name': 'Service PO test', 'company_id': cls.env.company.id,
         })
+        analytic_plan = cls.env['account.analytic.plan'].search([], limit=1) \
+            or cls.env['account.analytic.plan'].create({'name': 'Service PO test plan'})
+        cls.analytic_account = cls.env['account.analytic.account'].create({
+            'name': 'Service PO test analytic account', 'plan_id': analytic_plan.id,
+        })
+        cls.other_analytic_account = cls.env['account.analytic.account'].create({
+            'name': 'Service PO test analytic account (other sheet)', 'plan_id': analytic_plan.id,
+        })
         cls.sheet = cls.env['job.cost.sheet'].create({
             'project_id': cls.project.id, 'currency_id': cls.env.company.currency_id.id,
+            'analytic_account_id': cls.analytic_account.id,
         })
         cls.other_sheet = cls.env['job.cost.sheet'].create({
             'project_id': cls.project.id, 'currency_id': cls.env.company.currency_id.id,
+            'analytic_account_id': cls.other_analytic_account.id,
         })
         cls.product = cls.env['product.product'].create({
             'name': 'Repeated service', 'detailed_type': 'service',

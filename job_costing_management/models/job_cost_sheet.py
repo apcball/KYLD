@@ -151,17 +151,180 @@ class JobCostSheet(models.Model):
             record.boq_total_cost = (record.boq_material_cost + record.boq_labour_cost + 
                                     record.boq_overhead_cost)
     
+    @api.model
+    def _get_analytic_actual_cost_totals(self, analytic_account_ids):
+        """One batched query for a set of analytic account ids. Returns
+        {account_id: {'material': f, 'labour': f, 'overhead': f}}.
+
+        Two sources are unioned per line, in this precedence (mutually
+        exclusive per line, so never double-counted):
+
+        1. `analytic_distribution` contains the account id as one of its
+           comma-separated multi-plan key components (not exact-key match),
+           weighted by the stored percentage, summed across every matching
+           key on the line (a line can legitimately have more than one).
+           This is the primary source - it catches "pooled" POs that split
+           cost across several projects per line, which a single
+           `job_cost_line_id` FK can never represent, and any PO/bill that
+           was simply never manually synced into job.cost.line.
+        2. Fallback, only when a line has NO matching distribution key: if
+           the line's own `job_cost_line_id` points to a job.cost.line
+           belonging to this exact sheet, count it in full. This preserves
+           actual cost that today's job.cost.line-based sum already
+           captures correctly via explicit linking (requisition/BOQ/manual
+           sync flows) but that was never tagged with a matching
+           `analytic_distribution` - confirmed on PROD (2026-09-12) to be
+           ~27.7M THB across ~2,400 PO/bill lines system-wide; dropping it
+           in favour of a pure-analytic design would make many sheets
+           report LESS than they do today, not more.
+
+        A confirmed PO line is a commitment, not an actual cost, until
+        received - so material amounts (both sources) are scaled by
+        qty_received/product_qty, same accrual policy as
+        JobCostLine.update_actual_costs_from_purchases. Labour/service PO
+        lines and all bill lines are taken at full price_subtotal (no
+        receipt milestone applies to either). A PO line with a posted bill
+        against it is counted from the bill only, never both.
+
+        Classification: source 1 uses product type (no product -> overhead,
+        service -> labour, else material - mirrors the `is_service`
+        convention in purchase_order.py); source 2 reuses the job.cost.line's
+        own `cost_type` directly, since that line was already classified when
+        created.
+
+        Known limitation: two job.cost.sheet records sharing the same
+        `analytic_account_id` (a pre-existing data-quality issue, tracked
+        separately - see scripts/cleanup_duplicate_empty_job_cost_sheets.py)
+        will both read the same combined total here, since this method
+        groups by account id, not sheet id. Not solved by this change.
+        """
+        if not analytic_account_ids:
+            return {}
+        account_ids = list({aid for aid in analytic_account_ids if aid})
+        if not account_ids:
+            return {}
+        self.env['purchase.order.line'].flush_model()
+        self.env['account.move.line'].flush_model()
+        self.env['job.cost.line'].flush_model()
+
+        query = """
+            WITH ids AS (SELECT unnest(%(ids)s::int[]) AS account_id),
+            po_matches AS (
+                SELECT
+                    ids.account_id,
+                    CASE
+                        WHEN pol.product_id IS NULL THEN 'overhead'
+                        WHEN pt.detailed_type = 'service' THEN 'labour'
+                        ELSE 'material'
+                    END AS bucket,
+                    (kv.value::numeric / 100.0) * (
+                        CASE
+                            WHEN pol.product_id IS NOT NULL AND pt.detailed_type <> 'service'
+                                 AND pol.product_qty > 0
+                            THEN pol.price_subtotal * (pol.qty_received / pol.product_qty)
+                            ELSE pol.price_subtotal
+                        END
+                    ) AS amount
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                JOIN jsonb_each_text(COALESCE(pol.analytic_distribution, '{}'::jsonb)) AS kv(key, value) ON TRUE
+                JOIN ids ON kv.key ~ ('(^|,)' || ids.account_id || '(,|$)')
+                LEFT JOIN product_product pp ON pp.id = pol.product_id
+                LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                WHERE po.state IN ('purchase', 'done')
+                  AND pol.display_type IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM account_move_line aml
+                      JOIN account_move am ON am.id = aml.move_id
+                      WHERE aml.purchase_line_id = pol.id AND am.state = 'posted'
+                  )
+
+                UNION ALL
+
+                SELECT
+                    ids.account_id,
+                    jcl.cost_type AS bucket,
+                    CASE
+                        WHEN jcl.cost_type = 'material' AND pol.product_qty > 0
+                        THEN pol.price_subtotal * (pol.qty_received / pol.product_qty)
+                        ELSE pol.price_subtotal
+                    END AS amount
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                JOIN job_cost_line jcl ON jcl.id = pol.job_cost_line_id
+                JOIN job_cost_sheet jcs ON jcs.id = jcl.cost_sheet_id
+                JOIN ids ON ids.account_id = jcs.analytic_account_id
+                WHERE po.state IN ('purchase', 'done')
+                  AND pol.display_type IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM account_move_line aml
+                      JOIN account_move am ON am.id = aml.move_id
+                      WHERE aml.purchase_line_id = pol.id AND am.state = 'posted'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM jsonb_object_keys(COALESCE(pol.analytic_distribution, '{}'::jsonb)) k
+                      WHERE k ~ ('(^|,)' || ids.account_id || '(,|$)')
+                  )
+            ),
+            bill_matches AS (
+                SELECT
+                    ids.account_id,
+                    CASE
+                        WHEN aml.product_id IS NULL THEN 'overhead'
+                        WHEN pt.detailed_type = 'service' THEN 'labour'
+                        ELSE 'material'
+                    END AS bucket,
+                    (kv.value::numeric / 100.0) * aml.price_subtotal AS amount
+                FROM account_move_line aml
+                JOIN account_move am ON am.id = aml.move_id
+                JOIN jsonb_each_text(COALESCE(aml.analytic_distribution, '{}'::jsonb)) AS kv(key, value) ON TRUE
+                JOIN ids ON kv.key ~ ('(^|,)' || ids.account_id || '(,|$)')
+                LEFT JOIN product_product pp ON pp.id = aml.product_id
+                LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                WHERE am.state = 'posted' AND am.move_type IN ('in_invoice', 'in_refund')
+                  AND aml.display_type IS NULL
+
+                UNION ALL
+
+                SELECT
+                    ids.account_id,
+                    jcl.cost_type AS bucket,
+                    aml.price_subtotal AS amount
+                FROM account_move_line aml
+                JOIN account_move am ON am.id = aml.move_id
+                JOIN job_cost_line jcl ON jcl.id = aml.job_cost_line_id
+                JOIN job_cost_sheet jcs ON jcs.id = jcl.cost_sheet_id
+                JOIN ids ON ids.account_id = jcs.analytic_account_id
+                WHERE am.state = 'posted' AND am.move_type IN ('in_invoice', 'in_refund')
+                  AND aml.display_type IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM jsonb_object_keys(COALESCE(aml.analytic_distribution, '{}'::jsonb)) k
+                      WHERE k ~ ('(^|,)' || ids.account_id || '(,|$)')
+                  )
+            )
+            SELECT account_id, bucket, SUM(amount)
+            FROM (SELECT * FROM po_matches UNION ALL SELECT * FROM bill_matches) all_matches
+            GROUP BY account_id, bucket
+        """
+        self.env.cr.execute(query, {'ids': account_ids})
+        results = {}
+        for account_id, bucket, total in self.env.cr.fetchall():
+            results.setdefault(account_id, {'material': 0.0, 'labour': 0.0, 'overhead': 0.0})
+            results[account_id][bucket] = float(total or 0.0)
+        return results
+
     @api.depends('material_cost_ids.actual_cost', 'labour_cost_ids.actual_cost', 'overhead_cost_ids.actual_cost')
     def _compute_actual_costs(self):
+        accounts = self.mapped('analytic_account_id').ids
+        totals = self._get_analytic_actual_cost_totals(accounts) if accounts else {}
         for record in self:
-            record.actual_material_cost = sum(record.material_cost_ids.mapped('actual_cost'))
-            # Line-level actual_cost already normalizes timesheet sign (see
-            # JobCostLine._compute_actual_unit_cost), so a negative value here
-            # is a real correction/reversal - sum it as-is instead of abs(),
-            # otherwise corrections add to the total instead of reducing it.
-            record.actual_labour_cost = sum(record.labour_cost_ids.mapped('actual_cost'))
-            record.actual_overhead_cost = sum(record.overhead_cost_ids.mapped('actual_cost'))
-            record.actual_total_cost = record.actual_material_cost + record.actual_labour_cost + record.actual_overhead_cost
+            bucket = totals.get(record.analytic_account_id.id, {
+                'material': 0.0, 'labour': 0.0, 'overhead': 0.0,
+            })
+            record.actual_material_cost = bucket['material']
+            record.actual_labour_cost = bucket['labour']
+            record.actual_overhead_cost = bucket['overhead']
+            record.actual_total_cost = bucket['material'] + bucket['labour'] + bucket['overhead']
     
     @api.depends('total_material_cost', 'actual_material_cost', 'total_labour_cost', 'actual_labour_cost',
                  'total_overhead_cost', 'actual_overhead_cost', 'total_cost', 'actual_total_cost')

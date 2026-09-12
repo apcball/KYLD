@@ -45,25 +45,25 @@ class AccountMove(models.Model):
     def action_post(self):
         """Override to trigger actual cost recompute on job cost sheet when vendor bill is posted."""
         result = super(AccountMove, self).action_post()
-        
+
+        # Collect all job cost sheets referenced by invoice lines across every
+        # posted move in one go, then recompute once for the whole batch -
+        # _compute_actual_costs runs one query for its entire recordset, so
+        # looping sheet-by-sheet here would turn that into N queries for no
+        # reason.
+        cost_sheets = self.env['job.cost.sheet']
         for move in self:
             if move.move_type not in ('in_invoice', 'in_refund'):
                 continue
-            
-            # Collect all job cost sheets referenced by invoice lines
-            cost_sheets = self.env['job.cost.sheet']
             for line in move.invoice_line_ids:
                 if line.job_cost_line_id and line.job_cost_line_id.cost_sheet_id:
                     cost_sheets |= line.job_cost_line_id.cost_sheet_id
-            
-            # Also check from the move's own job_cost_sheet_id
             if move.job_cost_sheet_id:
                 cost_sheets |= move.job_cost_sheet_id
-            
-            # Trigger recompute on all related job cost sheets
-            for sheet in cost_sheets:
-                sheet._compute_actual_costs()
-        
+
+        if cost_sheets:
+            cost_sheets._compute_actual_costs()
+
         return result
 
 
