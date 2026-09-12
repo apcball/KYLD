@@ -78,11 +78,16 @@ class JobCostSheet(models.Model):
     overhead_variance = fields.Float(string='Overhead Variance', compute='_compute_variance', store=True)
     total_variance = fields.Float(string='Total Variance', compute='_compute_variance', store=True)
     
+    # BOQ linkage
+    boq_ids = fields.One2many('boq.boq', 'job_cost_sheet_id', string='BOQs')
+
     # Smart buttons
     purchase_order_count = fields.Integer(string='Purchase Orders', compute='_compute_purchase_order_count')
     timesheet_count = fields.Integer(string='Timesheets', compute='_compute_timesheet_count')
     invoice_count = fields.Integer(string='Invoices', compute='_compute_invoice_count')
     cost_lines_count = fields.Integer(string='Cost Lines', compute='_compute_cost_lines_count')
+    boq_count = fields.Integer(string='BOQ Count', compute='_compute_boq_count')
+    has_unsynced_boq = fields.Boolean(string='Has Unsynced BOQ', compute='_compute_boq_sync_status')
     
     # Other fields
     notes = fields.Text(string='Notes')
@@ -150,27 +155,13 @@ class JobCostSheet(models.Model):
     def _compute_actual_costs(self):
         for record in self:
             record.actual_material_cost = sum(record.material_cost_ids.mapped('actual_cost'))
-            # FIX ISSUE #1: Use abs() for labour actual cost to handle negative timesheet amounts
-            record.actual_labour_cost = sum(abs(line.actual_cost) for line in record.labour_cost_ids)
-            # FIX ISSUE #3: Ensure overhead is not double-counted
+            # Line-level actual_cost already normalizes timesheet sign (see
+            # JobCostLine._compute_actual_unit_cost), so a negative value here
+            # is a real correction/reversal - sum it as-is instead of abs(),
+            # otherwise corrections add to the total instead of reducing it.
+            record.actual_labour_cost = sum(record.labour_cost_ids.mapped('actual_cost'))
             record.actual_overhead_cost = sum(record.overhead_cost_ids.mapped('actual_cost'))
             record.actual_total_cost = record.actual_material_cost + record.actual_labour_cost + record.actual_overhead_cost
-            
-            # Debug logging
-            import logging
-            _logger = logging.getLogger(__name__)
-            _logger.info(f"Job Cost Sheet {record.name} actual costs:")
-            _logger.info(f"  - Material lines count: {len(record.material_cost_ids)}")
-            _logger.info(f"  - Labour lines count: {len(record.labour_cost_ids)}")
-            _logger.info(f"  - Overhead lines count: {len(record.overhead_cost_ids)}")
-            _logger.info(f"  - actual_material_cost: {record.actual_material_cost}")
-            _logger.info(f"  - actual_labour_cost: {record.actual_labour_cost}")
-            _logger.info(f"  - actual_overhead_cost: {record.actual_overhead_cost}")
-            _logger.info(f"  - actual_total_cost: {record.actual_total_cost}")
-            
-            # Debug individual labour cost lines
-            for labour_line in record.labour_cost_ids:
-                _logger.info(f"  - Labour line {labour_line.name}: actual_cost={labour_line.actual_cost}, timesheet_count={len(labour_line.timesheet_ids)}")
     
     @api.depends('total_material_cost', 'actual_material_cost', 'total_labour_cost', 'actual_labour_cost',
                  'total_overhead_cost', 'actual_overhead_cost', 'total_cost', 'actual_total_cost')
@@ -230,7 +221,22 @@ class JobCostSheet(models.Model):
     def _compute_cost_lines_count(self):
         for record in self:
             record.cost_lines_count = len(record.material_cost_ids) + len(record.labour_cost_ids) + len(record.overhead_cost_ids)
-    
+
+    @api.depends('boq_ids')
+    def _compute_boq_count(self):
+        for record in self:
+            record.boq_count = len(record.boq_ids)
+
+    @api.depends('boq_ids.total_cost', 'boq_total_cost')
+    def _compute_boq_sync_status(self):
+        """A BOQ is 'unsynced' when its lines haven't been materialized as
+        job.cost.line records yet (action_create_job_cost_lines never run),
+        so its budget is linked but invisible in boq_total_cost."""
+        for record in self:
+            record.has_unsynced_boq = bool(record.boq_ids) and (
+                sum(record.boq_ids.mapped('total_cost')) != record.boq_total_cost
+            )
+
     def action_approve(self):
         self.write({'state': 'approved'})
         
@@ -487,6 +493,17 @@ class JobCostSheet(models.Model):
             },
         }
     
+    def action_view_boqs(self):
+        """Open the BOQs linked to this job cost sheet"""
+        return {
+            'name': f'BOQs - {self.name}',
+            'type': 'ir.actions.act_window',
+            'res_model': 'boq.boq',
+            'view_mode': 'tree,form,kanban',
+            'domain': [('job_cost_sheet_id', '=', self.id)],
+            'context': {'default_job_cost_sheet_id': self.id, 'default_project_id': self.project_id.id},
+        }
+
     def action_view_all_cost_lines(self):
         """Open all cost lines for this job cost sheet"""
         return {
@@ -640,16 +657,7 @@ class JobCostLine(models.Model):
                         lambda l: l.requisition_state not in ['cancelled', 'rejected']
                     )
                     record.active_planned_qty = sum(active_mr_lines.mapped('quantity')) if active_mr_lines else 0.0
-                    
-                    # Debug logging
-                    import logging
-                    _logger = logging.getLogger(__name__)
-                    _logger.info(f"Job Cost Line {record.name} (NO BOQ LINK):")
-                    _logger.info(f"  Product: {record.product_id.name}")
-                    _logger.info(f"  Found {len(mr_lines)} MR Lines for this product")
-                    _logger.info(f"  Active MR Lines: {len(active_mr_lines)}")
-                    _logger.info(f"  planned_qty={record.planned_qty}, active_planned_qty={record.active_planned_qty}")
-            
+
             else:
                 # No BOQ Line and no product/cost sheet - use full planned qty
                 record.active_planned_qty = record.planned_qty
@@ -670,26 +678,16 @@ class JobCostLine(models.Model):
                 record.actual_qty = timesheet_qty + po_qty
                     
             else:  # overhead
-                # FIX ISSUE #3: Prevent double counting - use invoice lines OR purchase orders, not both
-                invoice_qty = 0
-                po_qty = 0
-                
-                # Calculate from invoice lines first (preferred source for overhead)
-                if record.invoice_line_ids:
-                    invoice_lines = record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted')
-                    invoice_qty = sum(invoice_lines.mapped('quantity'))
-                
-                # Calculate from purchase orders (fallback)
-                if record.purchase_order_line_ids:
-                    po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
-                    po_qty = sum(po_lines.mapped('qty_received'))
-                
-                # Use invoice quantity if available, otherwise use PO quantity
-                # This prevents double counting when both sources exist
-                if invoice_qty > 0:
-                    record.actual_qty = invoice_qty
+                # Prevent double counting - use invoice lines OR purchase orders, not both.
+                # Switch on presence of posted invoice lines, not their sign, so
+                # credit notes (negative qty/amount) still count as the source
+                # instead of being ignored in favour of the PO fallback.
+                invoice_lines = record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted')
+                if invoice_lines:
+                    record.actual_qty = sum(invoice_lines.mapped('quantity'))
                 else:
-                    record.actual_qty = po_qty
+                    po_lines = record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done'])
+                    record.actual_qty = sum(po_lines.mapped('qty_received'))
     
     @api.depends('purchase_order_line_ids.price_unit', 'purchase_order_line_ids.product_qty', 
                  'timesheet_ids.amount', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity')
@@ -713,28 +711,17 @@ class JobCostLine(models.Model):
                     total_cost += line.price_subtotal
                     total_qty += line.product_qty
             else:  # overhead
-                # Prevent double counting - use invoice lines OR purchase orders, not both
-                invoice_cost = 0
-                invoice_qty = 0
-                po_cost = 0
-                po_qty = 0
-                
-                if record.invoice_line_ids:
-                    for line in record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted'):
-                        invoice_cost += line.price_subtotal
-                        invoice_qty += line.quantity
-                
-                if record.purchase_order_line_ids:
+                # Prevent double counting - use invoice lines OR purchase orders, not
+                # both. Same source switch as _compute_actual_qty: presence of
+                # posted invoice lines decides, so credit notes aren't dropped.
+                invoice_lines = record.invoice_line_ids.filtered(lambda l: l.move_id.state == 'posted')
+                if invoice_lines:
+                    total_cost = sum(invoice_lines.mapped('price_subtotal'))
+                    total_qty = sum(invoice_lines.mapped('quantity'))
+                else:
                     for line in record.purchase_order_line_ids.filtered(lambda l: l.order_id.state in ['purchase', 'done']):
-                        po_cost += line.price_subtotal
-                        po_qty += line.product_qty
-                
-                if invoice_cost > 0 and invoice_qty > 0:
-                    total_cost = invoice_cost
-                    total_qty = invoice_qty
-                elif po_cost > 0 and po_qty > 0:
-                    total_cost = po_cost
-                    total_qty = po_qty
+                        total_cost += line.price_subtotal
+                        total_qty += line.product_qty
             
             record.actual_unit_cost = total_cost / total_qty if total_qty else 0
     
@@ -890,14 +877,29 @@ class JobCostLine(models.Model):
                     lambda l: l.order_id.state in ['purchase', 'done']
                 )
                 if po_lines:
-                    total_cost = sum(po_lines.mapped('price_subtotal'))
-                    total_qty = sum(po_lines.mapped(lambda l: l.qty_received or l.product_qty))
-                    
+                    if record.cost_type == 'labour':
+                        # Services have no goods-receipt step (qty_received is
+                        # never populated by a stock picking), so a confirmed
+                        # service PO line's cost is recognized in full - unlike
+                        # material, there is no "partially received" milestone
+                        # to scale against.
+                        total_cost = sum(po_lines.mapped('price_subtotal'))
+                        total_qty = sum(po_lines.mapped('product_qty'))
+                    else:
+                        # Scale cost to the received portion only - a confirmed
+                        # PO line is a commitment, not an actual cost, until
+                        # goods are received against it.
+                        total_cost = sum(
+                            line.price_subtotal * (line.qty_received / line.product_qty)
+                            for line in po_lines if line.product_qty
+                        )
+                        total_qty = sum(po_lines.mapped('qty_received'))
+
                     # For labour, also add timesheet data
                     if record.cost_type == 'labour' and record.timesheet_ids:
                         total_cost += sum(abs(ts.amount) for ts in record.timesheet_ids if ts.amount)
                         total_qty += sum(record.timesheet_ids.mapped('unit_amount'))
-                    
+
                     record.actual_qty = total_qty
                     record.actual_unit_cost = total_cost / total_qty if total_qty else 0
                     record.actual_cost = total_cost

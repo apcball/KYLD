@@ -3,7 +3,7 @@
 import logging
 
 from odoo import models, fields, api, _
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -185,6 +185,15 @@ class BOQ(models.Model):
             'approved_by': self.env.user.id,
             'approved_date': fields.Date.today()
         })
+        for boq in self:
+            # Best-effort: approval must never fail because a BOQ has no
+            # product lines yet, no cost sheet, or the approving user lacks
+            # write access to that sheet - the manual button stays available
+            # (and still raises) for whoever needs to sync it later.
+            try:
+                boq._sync_job_cost_lines(strict=False)
+            except AccessError:
+                pass
     
     def action_lock(self):
         self.write({'state': 'locked'})
@@ -292,14 +301,46 @@ class BOQ(models.Model):
     def action_create_job_cost_lines(self):
         """Create missing BOQ lines without modifying existing baselines."""
         self.ensure_one()
+        created_count, result = self._sync_job_cost_lines(strict=True)
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {
+                'title': _('BOQ Cost Lines'),
+                'message': _('Created: %(created)s; already linked: %(existing)s.') % {
+                    'created': created_count, 'existing': len(result) - created_count},
+                'type': 'success', 'sticky': False,
+                'next': {
+                    'name': _('Job Cost Lines'), 'type': 'ir.actions.act_window',
+                    'res_model': 'job.cost.line', 'view_mode': 'tree,form',
+                    'views': [(False, 'tree'), (False, 'form')],
+                    'domain': [('id', 'in', result.ids)],
+                },
+            },
+        }
+
+    def _sync_job_cost_lines(self, strict=True):
+        """Create missing job cost lines from this BOQ's product lines.
+
+        strict=True (manual "Create Job Cost Lines" button): raises so the
+        user gets clear feedback when there's nothing to sync.
+        strict=False (auto, on approve): skips quietly instead - approving a
+        BOQ must never fail because it has no cost sheet yet, no product
+        lines, or the approving user lacks write access to the sheet.
+        """
+        self.ensure_one()
         self.check_access_rights('read')
         self.check_access_rule('read')
         self._check_work_context()
+        empty = (0, self.env['job.cost.line'])
         if not self.job_cost_sheet_id:
-            raise ValidationError(_('Please specify a job cost sheet.'))
+            if strict:
+                raise ValidationError(_('Please specify a job cost sheet.'))
+            return empty
         lines = self.line_ids.filtered('product_id')
         if not lines:
-            raise ValidationError(_('No BOQ lines with products found to create job cost lines from.'))
+            if strict:
+                raise ValidationError(_('No BOQ lines with products found to create job cost lines from.'))
+            return empty
         # Update the sheet row to serialize concurrent create requests as well.
         self.job_cost_sheet_id.check_access_rights('write')
         self.job_cost_sheet_id.check_access_rule('write')
@@ -323,21 +364,8 @@ class BOQ(models.Model):
                 })
                 created_count += 1
             result |= cost_line
-        return {
-            'type': 'ir.actions.client', 'tag': 'display_notification',
-            'params': {
-                'title': _('BOQ Cost Lines'),
-                'message': _('Created: %(created)s; already linked: %(existing)s.') % {
-                    'created': created_count, 'existing': len(result) - created_count},
-                'type': 'success', 'sticky': False,
-                'next': {
-                    'name': _('Job Cost Lines'), 'type': 'ir.actions.act_window',
-                    'res_model': 'job.cost.line', 'view_mode': 'tree,form',
-                    'domain': [('id', 'in', result.ids)],
-                },
-            },
-        }
-    
+        return created_count, result
+
     def action_view_requisitions(self):
         requisition_ids = self.line_ids.mapped('requisition_line_ids.requisition_id.id')
         
