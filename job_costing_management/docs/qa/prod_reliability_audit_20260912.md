@@ -8,6 +8,19 @@ Date: 2026-09-12 · DB: `KYLD_LIVE` · Script: `scripts/audit_prod_data_reliabil
 - **Check 7 (unscoped PO fallback)**: code fix applied in `job_costing_management/models/purchase_order.py` (~L338-349) — the sheet-level auto-link fallback now requires a candidate cost line's `boq_line_id` to be blank or match the incoming PO line's own BOQ line, mirroring the `ae5e783` fix. Deployed to DEV then PROD (module update + container restart on both, per this repo's Python-reload requirement). This only prevents *new* bad links; the 154 already-ambiguous product+name groups found in Check 7 are unchanged by this fix and still need a separate data-repair pass.
 - Items 3, 4, 5, 6 (PO/BOQ relink script, shared-analytic-account groups, duplicate sheets, BOQ project mismatch) were **not** actioned — still open, pending separate approval/human decision as noted below.
 
+### Item 3 investigated (2026-09-12) — held for human review, not fixed
+
+Dry-ran `fix_po_boq_line_mismatch.py` on PROD: 0 auto-fixable, all 4 skipped ("no job.cost.line exists yet for the expected BOQ line" — because that search is scoped to the PO line's *current* cost sheet). Inspected each case directly and found this is **worse than a same-sheet BOQ-line collision** — all 4 are cross-sheet: the PO's actual cost is currently recorded on a different job cost sheet than the one its own material-requisition/BOQ line belongs to.
+
+| PO line | Product on the PO | Currently booked on (wrong) | Cost line already exists on (correct sheet) |
+|---|---|---|---|
+| 16567 (APO2602543) | M0000190 กระเบื้อง 12x24 | JCS/0034/2026, cost_line 1581 | JCS/0038/2026, cost_line 6536 (boq_line 7928) |
+| 16530 (APO2602540) | M0000538 ตะแกรงดักกลิ่น | JCS/0034/2026, cost_line 1644 | JCS/0038/2026, cost_line 6600 (boq_line 7991) |
+| 13625 (APO2602120) | X0000007 ค่าขนส่งรถเฮี๊ยบ | JCS/0034/2026, cost_line 1569 | JCS/0020/2026, cost_line 6898 (boq_line 10387) |
+| 11432 (APO2601759) | M0001792 ลูกกลิ้งทาสี | JCS/0013/2025, cost_line 996 — **that cost_line's own product is M0000681 (วัสดุสิ้นเปลืองงานโครงสร้าง), a completely different product from the PO**, and 10 other PO lines also point to it | JCS/0048/2026, cost_line 7367 (boq_line 9994) |
+
+Case 11432 looks like cost_line 996 is being used as a catch-all "misc materials" bucket across 11 unrelated PO lines and possibly multiple projects, not a simple mismatch — needs accounting/PM judgment on intent before any relink, since moving it would shift real Actual Cost between two different projects' job cost sheets. **Decision (2026-09-12): hold all 4, no write made, pending human review of financial impact before any fix.**
+
 ## Bottom line
 
 **63 job cost sheets on PROD. Only 9 have zero known open issues. 54 carry at least one.**
