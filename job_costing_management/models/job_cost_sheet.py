@@ -340,19 +340,28 @@ class JobCostSheet(models.Model):
         for record in self:
             record.boq_count = len(record.boq_ids)
 
-    @api.depends('boq_ids.total_cost', 'boq_ids.state', 'boq_total_cost')
+    @api.depends('boq_ids.line_ids.product_id', 'boq_ids.line_ids.cost_line_ids', 'boq_ids.state')
     def _compute_boq_sync_status(self):
-        """A BOQ is 'unsynced' when its lines haven't been materialized as
-        job.cost.line records yet (action_create_job_cost_lines never run),
-        so its budget is linked but invisible in boq_total_cost. Cancelled
-        BOQs are excluded from this comparison - their budget is meant to be
-        invisible in boq_total_cost now (see _compute_boq_totals), not a
-        sync gap."""
+        """A BOQ is 'unsynced' when it has a line with a product that was
+        never materialized into a job.cost.line (action_create_job_cost_lines
+        never run for it) - its budget is linked but invisible in
+        boq_total_cost. Cancelled BOQs are excluded - their budget is meant
+        to be invisible in boq_total_cost now (see _compute_boq_totals), not
+        a sync gap.
+
+        This deliberately does NOT compare boq_ids.total_cost against
+        boq_total_cost: boq_qty/boq_unit_cost on job.cost.line are a frozen
+        baseline set once at sync time (see boq_qty's help text), so editing
+        a BOQ line's quantity/price after it was synced makes that
+        comparison mismatch even though nothing needs re-syncing - that's
+        legitimate budget variance, not a sync gap (see prod sheet 10,
+        boq_line 3911/3914, 2026-09-12)."""
         for record in self:
             active_boqs = record.boq_ids.filtered(lambda b: b.state != 'cancelled')
-            record.has_unsynced_boq = bool(active_boqs) and (
-                sum(active_boqs.mapped('total_cost')) != record.boq_total_cost
+            unsynced_lines = active_boqs.line_ids.filtered(
+                lambda l: l.product_id and not l.cost_line_ids
             )
+            record.has_unsynced_boq = bool(unsynced_lines)
 
     def _compute_shared_analytic_account(self):
         """Actual Cost is computed by grouping PO/bill/timesheet lines by
