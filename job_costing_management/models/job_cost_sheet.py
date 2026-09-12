@@ -156,8 +156,11 @@ class JobCostSheet(models.Model):
         """One batched query for a set of analytic account ids. Returns
         {account_id: {'material': f, 'labour': f, 'overhead': f}}.
 
-        Two sources are unioned per line, in this precedence (mutually
-        exclusive per line, so never double-counted):
+        Three sources are unioned per line, in this precedence (mutually
+        exclusive per line, so never double-counted): purchase order lines,
+        vendor bill/refund lines (`account.move.line`), and timesheets
+        (`account.analytic.line`, distinguished from other analytic lines by
+        `employee_id`).
 
         1. `analytic_distribution` contains the account id as one of its
            comma-separated multi-plan key components (not exact-key match),
@@ -181,16 +184,24 @@ class JobCostSheet(models.Model):
         A confirmed PO line is a commitment, not an actual cost, until
         received - so material amounts (both sources) are scaled by
         qty_received/product_qty, same accrual policy as
-        JobCostLine.update_actual_costs_from_purchases. Labour/service PO
-        lines and all bill lines are taken at full price_subtotal (no
-        receipt milestone applies to either). A PO line with a posted bill
-        against it is counted from the bill only, never both.
+        JobCostLine.update_actual_costs_from_purchases, and converted from
+        order currency to company currency via `purchase_order.currency_rate`
+        (falls back to 1 for a null/zero rate). Labour/service PO lines are
+        taken at full price_subtotal. Bill/refund lines use `balance`, not
+        `price_subtotal`: balance is already in company currency and signed
+        by move type, so a posted `in_refund` naturally subtracts instead of
+        adding (`price_subtotal` is always positive on both move types and
+        would silently double-count instead of reversing). A PO line with a
+        posted bill against it is counted from the bill only, never both.
+        Timesheet amounts use `ABS(aal.amount)`, matching
+        JobCostLine._compute_actual_unit_cost's existing sign normalization.
 
-        Classification: source 1 uses product type (no product -> overhead,
-        service -> labour, else material - mirrors the `is_service`
-        convention in purchase_order.py); source 2 reuses the job.cost.line's
-        own `cost_type` directly, since that line was already classified when
-        created.
+        Classification: PO/bill sources use product type (no product ->
+        overhead, service -> labour, else material - mirrors the
+        `is_service` convention in purchase_order.py); every job_cost_line
+        fallback branch reuses the job.cost.line's own `cost_type` directly,
+        since that line was already classified when created. Timesheets are
+        always 'labour'.
 
         Known limitation: two job.cost.sheet records sharing the same
         `analytic_account_id` (a pre-existing data-quality issue, tracked
@@ -206,6 +217,8 @@ class JobCostSheet(models.Model):
         self.env['purchase.order.line'].flush_model()
         self.env['account.move.line'].flush_model()
         self.env['job.cost.line'].flush_model()
+        self.env['account.analytic.line'].flush_model()
+        self.env['purchase.order'].flush_model()
 
         query = """
             WITH ids AS (SELECT unnest(%(ids)s::int[]) AS account_id),
@@ -221,8 +234,8 @@ class JobCostSheet(models.Model):
                         CASE
                             WHEN pol.product_id IS NOT NULL AND pt.detailed_type <> 'service'
                                  AND pol.product_qty > 0
-                            THEN pol.price_subtotal * (pol.qty_received / pol.product_qty)
-                            ELSE pol.price_subtotal
+                            THEN (pol.price_subtotal / COALESCE(NULLIF(po.currency_rate, 0), 1)) * (pol.qty_received / pol.product_qty)
+                            ELSE pol.price_subtotal / COALESCE(NULLIF(po.currency_rate, 0), 1)
                         END
                     ) AS amount
                 FROM purchase_order_line pol
@@ -246,8 +259,8 @@ class JobCostSheet(models.Model):
                     jcl.cost_type AS bucket,
                     CASE
                         WHEN jcl.cost_type = 'material' AND pol.product_qty > 0
-                        THEN pol.price_subtotal * (pol.qty_received / pol.product_qty)
-                        ELSE pol.price_subtotal
+                        THEN (pol.price_subtotal / COALESCE(NULLIF(po.currency_rate, 0), 1)) * (pol.qty_received / pol.product_qty)
+                        ELSE pol.price_subtotal / COALESCE(NULLIF(po.currency_rate, 0), 1)
                     END AS amount
                 FROM purchase_order_line pol
                 JOIN purchase_order po ON po.id = pol.order_id
@@ -274,7 +287,7 @@ class JobCostSheet(models.Model):
                         WHEN pt.detailed_type = 'service' THEN 'labour'
                         ELSE 'material'
                     END AS bucket,
-                    (kv.value::numeric / 100.0) * aml.price_subtotal AS amount
+                    (kv.value::numeric / 100.0) * aml.balance AS amount
                 FROM account_move_line aml
                 JOIN account_move am ON am.id = aml.move_id
                 JOIN jsonb_each_text(COALESCE(aml.analytic_distribution, '{}'::jsonb)) AS kv(key, value) ON TRUE
@@ -282,28 +295,54 @@ class JobCostSheet(models.Model):
                 LEFT JOIN product_product pp ON pp.id = aml.product_id
                 LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                 WHERE am.state = 'posted' AND am.move_type IN ('in_invoice', 'in_refund')
-                  AND aml.display_type IS NULL
+                  AND aml.display_type = 'product'
 
                 UNION ALL
 
                 SELECT
                     ids.account_id,
                     jcl.cost_type AS bucket,
-                    aml.price_subtotal AS amount
+                    aml.balance AS amount
                 FROM account_move_line aml
                 JOIN account_move am ON am.id = aml.move_id
                 JOIN job_cost_line jcl ON jcl.id = aml.job_cost_line_id
                 JOIN job_cost_sheet jcs ON jcs.id = jcl.cost_sheet_id
                 JOIN ids ON ids.account_id = jcs.analytic_account_id
                 WHERE am.state = 'posted' AND am.move_type IN ('in_invoice', 'in_refund')
-                  AND aml.display_type IS NULL
+                  AND aml.display_type = 'product'
                   AND NOT EXISTS (
                       SELECT 1 FROM jsonb_object_keys(COALESCE(aml.analytic_distribution, '{}'::jsonb)) k
                       WHERE k ~ ('(^|,)' || ids.account_id || '(,|$)')
                   )
+            ),
+            timesheet_matches AS (
+                SELECT
+                    ids.account_id,
+                    'labour' AS bucket,
+                    ABS(aal.amount) AS amount
+                FROM account_analytic_line aal
+                JOIN ids ON ids.account_id = aal.account_id
+                WHERE aal.employee_id IS NOT NULL
+
+                UNION ALL
+
+                SELECT
+                    ids.account_id,
+                    jcl.cost_type AS bucket,
+                    ABS(aal.amount) AS amount
+                FROM account_analytic_line aal
+                JOIN job_cost_line jcl ON jcl.id = aal.job_cost_line_id
+                JOIN job_cost_sheet jcs ON jcs.id = jcl.cost_sheet_id
+                JOIN ids ON ids.account_id = jcs.analytic_account_id
+                WHERE aal.employee_id IS NOT NULL
+                  AND aal.account_id IS DISTINCT FROM ids.account_id
             )
             SELECT account_id, bucket, SUM(amount)
-            FROM (SELECT * FROM po_matches UNION ALL SELECT * FROM bill_matches) all_matches
+            FROM (
+                SELECT * FROM po_matches
+                UNION ALL SELECT * FROM bill_matches
+                UNION ALL SELECT * FROM timesheet_matches
+            ) all_matches
             GROUP BY account_id, bucket
         """
         self.env.cr.execute(query, {'ids': account_ids})

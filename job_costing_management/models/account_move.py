@@ -52,14 +52,25 @@ class AccountMove(models.Model):
         # looping sheet-by-sheet here would turn that into N queries for no
         # reason.
         cost_sheets = self.env['job.cost.sheet']
+        analytic_account_ids = set()
         for move in self:
             if move.move_type not in ('in_invoice', 'in_refund'):
                 continue
             for line in move.invoice_line_ids:
                 if line.job_cost_line_id and line.job_cost_line_id.cost_sheet_id:
                     cost_sheets |= line.job_cost_line_id.cost_sheet_id
+                if line.analytic_distribution:
+                    analytic_account_ids.update(int(k) for k in line.analytic_distribution.keys())
             if move.job_cost_sheet_id:
                 cost_sheets |= move.job_cost_sheet_id
+
+        # _compute_actual_costs is analytic-driven (see job_cost_sheet.py's
+        # _get_analytic_actual_cost_totals), not just job_cost_line-driven -
+        # a bill can affect a sheet's actual cost purely via its lines'
+        # analytic_distribution, with no job.cost.line ever created for it.
+        if analytic_account_ids:
+            cost_sheets |= self.env['job.cost.sheet'].search(
+                [('analytic_account_id', 'in', list(analytic_account_ids))])
 
         if cost_sheets:
             cost_sheets._compute_actual_costs()

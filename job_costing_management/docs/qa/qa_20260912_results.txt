@@ -1,0 +1,63 @@
+QA evidence, 2026-09-12. Source revision a38dd8f751250914ba47ee5c2fb04c976d700e3c.
+Isolated MOG_TEST on Compose project kyld-job-costing-qa-20260912.
+The diagnostic process exited 0: scenarios finished, NOT a claim that their expected behavior passed.
+Final diagnostic execution had no scenario setup errors. Each scenario was rolled back.
+
+INSTALL
+2026-09-12 06:52:40,506 1 INFO MOG_TEST odoo.service.server: 64 post-tests in 2.98s, 8968 queries
+2026-09-12 06:52:40,506 1 INFO MOG_TEST odoo.tests.result: 0 failed, 0 error(s) of 64 tests when loading database 'MOG_TEST'
+Container exit: 0
+
+UPGRADE
+2026-09-12 06:53:28,489 1 INFO MOG_TEST odoo.service.server: 64 post-tests in 2.76s, 8970 queries
+2026-09-12 06:53:28,489 1 INFO MOG_TEST odoo.tests.result: 0 failed, 0 error(s) of 64 tests when loading database 'MOG_TEST'
+Container exit: 0
+
+DIAGNOSTIC OUTPUT (final run)
+QA_RESULT {"case":"posted_bill","before":1000.0,"after":0.0,"expected":1000,"bill_state":"posted","display_type":"product","bill_total":1000.0}
+QA_RESULT {"case":"vendor_refund","actual":0.0,"expected":800,"refund_subtotal":200.0,"refund_balance":-200.0}
+QA_RESULT {"case":"timesheet_total","amount":-200.0,"hours":2.0,"line_actual":200.0,"sheet_actual":0.0,"expected":200.0}
+QA_RESULT {"case":"requester_approval","state":"approved","user_is_manager":false,"user_is_dept_manager":false,"expected":"AccessError; remain draft"}
+QA_RESULT {"case":"requester_direct_state_write","actual":"approved","expected":"AccessError"}
+QA_RESULT {"case":"requester_delete","exists":false,"note":"Observed ACL behavior; confirm intended deletion policy"}
+QA_RESULT {"case":"foreign_currency","company_currency":"USD","po_currency":"QAZ","actual":100.0,"expected":200.0}
+QA_RESULT {"case":"internal_transfer","source":"WH/Stock","destination":"WH/Stock","same_location":true,"linked_pickings":2,"total_requested_qty":20.0,"mr_qty":10.0}
+QA_RESULT {"case":"mr_uom","mr_qty":12,"mr_uom":"Units","po_qty":1,"po_uom":"Dozens","actual":"ordered","expected":"received"}
+QA_RESULT {"case":"report","model":"job.cost.sheet","record_name":"JCS/0096/2026","kind":"pdf","bytes":27442,"magic":"255044462d"}
+QA_RESULT {"case":"report","model":"material.requisition","record_name":"MR/0071/2026","kind":"pdf","bytes":31699,"magic":"255044462d"}
+QA_RESULT {"case":"report","model":"boq.boq","record_name":"BOQ00018","kind":"xlsx","bytes":6894,"magic":"504b030414"}
+QA_RESULT {"case":"analytic_only_freshness","stored":100.0,"computed":{"79":{"material":0.0,"labour":100.0,"overhead":0.0}},"po_line_link":false}
+QA_RESULT {"case":"distribution_change","stored":100.0,"computed":{}}
+QA_RESULT {"case":"cross_company_link","sheet_company":1,"project_company":11,"expected":"ValidationError for incompatible companies"}
+QA_RESULT {"case":"cross_company_read_rule","visible_ids":[],"expected":[]}
+QA_RESULT {"case":"pool_rfq_initial","demand":10.0,"stored_ordered":0.0,"po_qty":10.0,"allocated":10.0}
+QA_RESULT {"case":"pool_rfq_repeat","po_count":2,"total_po_qty":20.0,"expected":"no additional demand"}
+QA_RESULT {"case":"pool_partial_receipt","received":4.0,"picking_state":"done","backorder_qty":6.0,"allocated_received":4.0}
+QA_RESULT {"case":"pool_full_receipt","received":10.0,"allocated_received":10.0,"pool_state":"done","mr_states":["received","ordered"]}
+QA_RESULT {"case":"pool_return","po_received":8.0,"allocated_received":10.0,"expected_allocated_received":8,"pool_state":"done"}
+QA_RESULT {"case":"direct_partial","received":4.0,"actual":400.0,"expected":400}
+QA_RESULT {"case":"direct_full","received":10.0,"actual":1000.0,"expected":1000}
+QA_RESULT {"case":"direct_return","received":8.0,"actual":800.0,"expected":800}
+
+BROWSER EVIDENCE
+Chromium headless (cached build 1243), desktop viewport 1440x1000.
+Manager: dashboard, sheet list/form, BOQ form, MR form, pool/allocation lists, job orders, notes and subcontractors loaded without pageerror.
+BOQ wizard: no selection rejected with "Select at least one BOQ line to request."
+BOQ selected line -> draft MR id 55 -> Submit -> Department Approve -> Approve; subsequent ORM read confirmed state=approved.
+Labour Costs -> Open Purchase Order navigated to purchase.order id 81.
+Dashboard project filter value=35; project drilldown returned one sheet row.
+Requester sheet form: "You are not allowed to access 'Analytic Line' (account.analytic.line) records."
+Requester dashboard: "Only Job Costing Managers can access this dashboard."
+Company B user: sheet list returned its single company-B record.
+
+REPORT EVIDENCE
+Job Cost Sheet PDF downloaded via authenticated /report/pdf, one page; fonts DejaVuSans, Lato-Bold, Lato-Regular. Visual inspection: Thai project/product/description printed as square boxes.
+MR PDF downloaded via authenticated /report/pdf, two pages; fonts Sarabun-Bold, Lato-Regular. Visual inspection of page 1: Thai readable; document-number label has no value; custom header says 1/1 while external footer says 1/2.
+BOQ XLSX ZIP integrity passed; sharedStrings.xml contains Thai title and Thai product description.
+Old PyPDF2 extractText did not extract Thai from either PDF; the MR visual check confirms that text extraction alone cannot establish missing glyphs.
+
+LINT
+pylint 4.0.8, pylint-odoo 10.0.11, --valid-odoo-versions=17.0
+Exit 30; 1903 messages: convention 1060, error 277, refactor 79, warning 486, info 1.
+Includes many Odoo dynamic-ORM inference messages (no-member 214; unsubscriptable-object 34); not 277 confirmed runtime defects.
+Targeted undefined-variable/sql-injection scan: hr_timesheet.py:160 undefined-variable '_' only.
