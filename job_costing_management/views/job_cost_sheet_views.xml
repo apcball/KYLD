@@ -102,6 +102,13 @@
                             included in the totals below. Open the BOQ(s) via the "BOQs" smart button and run
                             "Create Job Cost Lines" to sync.
                         </div>
+                        <field name="shared_analytic_account_sheets" invisible="1"/>
+                        <div class="alert alert-danger" role="alert" invisible="not shared_analytic_account_sheets">
+                            This sheet shares its Analytic Account with another job cost sheet
+                            (<field name="shared_analytic_account_sheets" nolabel="1" readonly="1" class="d-inline"/>).
+                            Actual Cost figures below are combined across both sheets, not this sheet's own total —
+                            do not compare them directly to this sheet's planned/BOQ costs.
+                        </div>
                         <group name="cost_summary" string="Cost Summary" col="4">
                         <!-- BOQ COSTS (BASELINE BUDGET) -->
                         <group name="boq_costs" string="BOQ Costs (Baseline Budget)" invisible="boq_total_cost == 0 and boq_count == 0">

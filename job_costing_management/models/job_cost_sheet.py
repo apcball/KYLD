@@ -88,6 +88,8 @@ class JobCostSheet(models.Model):
     cost_lines_count = fields.Integer(string='Cost Lines', compute='_compute_cost_lines_count')
     boq_count = fields.Integer(string='BOQ Count', compute='_compute_boq_count')
     has_unsynced_boq = fields.Boolean(string='Has Unsynced BOQ', compute='_compute_boq_sync_status')
+    shared_analytic_account_sheets = fields.Char(string='Sheets Sharing Analytic Account',
+                                                  compute='_compute_shared_analytic_account')
     
     # Other fields
     notes = fields.Text(string='Notes')
@@ -462,6 +464,25 @@ class JobCostSheet(models.Model):
             record.has_unsynced_boq = bool(active_boqs) and (
                 sum(active_boqs.mapped('total_cost')) != record.boq_total_cost
             )
+
+    def _compute_shared_analytic_account(self):
+        """Actual Cost is computed by grouping PO/bill/timesheet lines by
+        analytic_account_id (_get_analytic_actual_cost_totals), not by sheet
+        id. If two job.cost.sheet records share the same analytic account
+        (e.g. two sheets created for the same project), their Actual Cost
+        figures are identical/combined - not each sheet's own number. Warn
+        instead of silently showing a misleading total (see
+        scripts/audit_jcs0028_labour_cost.py, JCS/0024/2026 vs
+        JCS/0028/2026, 2026-09-12)."""
+        for record in self:
+            if not record.analytic_account_id:
+                record.shared_analytic_account_sheets = False
+                continue
+            others = self.search([
+                ('analytic_account_id', '=', record.analytic_account_id.id),
+                ('id', '!=', record.id),
+            ])
+            record.shared_analytic_account_sheets = ', '.join(others.mapped('name')) if others else False
 
     def action_approve(self):
         self.write({'state': 'approved'})
