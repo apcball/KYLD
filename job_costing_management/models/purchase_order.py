@@ -337,11 +337,18 @@ class PurchaseOrderLine(models.Model):
             is_service = result.product_id.detailed_type == 'service'
             if not existing_line:
                 # Check by product + description, scoped to the matching cost type
-                # (see the BOQ-project fallback above for why).
+                # and, when this PO line traces back to a specific BOQ line, also
+                # require the candidate's boq_line_id to be blank or match that
+                # same BOQ line - same defect class as the BOQ-project fallback
+                # above (ae5e783): two BOQ items sharing product+description text
+                # would otherwise steal each other's actual cost via this path too.
+                req_boq_line = (result.material_requisition_line_id.boq_line_id
+                                 if result.material_requisition_line_id else False)
                 candidates = (cost_sheet.labour_cost_ids if is_service
                               else cost_sheet.material_cost_ids)
                 existing_line = candidates.filtered(
                     lambda l: l.product_id == result.product_id and l.name == result.name
+                    and (not l.boq_line_id or l.boq_line_id == req_boq_line)
                 )
 
             if existing_line:
