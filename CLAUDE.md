@@ -109,3 +109,32 @@ ssh -f -N -L 5433:localhost:5432 mogenit@119.13.29.46
 | Database | `KYLD_BASE`, `KYLD_LIVE`       |
 | User     | `odoo`                           |
 | Password | `%DOCKER_ROOT%/config/odoo.conf` |
+
+No local `psql` client needed for read-only checks: `ssh mogenit@119.13.29.46 "docker exec postgres psql -U odoo -d KYLD_LIVE -c '...'"` connects via the Postgres container's own socket (peer auth, no password), simpler than tunneling. Postgres container name on PROD is `postgres`, not `odoo` (that's the Odoo app container).
+
+## Pending ops — job_costing_management (2026-09-12)
+
+Bug found comparing code + real PROD data: `purchase.order.line`'s fallback
+matcher (`models/purchase_order.py`, project-fallback block) linked PO lines
+to job.cost.line by `product_id + name` only, scoped to the cost sheet but
+**not** to `boq_line_id`. Two BOQ lines that share the same product and
+identical description text (e.g. copy-pasted line text across BOQs) could
+steal each other's actual cost. Confirmed live on sheet 10: PO line 3497
+(from BOQ line 3906) had landed on the job.cost.line for BOQ line 1385.
+
+- Code fix: commit `ae5e783` — fallback match now requires the candidate's
+  `boq_line_id` to be blank or equal to the PO line's own BOQ line; new
+  fallback-created cost lines now stamp `boq_line_id` too.
+- Data-fix script: commit `f1cdc0a`, `scripts/fix_po_boq_line_mismatch.py` —
+  one-time `odoo shell` script, defaults to `DRY_RUN = True` (prints only,
+  no writes). Flip to `False` after reviewing the printed relink list, then
+  re-run to apply + commit.
+- Plan for the night: deploy `job_costing_management` to PROD (module
+  update), then run the fix script against `KYLD_LIVE` per the usage notes
+  at the top of the script file.
+- Still open from the original BOQ-visibility review (see commit history:
+  `9bdcad1`, `ae5e783`, `f1cdc0a`): no other module in the repo was audited
+  for the same product+name-without-boq_line_id matching pattern — if a
+  similar bug turns up elsewhere, check `service_po.py`'s
+  `get_or_create_cost_line` fallback too (same shape, not fixed here since
+  no confirmed instance was found for it).
