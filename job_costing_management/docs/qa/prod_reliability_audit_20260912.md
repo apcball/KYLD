@@ -21,6 +21,16 @@ Dry-ran `fix_po_boq_line_mismatch.py` on PROD: 0 auto-fixable, all 4 skipped ("n
 
 Case 11432 looks like cost_line 996 is being used as a catch-all "misc materials" bucket across 11 unrelated PO lines and possibly multiple projects, not a simple mismatch — needs accounting/PM judgment on intent before any relink, since moving it would shift real Actual Cost between two different projects' job cost sheets. **Decision (2026-09-12): hold all 4, no write made, pending human review of financial impact before any fix.**
 
+### Check 4 fixed (2026-09-12) — sheets sharing an analytic account no longer show combined Actual Cost
+
+Investigating a user report that JCS/0008/2025 (Blue zone/A2) looked massively over budget (Actual 6.5M vs budget 688K) found the root cause: it shares analytic_account_id 255 ("BLUE ZONE") with 4 sibling sheets (JCS/0004-0007/2025, other plots in the same zone), and `_compute_actual_costs` grouped every actual-cost source by account id, not sheet id — so all 5 plots showed the identical 6.5M zone-wide total.
+
+Per user decision, also redefined "actual cost" to count **posted vendor bills only** (not PO commitments or timesheets — a confirmed PO is a commitment, not yet spent). Replaced `_get_analytic_actual_cost_totals` with `_get_bill_actual_cost_totals` (`job_cost_sheet.py`): bill lines linked via `job_cost_line_id` now attribute to that line's own `cost_sheet_id` directly (unambiguous — this is what fixes the bleed); bill lines with only `analytic_distribution` (no cost-line link) still attribute by account id, since dropping that source entirely would lose ~38.9M THB/2,792 lines system-wide (confirmed on PROD) — larger than what the sheet-precise source captures (~25.2M/3,544 lines). That residual ambiguity remains for sheets that still share an account, but is now much smaller than the full zone total.
+
+Verified via dry run before applying: system-wide sum(actual_total_cost) went from 94.5M to 33.2M (PO-commitment and timesheet amounts dropped, as intended); JCS/0008/2025 went from 6,503,053 (shared zone total) to 714,314 (its own bills), variance from +5.8M to +26,213 (essentially on budget). Applied on PROD: 57 of 63 sheets updated. Tests updated (`tests/test_job_cost_sheet_actual_costs.py` rewritten for bill-based fixtures; `tests/test_service_po.py` 2 assertions corrected since a confirmed-but-unbilled PO no longer counts as actual cost) — 66/66 pass on the isolated test DB.
+
+**Every sheet's Actual Cost/variance should be treated as freshly corrected as of 2026-09-12; historical comparisons before this date used the old PO+bill+timesheet, account-grouped formula and are not comparable.**
+
 ## Bottom line
 
 **63 job cost sheets on PROD. Only 9 have zero known open issues. 54 carry at least one.**
