@@ -128,27 +128,47 @@ class JobCostSheet(models.Model):
             record.total_overhead_cost = sum(record.overhead_cost_ids.mapped('total_cost'))
             record.total_cost = record.total_material_cost + record.total_labour_cost + record.total_overhead_cost
     
-    @api.depends('material_cost_ids.active_total_cost', 'labour_cost_ids.active_total_cost', 
-                 'overhead_cost_ids.active_total_cost')
+    def _non_cancelled_boq_lines(self, lines):
+        """Drop cost lines whose BOQ was cancelled after the lines were
+        created. action_cancel() on boq.boq only flips the BOQ's own state
+        and never touches the job.cost.line rows it already produced, so
+        without this filter a cancelled BOQ's baseline/planned budget keeps
+        counting toward the sheet forever."""
+        return lines.filtered(lambda l: not l.boq_line_id or l.boq_line_id.boq_id.state != 'cancelled')
+
+    @api.depends('material_cost_ids.active_total_cost', 'labour_cost_ids.active_total_cost',
+                 'overhead_cost_ids.active_total_cost',
+                 'material_cost_ids.boq_line_id.boq_id.state', 'labour_cost_ids.boq_line_id.boq_id.state',
+                 'overhead_cost_ids.boq_line_id.boq_id.state')
     def _compute_active_totals(self):
-        """Compute active totals excluding cancelled/rejected Material Requisitions"""
+        """Compute active totals excluding cancelled/rejected Material Requisitions
+        and lines whose BOQ itself was cancelled."""
         for record in self:
-            record.active_material_cost = sum(record.material_cost_ids.mapped('active_total_cost'))
+            material_lines = record._non_cancelled_boq_lines(record.material_cost_ids)
+            labour_lines = record._non_cancelled_boq_lines(record.labour_cost_ids)
+            overhead_lines = record._non_cancelled_boq_lines(record.overhead_cost_ids)
+            record.active_material_cost = sum(material_lines.mapped('active_total_cost'))
             record.active_total_cost = (
-                sum(record.material_cost_ids.mapped('active_total_cost')) +
-                sum(record.labour_cost_ids.mapped('active_total_cost')) +
-                sum(record.overhead_cost_ids.mapped('active_total_cost'))
+                sum(material_lines.mapped('active_total_cost')) +
+                sum(labour_lines.mapped('active_total_cost')) +
+                sum(overhead_lines.mapped('active_total_cost'))
             )
-    
+
     @api.depends('material_cost_ids.boq_total_cost', 'labour_cost_ids.boq_total_cost',
-                 'overhead_cost_ids.boq_total_cost')
+                 'overhead_cost_ids.boq_total_cost',
+                 'material_cost_ids.boq_line_id.boq_id.state', 'labour_cost_ids.boq_line_id.boq_id.state',
+                 'overhead_cost_ids.boq_line_id.boq_id.state')
     def _compute_boq_totals(self):
-        """Compute BOQ baseline totals from cost lines"""
+        """Compute BOQ baseline totals from cost lines, excluding lines whose
+        BOQ was cancelled."""
         for record in self:
-            record.boq_material_cost = sum(record.material_cost_ids.mapped('boq_total_cost'))
-            record.boq_labour_cost = sum(record.labour_cost_ids.mapped('boq_total_cost'))
-            record.boq_overhead_cost = sum(record.overhead_cost_ids.mapped('boq_total_cost'))
-            record.boq_total_cost = (record.boq_material_cost + record.boq_labour_cost + 
+            material_lines = record._non_cancelled_boq_lines(record.material_cost_ids)
+            labour_lines = record._non_cancelled_boq_lines(record.labour_cost_ids)
+            overhead_lines = record._non_cancelled_boq_lines(record.overhead_cost_ids)
+            record.boq_material_cost = sum(material_lines.mapped('boq_total_cost'))
+            record.boq_labour_cost = sum(labour_lines.mapped('boq_total_cost'))
+            record.boq_overhead_cost = sum(overhead_lines.mapped('boq_total_cost'))
+            record.boq_total_cost = (record.boq_material_cost + record.boq_labour_cost +
                                     record.boq_overhead_cost)
     
     @api.model
@@ -429,14 +449,18 @@ class JobCostSheet(models.Model):
         for record in self:
             record.boq_count = len(record.boq_ids)
 
-    @api.depends('boq_ids.total_cost', 'boq_total_cost')
+    @api.depends('boq_ids.total_cost', 'boq_ids.state', 'boq_total_cost')
     def _compute_boq_sync_status(self):
         """A BOQ is 'unsynced' when its lines haven't been materialized as
         job.cost.line records yet (action_create_job_cost_lines never run),
-        so its budget is linked but invisible in boq_total_cost."""
+        so its budget is linked but invisible in boq_total_cost. Cancelled
+        BOQs are excluded from this comparison - their budget is meant to be
+        invisible in boq_total_cost now (see _compute_boq_totals), not a
+        sync gap."""
         for record in self:
-            record.has_unsynced_boq = bool(record.boq_ids) and (
-                sum(record.boq_ids.mapped('total_cost')) != record.boq_total_cost
+            active_boqs = record.boq_ids.filtered(lambda b: b.state != 'cancelled')
+            record.has_unsynced_boq = bool(active_boqs) and (
+                sum(active_boqs.mapped('total_cost')) != record.boq_total_cost
             )
 
     def action_approve(self):
