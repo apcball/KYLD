@@ -787,10 +787,17 @@ class JobCostLine(models.Model):
             
             # Scenario 2: No BOQ Line link (manual Job Cost Sheet)
             elif record.cost_sheet_id and record.product_id:
-                # Find all MRs created for this Job Cost Sheet's BOQ
+                # Find MRs created for this Job Cost Sheet, matching product, that
+                # are NOT already tied to a BOQ line. MR lines with a boq_line_id
+                # are counted by Scenario 1 on their own job.cost.line - including
+                # them here double-counts qty when the same product appears on
+                # several BOQ line items (confirmed on PROD: JCS/0042/2026 product
+                # 2638 spread across 19 BOQ lines, all summed into one orphan
+                # line's active_planned_qty, inflating active_total_cost by ~166M).
                 mr_lines = self.env['material.requisition.line'].search([
                     ('requisition_id.job_cost_sheet_id', '=', record.cost_sheet_id.id),
                     ('product_id', '=', record.product_id.id),
+                    ('boq_line_id', '=', False),
                 ])
                 
                 if not mr_lines:
