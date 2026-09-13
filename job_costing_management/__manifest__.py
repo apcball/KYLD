@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'buz Project Job Costing Management for Construction',
-    'version': '17.0.1.0.4',
+    'version': '17.0.1.0.6',
     'category': 'Project',
     'summary': 'Project Job Costing (Contracting) and Job Cost Sheet for Construction Management',
     'description': """
@@ -82,6 +82,7 @@ Key Benefits:
         'views/job_type_views.xml',
         'views/job_stage_views.xml',
         'views/job_cost_sheet_views.xml',
+        'views/job_cost_sheet_design.xml',
         'views/project_views.xml',
         'views/job_order_views.xml',
         'views/material_requisition_views.xml',
@@ -118,6 +119,10 @@ Key Benefits:
             'job_costing_management/static/src/dashboard/dashboard.js',
             'job_costing_management/static/src/dashboard/dashboard.xml',
             'job_costing_management/static/src/dashboard/dashboard.scss',
+            'job_costing_management/static/src/cost_sheet/summary.js',
+            'job_costing_management/static/src/cost_sheet/project_image.js',
+            'job_costing_management/static/src/cost_sheet/summary.xml',
+            'job_costing_management/static/src/cost_sheet/cost_sheet.scss',
         ],
     },
     'installable': True,

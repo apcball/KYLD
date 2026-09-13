@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_job_cost_sheet_form_design" model="ir.ui.view">
+        <field name="name">job.cost.sheet.form.design</field>
+        <field name="model">job.cost.sheet</field>
+        <field name="inherit_id" ref="view_job_cost_sheet_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="attributes">
+                <attribute name="class" add="o_job_cost_sheet" separator=" "/>
+            </xpath>
+            <xpath expr="//div[@class='oe_title']/h1" position="after">
+                <field name="state" widget="badge" readonly="1"
+                       decoration-success="state == 'approved'" decoration-info="state == 'done'"
+                       decoration-warning="state == 'draft'" decoration-danger="state == 'cancelled'"/>
+                <div class="jcs_project_subtitle"><field name="project_id" readonly="1"/></div>
+            </xpath>
+            <xpath expr="//sheet/group[1]" position="before">
+                <div class="jcs_project_card">
+                    <field name="project_image" widget="job_cost_project_image" class="jcs_project_photo"
+                           options="{'size': [320, 190]}"/>
+                    <div class="jcs_project_caption">
+                        <i class="fa fa-building-o" title="Project"/>
+                        <div><field name="project_id" readonly="1"/><small>Project</small></div>
+                    </div>
+                </div>
+            </xpath>
+            <xpath expr="//sheet/group[1]" position="attributes">
+                <attribute name="class">jcs_metadata</attribute>
+            </xpath>
+            <xpath expr="//group[@name='cost_summary']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//page[@name='material_costs']" position="before">
+                <page name="summary" string="Summary">
+                    <widget name="job_cost_sheet_summary"/>
+                    <div class="jcs_section_heading">
+                        <h2><i class="fa fa-cube" title="Materials"/> Material Costs</h2>
+                        <button name="action_view_boqs" type="object" string="Open BOQs" icon="fa-list-alt"
+                                class="btn btn-secondary" invisible="boq_count == 0"/>
+                    </div>
+                    <field name="material_cost_ids" context="{'default_cost_type': 'material', 'default_analytic_account_id': analytic_account_id}">
+                        <tree editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="product_id" string="Product / Service" domain="[('detailed_type', '!=', 'service')]"/>
+                            <field name="name" string="Description" required="1"/>
+                            <field name="planned_qty"/>
+                            <field name="active_planned_qty" readonly="1" decoration-warning="active_planned_qty != planned_qty"/>
+                            <field name="actual_qty" readonly="1"/>
+                            <field name="uom_id"/>
+                            <field name="unit_cost"/>
+                            <field name="total_cost" widget="monetary" readonly="1"/>
+                            <field name="active_total_cost" widget="monetary" readonly="1" decoration-warning="active_total_cost != total_cost"/>
+                            <field name="actual_cost" widget="monetary" readonly="1"/>
+                            <field name="cost_variance" widget="monetary" readonly="1" decoration-success="cost_variance &lt; 0" decoration-danger="cost_variance &gt; 0"/>
+                            <field name="currency_id" column_invisible="1"/>
+                            <field name="cost_type" column_invisible="1"/>
+                            <button name="action_edit_cost_line" type="object" icon="fa-edit" title="Change Cost Type"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+            <xpath expr="//page[@name='material_costs']" position="attributes"><attribute name="string">Materials</attribute></xpath>
+            <xpath expr="//page[@name='labour_costs']" position="attributes"><attribute name="string">Labour</attribute></xpath>
+            <xpath expr="//page[@name='overhead_costs']" position="attributes"><attribute name="string">Overhead</attribute></xpath>
+            <xpath expr="//page[@name='notes']" position="after">
+                <page name="related_documents" string="Related Documents">
+                    <div class="jcs_related_documents"/>
+                </page>
+            </xpath>
+            <xpath expr="//div[@class='jcs_related_documents']" position="inside">
+                <xpath expr="//div[@name='button_box']" position="move"/>
+            </xpath>
+            <xpath expr="//div[@name='button_box']" position="attributes">
+                <attribute name="name">related_document_actions</attribute>
+                <attribute name="class">jcs_document_grid</attribute>
+            </xpath>
+            <xpath expr="//div[@class='oe_title']" position="attributes">
+                <attribute name="class">jcs_title</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="job_costing_management.CostSheetSummary">
+        <div class="jcs_summary">
+            <div class="jcs_kpis">
+                <section t-foreach="cards" t-as="card" t-key="card.key" t-att-class="'jcs_kpi jcs_kpi_' + card.key">
+                    <span class="jcs_kpi_icon"><i t-att-class="'fa ' + card.icon" aria-hidden="true"/></span>
+                    <div class="jcs_kpi_content">
+                        <div class="jcs_kpi_label" t-esc="card.label"/>
+                        <strong t-att-class="card.key === 'variance' ? tone(card.value) : ''" t-esc="money(card.value)"/>
+                        <small t-if="card.key === 'variance' and ratio !== null" t-esc="percent(ratio - 100)"/>
+                    </div>
+                </section>
+                <section class="jcs_budget_progress">
+                    <div><span>Cost vs Budget</span><strong t-esc="ratio === null ? '—' : percent(ratio)"/></div>
+                    <div class="jcs_progress_track" role="progressbar" aria-label="Budget used" aria-valuemin="0" aria-valuemax="100" t-att-aria-valuenow="progress" t-att-aria-valuetext="ratio === null ? 'No BOQ budget' : percent(ratio)">
+                        <span t-att-class="actual > budget ? 'jcs_progress_over' : ''" t-att-style="'width: ' + progress + '%'"/>
+                    </div>
+                    <small t-if="ratio !== null"><t t-esc="money(actual)"/> / <t t-esc="money(budget)"/></small>
+                    <small t-else="">No positive BOQ budget</small>
+                </section>
+            </div>
+            <div class="jcs_breakdowns">
+                <section t-foreach="breakdowns" t-as="panel" t-key="panel.key" class="jcs_breakdown">
+                    <h3 t-esc="panel.title"/>
+                    <div class="jcs_breakdown_body">
+                        <div t-foreach="panel.rows" t-as="row" t-key="row.label" class="jcs_cost_row">
+                            <i t-att-class="'fa ' + row.icon" aria-hidden="true"/>
+                            <span t-esc="row.label"/>
+                            <span t-att-class="panel.key === 'variance' ? tone(row.value) : ''" t-esc="money(row.value)"/>
+                        </div>
+                        <div class="jcs_cost_total"><span t-esc="panel.footer"/><strong t-att-class="panel.key === 'variance' ? tone(panel.total) : ''" t-esc="money(panel.total)"/></div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </t>
+</templates>
