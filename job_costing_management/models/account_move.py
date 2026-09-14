@@ -60,7 +60,8 @@ class AccountMove(models.Model):
                 if line.job_cost_line_id and line.job_cost_line_id.cost_sheet_id:
                     cost_sheets |= line.job_cost_line_id.cost_sheet_id
                 if line.analytic_distribution:
-                    analytic_account_ids.update(int(k) for k in line.analytic_distribution.keys())
+                    for key in line.analytic_distribution.keys():
+                        analytic_account_ids.update(int(k) for k in key.split(','))
             if move.job_cost_sheet_id:
                 cost_sheets |= move.job_cost_sheet_id
 
