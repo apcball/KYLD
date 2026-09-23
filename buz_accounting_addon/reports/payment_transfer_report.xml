@@ -278,7 +278,9 @@
 
         <template id="report_payment_transfer">
             <t t-call="web.html_container">
-                <t t-foreach="docs" t-as="o">
+                <t t-foreach="docs" t-as="doc">
+                    <!-- sudo + record's own company: preview reads journals/bank accounts/accounts across companies -->
+                    <t t-set="o" t-value="doc.sudo().with_company(doc.sudo().company_id)"/>
                     <t t-call="buz_accounting_addon.report_payment_transfer_document" t-lang="o.company_id.partner_id.lang"/>
                 </t>
             </t>
