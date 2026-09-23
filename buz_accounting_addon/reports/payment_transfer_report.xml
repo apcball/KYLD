@@ -74,7 +74,7 @@
                     <!-- Header -->
                     <div class="row mb-4">
                         <div class="col-4">
-                            <img t-if="o.company_id.logo_web" t-att-src="image_data_uri(o.company_id.logo_web)" style="max-height: 80px; max-width: 80%;" alt="Logo"/>
+                            <strong style="font-size: 26px;" t-field="o.company_id.name"/>
                         </div>
                         <div class="col-4 text-center">
                             <h4 style="margin-bottom: 0; font-size: 30px;"><strong>ใบโอนเงินระหว่างธนาคาร</strong></h4>
