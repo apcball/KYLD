@@ -19,8 +19,44 @@
                     <field name="required_date"/>
                     <field name="total_cost" sum="Total Cost" optional="show"/>
                     <field name="state"/>
+                    <field name="order_status" widget="badge"
+                           decoration-danger="order_status == 'not_ordered'"
+                           decoration-warning="order_status == 'partial'"
+                           decoration-success="order_status == 'fully_ordered'"/>
                     <field name="priority"/>
                 </tree>
+            </field>
+        </record>
+
+        <!-- Material Requisition Search View -->
+        <record id="view_material_requisition_search" model="ir.ui.view">
+            <field name="name">material.requisition.search</field>
+            <field name="model">material.requisition</field>
+            <field name="arch" type="xml">
+                <search string="Material Requisitions">
+                    <field name="name"/>
+                    <field name="project_id"/>
+                    <field name="job_order_id"/>
+                    <field name="boq_id"/>
+                    <field name="employee_id"/>
+                    <filter name="filter_not_fully_ordered" string="Not Fully Ordered (ยังสั่งซื้อไม่หมด)"
+                            domain="[('state', 'in', ('approved', 'ordered')), ('order_status', 'in', ('not_ordered', 'partial'))]"/>
+                    <separator/>
+                    <filter name="filter_not_ordered" string="Not Ordered"
+                            domain="[('order_status', '=', 'not_ordered')]"/>
+                    <filter name="filter_partial" string="Partially Ordered"
+                            domain="[('order_status', '=', 'partial')]"/>
+                    <filter name="filter_fully_ordered" string="Fully Ordered"
+                            domain="[('order_status', '=', 'fully_ordered')]"/>
+                    <separator/>
+                    <filter name="filter_state_ordered" string="Ordered" domain="[('state', '=', 'ordered')]"/>
+                    <filter name="filter_state_done" string="Done" domain="[('state', '=', 'received')]"/>
+                    <group expand="0" string="Group By">
+                        <filter name="group_order_status" string="Order Status" context="{'group_by': 'order_status'}"/>
+                        <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                        <filter name="group_project" string="Project" context="{'group_by': 'project_id'}"/>
+                    </group>
+                </search>
             </field>
         </record>
 
@@ -99,6 +135,7 @@
                                 <field name="request_date"/>
                                 <field name="required_date"/>
                                 <field name="priority"/>
+                                <field name="order_status" widget="badge" invisible="not order_status"/>
                                 <field name="dept_manager_id" readonly="1"/>
                                 <field name="requisition_manager_id" readonly="1"/>
                             </group>
@@ -159,6 +196,7 @@
             <field name="name">Material Requisitions</field>
             <field name="res_model">material.requisition</field>
             <field name="view_mode">tree,form</field>
+            <field name="search_view_id" ref="view_material_requisition_search"/>
             <field name="context">{'res_model': 'material.requisition'}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">

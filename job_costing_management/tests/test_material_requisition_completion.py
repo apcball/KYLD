@@ -161,3 +161,51 @@ class TestMaterialRequisitionCompletion(TransactionCase):
         picking.write({'state': 'done'})
         requisition._check_and_mark_done()
         self.assertEqual(requisition.state, 'received')
+
+    def test_order_status_partial_then_done_on_full_rfq(self):
+        requisition = self._create_requisition([
+            ('purchase', 5.0),
+            ('purchase', 3.0),
+        ])
+        requisition.state = 'approved'
+        requisition._recompute_order_status()
+        line_a, line_b = requisition.line_ids
+        self.assertEqual(requisition.order_status, 'not_ordered')
+
+        line_a.select_for_rfq = True
+        requisition.action_create_purchase_order()
+        self.assertEqual(requisition.order_status, 'partial')
+        self.assertEqual(requisition.state, 'ordered')
+
+        line_b.select_for_rfq = True
+        requisition.action_create_purchase_order()
+        self.assertEqual(requisition.order_status, 'fully_ordered')
+        self.assertEqual(requisition.state, 'received')
+
+    def test_cancelling_rfq_reverts_done_to_ordered(self):
+        requisition = self._create_requisition([('purchase', 4.0)])
+        requisition.state = 'approved'
+        requisition.line_ids.select_for_rfq = True
+        requisition.action_create_purchase_order()
+        self.assertEqual(requisition.state, 'received')
+
+        self.env['purchase.order'].search(
+            [('material_requisition_id', '=', requisition.id)]).button_cancel()
+        self.assertEqual(requisition.order_status, 'not_ordered')
+        self.assertEqual(requisition.state, 'ordered')
+
+    def test_not_fully_ordered_filter(self):
+        open_mr = self._create_requisition([('purchase', 5.0)])
+        open_mr.state = 'approved'
+        open_mr._recompute_order_status()
+        done_mr = self._create_requisition([('purchase', 2.0)])
+        done_mr.state = 'approved'
+        done_mr.line_ids.select_for_rfq = True
+        done_mr.action_create_purchase_order()
+
+        found = self.env['material.requisition'].search([
+            ('state', 'in', ('approved', 'ordered')),
+            ('order_status', 'in', ('not_ordered', 'partial')),
+            ('id', 'in', (open_mr | done_mr).ids),
+        ])
+        self.assertEqual(found, open_mr)

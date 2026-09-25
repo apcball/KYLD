@@ -102,6 +102,27 @@ class PurchaseOrder(models.Model):
         
         return result
     
+    def _sync_requisition_order_state(self):
+        requisitions = (
+            self.mapped('material_requisition_id')
+            | self.mapped('order_line.material_requisition_line_id.requisition_id')
+        )
+        requisitions.sudo()._sync_order_state()
+
+    def button_cancel(self):
+        result = super(PurchaseOrder, self).button_cancel()
+        self._sync_requisition_order_state()
+        return result
+
+    def unlink(self):
+        requisitions = (
+            self.mapped('material_requisition_id')
+            | self.mapped('order_line.material_requisition_line_id.requisition_id')
+        )
+        result = super(PurchaseOrder, self).unlink()
+        requisitions.sudo()._sync_order_state()
+        return result
+
     def button_confirm(self):
         """Override button_confirm to update job cost sheet actual costs and pool state."""
         result = super(PurchaseOrder, self).button_confirm()
@@ -376,18 +397,32 @@ class PurchaseOrderLine(models.Model):
             if cost_sheet.analytic_account_id:
                 result.analytic_account_id = cost_sheet.analytic_account_id.id
         
+        result._sync_requisition_order_state()
+
         return result
     
     def write(self, vals):
         """Override write to update job cost line when PO line changes"""
         result = super(PurchaseOrderLine, self).write(vals)
-        
+
+        if 'product_qty' in vals or 'material_requisition_line_id' in vals:
+            self._sync_requisition_order_state()
+
         # If this line has a job cost line, update the actual costs
         if self.job_cost_line_id and 'qty_received' in vals:
             self.job_cost_line_id.update_actual_costs_from_purchases()
             
         return result
     
+    def unlink(self):
+        requisitions = self.mapped('material_requisition_line_id.requisition_id')
+        result = super(PurchaseOrderLine, self).unlink()
+        requisitions.sudo()._sync_order_state()
+        return result
+
+    def _sync_requisition_order_state(self):
+        self.mapped('material_requisition_line_id.requisition_id').sudo()._sync_order_state()
+
     @api.onchange('job_cost_sheet_id')
     def _onchange_job_cost_sheet_id(self):
         """Update domain for job cost line when job cost sheet changes"""

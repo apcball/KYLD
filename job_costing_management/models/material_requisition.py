@@ -79,6 +79,14 @@ class MaterialRequisition(models.Model):
         help='True if any MR purchase line has not been fully ordered via PO.',
     )
     
+    order_status = fields.Selection([
+        ('not_ordered', 'Not Ordered'),
+        ('partial', 'Partially Ordered'),
+        ('fully_ordered', 'Fully Ordered'),
+    ], string='Order Status', compute='_compute_order_status', store=True,
+        help='RFQ coverage of purchase lines: quantity on non-cancelled purchase '
+             'orders vs requested quantity. Empty when the MR has no purchase lines.')
+
     # Procurement Pool
     is_pooled = fields.Boolean(
         string='In Procurement Pool', compute='_compute_is_pooled', store=True)
@@ -150,44 +158,83 @@ class MaterialRequisition(models.Model):
                         break
             record.has_unordered_qty = has_gap
 
-    def _check_and_mark_done(self):
-        """Mark requisitions done when all purchase/transfer lines are complete.
+    def _get_rfq_coverage(self):
+        """Return {line_id: (rfq_qty, rounding)} for purchase lines of self.
 
-        Purchase lines are complete when confirmed purchase orders cover the
-        requested quantity. Internal lines are complete only when every
-        linked internal transfer is done.
+        rfq_qty is the quantity on non-cancelled purchase orders.
         """
-        POLine = self.env['purchase.order.line'].sudo()
+        purchase_lines = self.line_ids.filtered(
+            lambda l: l.requisition_action == 'purchase')
+        coverage = {}
+        if not purchase_lines:
+            return coverage
+        groups = self.env['purchase.order.line'].sudo().read_group(
+            [('material_requisition_line_id', 'in', purchase_lines.ids),
+             ('order_id.state', '!=', 'cancel')],
+            ['product_qty:sum'], ['material_requisition_line_id'])
+        qty_by_line = {
+            g['material_requisition_line_id'][0]: g['product_qty']
+            for g in groups if g['material_requisition_line_id']}
+        for line in purchase_lines:
+            rounding = (line.uom_id.rounding if line.uom_id
+                        else line.product_id.uom_id.rounding) or 0.01
+            coverage[line.id] = (qty_by_line.get(line.id, 0.0), rounding)
+        return coverage
+
+    @api.depends('line_ids.quantity', 'line_ids.requisition_action')
+    def _compute_order_status(self):
+        for record in self:
+            coverage = record._get_rfq_coverage()
+            if not coverage:
+                record.order_status = False
+                continue
+            qty_by_line = {l.id: l.quantity for l in record.line_ids}
+            full = all(
+                float_compare(rfq_qty, qty_by_line[lid], precision_rounding=rounding) >= 0
+                for lid, (rfq_qty, rounding) in coverage.items())
+            if full:
+                record.order_status = 'fully_ordered'
+            elif any(rfq_qty > 0 for rfq_qty, _rounding in coverage.values()):
+                record.order_status = 'partial'
+            else:
+                record.order_status = 'not_ordered'
+
+    def _recompute_order_status(self):
+        """Refresh the stored order_status (PO lines are a cross-model dependency)."""
+        self._compute_order_status()
+
+    def _sync_order_state(self):
+        """Sync MR state with RFQ coverage.
+
+        - every purchase line fully on RFQ/PO (and all internal transfers done)
+          -> Done ('received')
+        - some qty on RFQ/PO but not complete -> 'ordered'
+        A Done MR drops back to 'ordered' when RFQ qty is cancelled/reduced.
+        """
         for requisition in self.filtered(
-                lambda req: req.state in ('approved', 'ordered')):
+                lambda req: req.state in ('approved', 'ordered', 'received')):
+            requisition._recompute_order_status()
             lines = requisition.line_ids.filtered(
-                lambda line: line.requisition_action in ('purchase', 'internal'))
+                lambda l: l.requisition_action in ('purchase', 'internal'))
             if not lines:
                 continue
+            internal_done = all(
+                line.picking_ids and all(p.state == 'done' for p in line.picking_ids)
+                for line in lines.filtered(lambda l: l.requisition_action == 'internal'))
+            purchase_full = requisition.order_status in (False, 'fully_ordered')
+            if purchase_full and internal_done:
+                new_state = 'received'
+            elif requisition.order_status in ('partial', 'fully_ordered') \
+                    or requisition.state == 'received':
+                new_state = 'ordered'
+            else:
+                continue
+            if new_state != requisition.state:
+                requisition.write({'state': new_state})
 
-            complete = True
-            for line in lines:
-                if line.requisition_action == 'purchase':
-                    po_lines = POLine.search([
-                        ('material_requisition_line_id', '=', line.id),
-                        ('order_id.state', 'in', ['purchase', 'done']),
-                    ])
-                    ordered_qty = sum(po_lines.mapped('product_qty'))
-                    rounding = (line.uom_id.rounding
-                                if line.uom_id else line.product_id.uom_id.rounding)
-                    if float_compare(
-                            ordered_qty, line.quantity,
-                            precision_rounding=rounding) < 0:
-                        complete = False
-                        break
-                else:
-                    pickings = line.picking_ids
-                    if not pickings or any(picking.state != 'done' for picking in pickings):
-                        complete = False
-                        break
-
-            if complete:
-                requisition.write({'state': 'received'})
+    def _check_and_mark_done(self):
+        """Backward-compatible alias (called on PO confirm)."""
+        self._sync_order_state()
 
     @api.depends('line_ids.total_cost')
     def _compute_total_amount(self):
@@ -374,7 +421,7 @@ class MaterialRequisition(models.Model):
         
         if purchase_orders:
             purchase_lines.write({'select_for_rfq': False})
-            self.write({'state': 'ordered'})
+            self.sudo()._sync_order_state()
 
             # Use our custom purchase order view to avoid approval_state errors
             tree_view = self.env.ref('job_costing_management.view_purchase_order_tree_job_costing', False)
@@ -520,6 +567,8 @@ class MaterialRequisition(models.Model):
                     message_type='notification',
                     subtype_xmlid='mail.mt_note',
                 )
+
+            req._sync_order_state()
 
             # Trigger budget recompute if biz_weekly_budget is installed
             if hasattr(req, '_update_budget_moves'):
