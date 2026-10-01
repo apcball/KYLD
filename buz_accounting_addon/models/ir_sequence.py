@@ -13,7 +13,10 @@ class IrSequence(models.Model):
         seq = self.search([('code', '=', code), ('company_id', '=', company.id)], limit=1)
         if seq:
             return seq
-        template = self.search([('code', '=', code), ('company_id', '=', False)], limit=1)
+        # Prefer the global template; the data-file sequence can end up stamped with
+        # the installing company (company_id=1), so fall back to any sequence of this code.
+        template = self.search([('code', '=', code), ('company_id', '=', False)], limit=1) \
+            or self.search([('code', '=', code)], order='id', limit=1)
         if not template:
             return self.env['ir.sequence']
         return template.copy({

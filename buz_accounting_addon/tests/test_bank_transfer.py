@@ -129,3 +129,13 @@ class TestAccountBankTransfer(common.TransactionCase):
         transfer.action_draft()
         self.assertEqual(transfer.state, 'draft')
         self.assertIn(transfer.payment_id.state, ('draft', 'cancel'))
+
+    def test_transfer_name_for_company_without_sequence(self):
+        """New company must get its own sequence even if the template is company-stamped."""
+        company = self.env['res.company'].create({'name': 'Seq Test Company'})
+        seq = self.env['ir.sequence'].sudo()
+        self.assertFalse(seq.search([('code', '=', 'account.bank.transfer'), ('company_id', '=', company.id)]))
+        name = seq.next_by_code_company('account.bank.transfer', company)
+        self.assertTrue(name and name != '/')
+        self.assertEqual(
+            seq.search_count([('code', '=', 'account.bank.transfer'), ('company_id', '=', company.id)]), 1)
