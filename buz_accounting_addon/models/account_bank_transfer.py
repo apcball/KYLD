@@ -1,5 +1,5 @@
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 class AccountBankTransfer(models.Model):
     _name = 'account.bank.transfer'
@@ -20,6 +20,13 @@ class AccountBankTransfer(models.Model):
     
     amount = fields.Monetary(string='Amount', required=True, tracking=True)
     currency_id = fields.Many2one('res.currency', related='journal_id.currency_id', string='Currency', readonly=True)
+    bank_charge_currency_id = fields.Many2one(
+        'res.currency', string='Bank Charge Currency',
+        default=lambda self: self.env.ref('base.THB'), readonly=True)
+    bank_charge_amount = fields.Monetary(
+        string='Bank Charges (THB)', currency_field='bank_charge_currency_id', tracking=True,
+        help="Bank fee charged on top of the transfer amount. Deducted from the source journal "
+             "and booked to the source journal's Extra Bank Charge Account.")
     company_id = fields.Many2one('res.company', string='Company', required=True, default=lambda self: self.env.company)
 
     payment_id = fields.Many2one('account.payment', string='Payment', readonly=True, copy=False)
@@ -30,6 +37,22 @@ class AccountBankTransfer(models.Model):
     partner_bank_id = fields.Many2one('res.partner.bank', string='Recipient Bank Account', related='destination_journal_id.bank_account_id', readonly=True)
     paired_internal_transfer_payment_id = fields.Many2one('account.payment', related='payment_id.paired_internal_transfer_payment_id', readonly=True)
     ref = fields.Char(string='Memo')
+
+    @api.constrains('bank_charge_amount')
+    def _check_bank_charge_amount(self):
+        for rec in self:
+            if rec.bank_charge_amount < 0:
+                raise ValidationError(_("Bank charges cannot be negative."))
+
+    @api.model
+    def default_get(self, fields_list):
+        vals = super().default_get(fields_list)
+        voucher_id = self._context.get('default_buz_payment_voucher_id') or self._context.get('buz_payment_voucher_id')
+        if voucher_id and 'bank_charge_amount' not in vals:
+            voucher = self.env['account.payment.voucher'].browse(voucher_id)
+            if voucher.exists() and voucher.bank_free_dis:
+                vals['bank_charge_amount'] = voucher.bank_free_dis
+        return vals
 
     @api.model
     def create(self, vals):
@@ -44,7 +67,12 @@ class AccountBankTransfer(models.Model):
              raise UserError(_("Amount must be strictly positive."))
         if self.journal_id == self.destination_journal_id:
              raise UserError(_("Source and Destination journals must be different."))
-             
+        if self.bank_charge_amount > 0 and not self.journal_id.default_bank_charge_account_id:
+            raise UserError(_(
+                "Please configure the Extra Bank Charge Account on journal '%s' "
+                "(Invoicing > Configuration > Journals) before charging a bank fee.",
+                self.journal_id.display_name))
+
         # Create Internal Transfer
         payment_vals = {
             'payment_type': 'outbound',
@@ -55,6 +83,8 @@ class AccountBankTransfer(models.Model):
             'date': self.date,
             'ref': self.name + (f" - {self.ref}" if self.ref else ""),
             'currency_id': self.currency_id.id or self.company_id.currency_id.id,
+            'bank_charge_amount': self.bank_charge_amount,
+            'bank_charge_currency_id': self.bank_charge_currency_id.id,
         }
         
         if self.buz_payment_voucher_id:

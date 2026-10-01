@@ -133,12 +133,12 @@
                                 <td class="text-end">
                                     <span t-field="o.amount" t-options="{'widget': 'float', 'precision': 2}"/>
                                 </td>
-                                <td class="text-end">0.00</td>
+                                <td class="text-end"><span t-field="o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/></td>
                             </tr>
                             <tr>
                                 <td colspan="2" class="text-end">จำนวนเงิน</td>
-                                <td class="text-end"><span t-field="o.amount" t-options="{'widget': 'float', 'precision': 2}"/></td>
-                                <td class="text-end">0.00</td>
+                                <td class="text-end"><span t-esc="o.amount + o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/></td>
+                                <td class="text-end"><span t-field="o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/></td>
                             </tr>
                         </tbody>
                     </table>
@@ -173,7 +173,7 @@
                                     <span t-esc="0.00" t-options="{'widget': 'float', 'precision': 2}"/>
                                 </td>
                                 <td class="text-end">
-                                    <span t-field="o.amount" t-options="{'widget': 'float', 'precision': 2}"/>
+                                    <span t-esc="o.amount + o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/>
                                 </td>
                             </tr>
                             
@@ -195,10 +195,28 @@
                                 </td>
                             </tr>
 
+                            <!-- Simulated Bank Charge Line (Debit) -->
+                            <tr t-if="o.bank_charge_amount &gt; 0">
+                                <td>
+                                    <span t-field="o.journal_id.default_bank_charge_account_id.code"/>
+                                </td>
+                                <td>
+                                    <span t-field="o.journal_id.default_bank_charge_account_id.name"/>
+                                </td>
+                                <td><span t-field="o.name"/></td>
+                                <td><span t-field="o.date"/></td>
+                                <td class="text-end">
+                                    <span t-field="o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/>
+                                </td>
+                                <td class="text-end">
+                                    <span t-esc="0.00" t-options="{'widget': 'float', 'precision': 2}"/>
+                                </td>
+                            </tr>
+
                             <tr>
                                 <td colspan="4" class="text-end"><strong>Total</strong></td>
-                                <td class="text-end"><strong><span t-field="o.amount" t-options="{'widget': 'float', 'precision': 2}"/></strong></td>
-                                <td class="text-end"><strong><span t-field="o.amount" t-options="{'widget': 'float', 'precision': 2}"/></strong></td>
+                                <td class="text-end"><strong><span t-esc="o.amount + o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/></strong></td>
+                                <td class="text-end"><strong><span t-esc="o.amount + o.bank_charge_amount" t-options="{'widget': 'float', 'precision': 2}"/></strong></td>
                             </tr>
                         </tbody>
                     </table>
