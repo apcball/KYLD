@@ -1,200 +1,122 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="biz_weekly_budget.WeeklyBudgetDashboard" owl="1">
-        <div class="o_weekly_budget_dashboard p-4 bg-light h-100 overflow-auto">
-            <div class="container-fluid">
-                <!-- Header / Title + Filters -->
-                <div class="row mb-4 align-items-center">
-                    <div class="col-md-5">
-                        <h2 class="text-primary font-weight-bold mb-0">
-                            <i class="fa fa-dashboard mr-2"/> Cashflow Forecast Dashboard
-                        </h2>
-                    </div>
-                    <div class="col-md-7 d-flex justify-content-end" style="gap: 12px;">
-                        <!-- Filter by Year -->
-                        <div style="min-width: 140px;">
-                            <label class="small text-muted mb-1">Filter by Year</label>
-                            <select class="form-control custom-select" t-on-change="onYearChange">
-                                <option value="all">All Years</option>
-                                <t t-foreach="state.years" t-as="yr" t-key="yr">
-                                    <option t-att-value="yr" t-esc="yr"/>
-                                </t>
-                            </select>
-                        </div>
-                        <!-- Filter by Month -->
-                        <div style="min-width: 140px;">
-                            <label class="small text-muted mb-1">Filter by Month</label>
-                            <select class="form-control custom-select" t-on-change="onMonthChange">
-                                <t t-foreach="state.months" t-as="m" t-key="m.id">
-                                    <option t-att-value="m.id" t-esc="m.name"/>
-                                </t>
-                            </select>
-                        </div>
-                        <!-- Filter by Budget Plan -->
-                        <div style="min-width: 220px;">
-                            <label class="small text-muted mb-1">Filter by Monthly Budget</label>
-                            <select class="form-control custom-select" t-on-change="onPlanChange">
-                                <option value="all">All Monthly Plans</option>
-                                <t t-foreach="state.plans" t-as="plan" t-key="plan.id">
-                                    <option t-att-value="plan.id" t-esc="plan.name"/>
-                                </t>
-                            </select>
-                        </div>
+        <div class="o_weekly_budget_dashboard p-4 h-100 overflow-auto">
+            <!-- Header + filters -->
+            <div class="o_bd_header d-flex flex-wrap align-items-center justify-content-between mb-4">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="o_bd_title_icon"><i class="fa fa-line-chart"/></span>
+                    <div class="ms-3 ml-3">
+                        <h2 class="o_bd_title mb-0">Cashflow Forecast Dashboard</h2>
+                        <div class="text-muted">ภาพรวมกระแสเงินสด / การใช้จ่าย และการคาดการณ์</div>
                     </div>
                 </div>
+                <div class="o_bd_filters d-flex flex-wrap align-items-end">
+                    <div class="o_bd_filter">
+                        <label>By Company</label>
+                        <select class="form-select form-control" t-on-change="onCompanyChange">
+                            <option value="all" t-att-selected="isSelected('selectedCompanyId', 'all')">All Companies</option>
+                            <t t-foreach="state.companies" t-as="company" t-key="company.id">
+                                <option t-att-value="company.id" t-esc="company.name"
+                                        t-att-selected="isSelected('selectedCompanyId', company.id)"/>
+                            </t>
+                        </select>
+                    </div>
+                    <div class="o_bd_filter">
+                        <label>ปีงบประมาณ</label>
+                        <select class="form-select form-control" t-on-change="onYearChange">
+                            <option value="all" t-att-selected="isSelected('selectedYear', 'all')">All Years</option>
+                            <t t-foreach="state.years" t-as="year" t-key="year">
+                                <option t-att-value="year" t-esc="year"
+                                        t-att-selected="isSelected('selectedYear', year)"/>
+                            </t>
+                        </select>
+                    </div>
+                    <div class="o_bd_filter">
+                        <label>เดือน</label>
+                        <select class="form-select form-control" t-on-change="onMonthChange">
+                            <t t-foreach="state.months" t-as="month" t-key="month.id">
+                                <option t-att-value="month.id" t-esc="month.name"
+                                        t-att-selected="isSelected('selectedMonth', month.id)"/>
+                            </t>
+                        </select>
+                    </div>
+                    <div class="o_bd_filter">
+                        <label>งบประมาณ</label>
+                        <select class="form-select form-control" t-on-change="onPlanChange">
+                            <option value="all" t-att-selected="isSelected('selectedPlanId', 'all')">All Monthly Plans</option>
+                            <t t-foreach="state.plans" t-as="plan" t-key="plan.id">
+                                <option t-att-value="plan.id" t-esc="plan.name"
+                                        t-att-selected="isSelected('selectedPlanId', plan.id)"/>
+                            </t>
+                        </select>
+                    </div>
+                    <div class="o_bd_updated">
+                        <div class="text-muted small">อัปเดตล่าสุด</div>
+                        <div class="fw-bold font-weight-bold" t-esc="state.updatedAt"/>
+                    </div>
+                    <button type="button" class="btn btn-primary o_bd_refresh" t-on-click="onRefresh"
+                            t-att-disabled="state.refreshing">
+                        <i t-attf-class="fa fa-refresh #{state.refreshing ? 'fa-spin' : ''}"/> Refresh
+                    </button>
+                </div>
+            </div>
 
-                <!-- KPI Cards: 5 cards -->
-                <div class="row mb-4">
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-muted text-uppercase small font-weight-bold">Total Budget</h6>
-                                <h4 class="text-info mb-0" t-esc="formatCurrency(state.summary.total_budget || 0)"/>
+            <!-- KPI cards -->
+            <div class="o_bd_kpis mb-4">
+                <t t-foreach="kpis" t-as="kpi" t-key="kpi.key">
+                    <div t-attf-class="o_bd_kpi o_bd_kpi_#{kpi.key}">
+                        <div class="d-flex align-items-center">
+                            <span class="o_bd_kpi_icon"><i t-attf-class="fa #{kpi.icon}"/></span>
+                            <div class="ms-3 ml-3">
+                                <div class="o_bd_kpi_label" t-esc="kpi.label"/>
+                                <div class="o_bd_kpi_value" t-esc="kpi.value"/>
                             </div>
+                        </div>
+                        <div class="o_bd_kpi_sub" t-esc="kpi.sub"/>
+                        <div class="o_bd_bar" t-if="kpi.pct !== null">
+                            <div class="o_bd_bar_fill" t-attf-style="width: #{kpi.barWidth}%"/>
                         </div>
                     </div>
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-muted text-uppercase small font-weight-bold">Used (Billed)</h6>
-                                <h4 class="text-danger mb-0" t-esc="formatCurrency(state.summary.total_used || 0)"/>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 rounded-lg" style="background-color:#fff7ed;">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-uppercase small font-weight-bold" style="color:#c2410c;">Reserved</h6>
-                                <h4 class="mb-0" style="color:#ea580c;" t-esc="formatCurrency(state.summary.total_reserved || 0)"/>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 rounded-lg" style="background-color:#f0f9ff;">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-uppercase small font-weight-bold" style="color:#0369a1;">Forecast</h6>
-                                <h4 class="mb-0" style="color:#0284c7;" t-esc="formatCurrency(state.summary.forecast || 0)"/>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-muted text-uppercase small font-weight-bold">Available</h6>
-                                <h4 class="text-success mb-0" t-esc="formatCurrency(state.summary.remaining || 0)"/>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg">
-                            <div class="card-body text-center p-2">
-                                <h6 class="text-muted text-uppercase small font-weight-bold">Utilized %</h6>
-                                <h4 class="text-warning mb-0" t-esc="(state.summary.utilization || 0).toFixed(1) + '%'"/>
-                            </div>
-                        </div>
+                </t>
+            </div>
+
+            <!-- Row 1 -->
+            <div class="row mb-4">
+                <div class="col-lg-6 mb-3">
+                    <div class="o_bd_panel">
+                        <div class="o_bd_panel_title">Department Overview</div>
+                        <div class="text-muted small mb-2">สรุปการใช้จ่ายตามแผนก (บาท)</div>
+                        <div class="o_bd_chart"><canvas t-ref="chart"/></div>
+                        <div t-if="!state.departments.length" class="o_bd_empty">No data</div>
                     </div>
                 </div>
-
-                <!-- Charts Row -->
-                <div class="row mb-4">
-                    <!-- Bar Chart: Department Overview -->
-                    <div class="col-md-6">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg h-100">
-                            <div class="card-header bg-white border-0 py-3">
-                                <h5 class="card-title text-muted mb-0 font-weight-bold">
-                                    <i class="fa fa-building mr-2"/>Department Overview
-                                </h5>
-                            </div>
-                            <div class="card-body" style="min-height: 340px; position: relative;">
-                                <canvas t-ref="chart"/>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Line Chart: Weekly Trend -->
-                    <div class="col-md-6">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg h-100">
-                            <div class="card-header bg-white border-0 py-3">
-                                <h5 class="card-title text-muted mb-0 font-weight-bold">
-                                    <i class="fa fa-line-chart mr-2"/>Weekly Trend
-                                </h5>
-                            </div>
-                            <div class="card-body" style="min-height: 340px; position: relative;">
-                                <canvas t-ref="lineChart"/>
-                            </div>
-                        </div>
+                <div class="col-lg-6 mb-3">
+                    <div class="o_bd_panel">
+                        <div class="o_bd_panel_title">Weekly Trend</div>
+                        <div class="text-muted small mb-2">แนวโน้มการใช้จ่ายรายสัปดาห์ (limit ต่อสัปดาห์คิดตามสัดส่วนจำนวนวัน)</div>
+                        <div class="o_bd_chart"><canvas t-ref="lineChart"/></div>
+                        <div t-if="!state.weekly.length" class="o_bd_empty">No data</div>
                     </div>
                 </div>
-                
-                <div class="row mb-4">
-                    <!-- Pie Chart -->
-                    <div class="col-md-4">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg h-100">
-                            <div class="card-header bg-white border-0 py-3">
-                                <h5 class="card-title text-muted mb-0 font-weight-bold">
-                                    <i class="fa fa-pie-chart mr-2"/>Budget Utilization
-                                </h5>
-                            </div>
-                            <div class="card-body d-flex flex-column align-items-center justify-content-center" style="min-height: 340px; position: relative;">
-                                <div class="o_pie_chart_wrapper w-100" style="max-height: 280px; position: relative;">
-                                    <canvas t-ref="pieChart"/>
-                                </div>
-                                <div class="o_pie_center_label text-center mt-2">
-                                    <small class="text-muted">
-                                        <t t-esc="(state.summary.utilization || 0).toFixed(1)"/>% Used
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            </div>
 
-                <!-- Footer Summary Table -->
-                <div class="row mt-2">
-                    <div class="col-md-12">
-                        <div class="card shadow-sm border-0 bg-white rounded-lg">
-                            <div class="card-header bg-white border-0 py-3">
-                                <h5 class="card-title text-muted mb-0 font-weight-bold">
-                                    <i class="fa fa-table mr-2"/>Weekly Breakdown
-                                </h5>
-                            </div>
-                            <div class="card-body p-0">
-                                <table class="table table-hover mb-0">
-                                    <thead class="bg-light text-muted small text-uppercase font-weight-bold">
-                                        <tr>
-                                            <th class="pl-4">Week Reference</th>
-                                            <th class="text-right">Budget Limit</th>
-                                            <th class="text-right" style="color:#0284c7;">Forecast</th>
-                                            <th class="text-right" style="color:#ea580c;">Reserved</th>
-                                            <th class="text-right">Actual Used</th>
-                                            <th class="text-right">Available</th>
-                                            <th class="text-center pr-4">Status</th>
-                                        </tr>
-                                    </thead>
+            <!-- Row 2 -->
+            <div class="row">
+                <div class="col-12 mb-3">
+                    <div class="o_bd_panel">
+                        <div class="o_bd_panel_title">Budget Utilization</div>
+                        <div class="text-muted small mb-2">สัดส่วนการใช้งบประมาณ</div>
+                        <div class="row">
+                            <div class="col-12">
+                                <table class="table table-sm o_bd_legend mb-0">
                                     <tbody>
-                                        <t t-if="state.weeks.length === 0">
+                                        <t t-foreach="legend" t-as="row" t-key="row.label">
                                             <tr>
-                                                <td colspan="5" class="text-center text-muted py-4">
-                                                    No data found for the selected filters.
-                                                </td>
-                                            </tr>
-                                        </t>
-                                        <t t-foreach="state.weeks" t-as="week" t-key="week.name">
-                                            <tr>
-                                                <td class="pl-4 font-weight-bold" t-esc="week.name"/>
-                                                <td class="text-right" t-esc="formatCurrency(week.budget)"/>
-                                                <td class="text-right font-weight-bold" style="color:#0284c7;"
-                                                    t-esc="formatCurrency(week.forecast || 0)"/>
-                                                <td class="text-right font-weight-bold" style="color:#ea580c;"
-                                                    t-esc="formatCurrency(week.reserved || 0)"/>
-                                                <td class="text-right" t-esc="formatCurrency(week.actual)"/>
-                                                <td class="text-right font-weight-bold"
-                                                    t-attf-class="{{(week.budget - week.actual - (week.reserved||0) - (week.forecast||0)) >= 0 ? 'text-success' : 'text-danger'}}"
-                                                    t-esc="formatCurrency(week.budget - week.actual - (week.reserved||0) - (week.forecast||0))"/>
-                                                <td class="text-center pr-4">
-                                                    <span t-if="(week.budget - week.actual - (week.reserved||0) - (week.forecast||0)) >= 0" class="badge badge-success px-2 py-1">Under Budget</span>
-                                                    <span t-else="" class="badge badge-danger px-2 py-1">Over Budget</span>
-                                                </td>
+                                                <td><span class="o_bd_dot" t-attf-style="background: #{row.color}"/></td>
+                                                <td t-esc="row.label"/>
+                                                <td class="text-end text-right" t-esc="row.amount"/>
+                                                <td class="text-end text-right text-muted" t-esc="row.pct"/>
                                             </tr>
                                         </t>
                                     </tbody>
@@ -203,6 +125,18 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Actual Payment: one chart per company -->
+            <div class="o_bd_panel mb-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="o_bd_panel_title">Actual Payment <span class="text-muted fw-normal">(ยอดการจ่ายจริงรายเดือน)</span></div>
+                        <div class="text-muted small mb-3">ยอดจ่ายจริง 12 เดือนล่าสุด แยกตามบริษัท · คลิกที่เดือนเพื่อ export Excel</div>
+                    </div>
+                </div>
+                <div class="o_bd_payment_grid" t-ref="paymentGrid"/>
+                <div t-if="!state.payments.length" class="text-muted text-center py-4">No data</div>
             </div>
         </div>
     </t>

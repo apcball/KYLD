@@ -1,30 +1,175 @@
+$bd-blue: #2f80ed;
+$bd-red: #f0385a;
+$bd-orange: #f59e0b;
+$bd-purple: #7c4dff;
+$bd-green: #10b981;
+
 .o_weekly_budget_dashboard {
-    .card {
-        transition: transform 0.2s;
-        &:hover {
-            transform: translateY(-2px);
-        }
+    background: #f4f7fb;
+
+    .o_bd_title_icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: #e8eefb;
+        color: $bd-blue;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
     }
-    .badge {
-        font-weight: 500;
-        letter-spacing: 0.5px;
+    .o_bd_title {
+        font-weight: 700;
+        color: #1b2a49;
     }
-    .table thead th {
-        border-top: none;
-    }
-    .o_pie_chart_wrapper {
-        canvas {
-            max-height: 260px;
-        }
-    }
-    .o_pie_center_label {
-        small {
-            font-size: 0.85rem;
-            letter-spacing: 0.5px;
-        }
-    }
-    // Filters row gap for flex
-    .d-flex[style*="gap"] {
+
+    .o_bd_filters {
         gap: 12px;
+    }
+    .o_bd_filter {
+        min-width: 150px;
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #4a5878;
+            margin-bottom: 2px;
+        }
+    }
+    .o_bd_updated {
+        padding-left: 12px;
+        min-width: 140px;
+    }
+
+    // KPI tiles
+    .o_bd_kpis {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 16px;
+        @media (max-width: 1400px) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        @media (max-width: 768px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .o_bd_kpi {
+        --kpi-color: #{$bd-blue};
+        --kpi-bg: #eef4ff;
+        background: linear-gradient(180deg, var(--kpi-bg), #fff);
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(30, 50, 90, 0.06);
+        &_used { --kpi-color: #{$bd-red}; --kpi-bg: #fff0f3; }
+        &_reserved { --kpi-color: #{$bd-orange}; --kpi-bg: #fff6e6; }
+        &_forecast { --kpi-color: #{$bd-blue}; --kpi-bg: #eef4ff; }
+        &_available { --kpi-color: #{$bd-green}; --kpi-bg: #e9f9f1; }
+        &_utilized { --kpi-color: #{$bd-purple}; --kpi-bg: #f3eefe; }
+    }
+    .o_bd_kpi_icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--kpi-color);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+    .o_bd_kpi_label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #33415c;
+    }
+    .o_bd_kpi_value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: var(--kpi-color);
+        white-space: nowrap;
+    }
+    .o_bd_kpi_sub {
+        font-size: 0.8rem;
+        color: var(--kpi-color);
+        margin: 8px 0 6px;
+    }
+    .o_bd_bar {
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.07);
+        overflow: hidden;
+    }
+    .o_bd_bar_fill {
+        height: 100%;
+        background: var(--kpi-color);
+        border-radius: 3px;
+    }
+
+    // Panels
+    .o_bd_panel {
+        position: relative;
+        background: #fff;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 2px 8px rgba(30, 50, 90, 0.06);
+        height: 100%;
+    }
+    .o_bd_panel_title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #1b2a49;
+    }
+    .o_bd_chart {
+        position: relative;
+        height: 300px;
+    }
+    .o_bd_empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #98a2b8;
+    }
+
+    .o_bd_legend td {
+        vertical-align: middle;
+        border-color: #eef1f6;
+    }
+    .o_bd_dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    // Actual Payment: one card per company
+    .o_bd_payment_grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        @media (max-width: 992px) { grid-template-columns: minmax(0, 1fr); }
+    }
+    .o_bd_payment_card {
+        border: 1px solid #eef1f6;
+        border-radius: 12px;
+        padding: 12px;
+    }
+    .o_bd_payment_card_head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 8px;
+    }
+    .o_bd_payment_card_name {
+        font-weight: 700;
+        color: #1b2a49;
+    }
+    .o_bd_payment_card_total {
+        font-weight: 600;
+        color: #2f80ed;
+    }
+    .o_bd_payment_card_chart {
+        position: relative;
+        height: 220px;
     }
 }
