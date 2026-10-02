@@ -21,8 +21,8 @@ const COMPANY_COLORS = [
 ];
 
 const MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
 
 function compactNumber(value) {
@@ -45,7 +45,7 @@ export class WeeklyBudgetDashboard extends Component {
             paymentCompanies: [],
             companies: [],
             years: [],
-            months: [{ id: "all", name: "All Months" }].concat(
+            months: [{ id: "all", name: "ทุกเดือน" }].concat(
                 MONTHS.map((name, i) => ({ id: i + 1, name }))
             ),
             selectedCompanyId: "all",
