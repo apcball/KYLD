@@ -70,9 +70,9 @@
                             <span class="o_bd_kpi_icon"><i t-attf-class="fa #{kpi.icon}"/></span>
                             <div class="ms-3 ml-3">
                                 <div class="o_bd_kpi_label" t-esc="kpi.label"/>
-                                <div class="o_bd_kpi_value" t-esc="kpi.value"/>
                             </div>
                         </div>
+                        <div class="o_bd_kpi_value mt-2" t-esc="kpi.value"/>
                         <div class="o_bd_kpi_sub" t-esc="kpi.sub"/>
                         <div class="o_bd_bar" t-if="kpi.pct !== null">
                             <div class="o_bd_bar_fill" t-attf-style="width: #{kpi.barWidth}%"/>

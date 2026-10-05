@@ -57,6 +57,8 @@ $bd-green: #10b981;
         border-radius: 14px;
         padding: 16px;
         box-shadow: 0 2px 8px rgba(30, 50, 90, 0.06);
+        container-type: inline-size;
+        min-width: 0;
         &_used { --kpi-color: #{$bd-red}; --kpi-bg: #fff0f3; }
         &_reserved { --kpi-color: #{$bd-orange}; --kpi-bg: #fff6e6; }
         &_forecast { --kpi-color: #{$bd-blue}; --kpi-bg: #eef4ff; }
@@ -82,10 +84,13 @@ $bd-green: #10b981;
         color: #33415c;
     }
     .o_bd_kpi_value {
-        font-size: 1.15rem;
+        // scale with card width so full amount always fits inside the tile
+        font-size: clamp(0.7rem, 6.5cqw, 1.3rem);
         font-weight: 700;
         color: var(--kpi-color);
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .o_bd_kpi_sub {
         font-size: 0.8rem;
