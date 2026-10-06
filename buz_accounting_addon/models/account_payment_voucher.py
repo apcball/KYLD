@@ -676,7 +676,7 @@ class AccountPaymentVoucher(models.Model):
 
             lines.append({
                 'code': other_income_account.code if other_income_account else '423000',
-                'name': other_income_account.name if other_income_account else _('รายได้อื่น'),
+                'name': _('รายได้อื่น'),
                 'ref': voucher_name,
                 'date': date,
                 'debit': 0.0,
