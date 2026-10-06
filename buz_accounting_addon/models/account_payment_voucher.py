@@ -660,7 +660,7 @@ class AccountPaymentVoucher(models.Model):
         # 3.5 Credit Line (Other Income — reduces disbursement)
         if other_income > 0:
             other_income_account = self.env['account.account'].search([
-                ('code', 'in', ['423000', '42300']),
+                ('code', 'in', ['420000', '42000']),
                 ('company_id', '=', self.company_id.id)
             ], limit=1)
             if not other_income_account:
@@ -675,8 +675,8 @@ class AccountPaymentVoucher(models.Model):
                 ], limit=1)
 
             lines.append({
-                'code': other_income_account.code if other_income_account else '423000',
-                'name': _('รายได้อื่น'),
+                'code': other_income_account.code if other_income_account else '420000',
+                'name': other_income_account.name if other_income_account else _('รายได้อื่น'),
                 'ref': voucher_name,
                 'date': date,
                 'debit': 0.0,
