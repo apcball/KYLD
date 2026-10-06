@@ -159,7 +159,7 @@ class AccountPaymentVoucher(models.Model):
             else:
                 voucher.payment_state = 'not_paid'
 
-    @api.depends('line_ids.payment_ids', 'line_ids.payment_ids.state', 'bank_transfer_ids', 'bank_transfer_ids.state')
+    @api.depends('line_ids.move_id.payment_state', 'bank_transfer_ids', 'bank_transfer_ids.state')
     def _compute_amount_paid(self):
         for voucher in self:
             # mapped() dedupes: one payment can be reconciled with several lines
@@ -862,7 +862,7 @@ class AccountPaymentVoucherLine(models.Model):
             if line.wht_base_amount < 0:
                 raise UserError(_("WHT base amount must be positive"))
 
-    @api.depends('move_id.payment_state', 'payment_ids.state')
+    @api.depends('move_id.payment_state')
     def _compute_payment_state(self):
         for line in self:
             if line.move_id:
