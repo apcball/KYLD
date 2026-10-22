@@ -142,8 +142,12 @@ class AccountMove(models.Model):
             lambda m: m.move_type in ('in_invoice', 'in_refund')
             and m.state in ('draft', 'posted')
         ):
+            # Bills created from a PO follow the PO's Expected Payment date so
+            # the "used" move lands in the same month the PO reserved budget.
+            po_payment_dates = bill.invoice_line_ids.purchase_line_id.order_id.mapped('payment_date')
             budget_date = (
-                bill.invoice_date_due
+                min([d for d in po_payment_dates if d], default=False)
+                or bill.invoice_date_due
                 or bill.invoice_date
                 or bill.date
                 or fields.Date.today()

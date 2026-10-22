@@ -136,6 +136,16 @@ class BudgetMove(models.Model):
         4. Header-level department_id / dept_id
         """
         res = []
+
+        # Bill line → charge the same department/analytic as the PO line it
+        # was billed from, so the bill's "used" move lands on the allocation
+        # the PO already reserved against (not the PO/bill header department).
+        po_line = getattr(line, 'purchase_line_id', None)
+        if po_line:
+            po_res = self.extract_analytic_distribution(po_line)
+            if po_res and po_res[0]['department_id']:
+                return po_res
+
         # Fix: Use getattr with default to avoid AttributeError
         acc_id = getattr(line, 'analytic_account_id', None) or False
         dept_id = False  # Will be resolved below in priority order
