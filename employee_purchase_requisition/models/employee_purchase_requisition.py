@@ -52,9 +52,12 @@ class PurchaseRequisition(models.Model):
     dept_id = fields.Many2one(
         comodel_name='hr.department',
         string='Department',
-        related='employee_id.department_id',
+        compute='_compute_dept_id',
         store=True,
-        help='Select an department'
+        readonly=False,
+        help='Department snapshot taken when the employee is selected. '
+             'It does not follow later changes of the employee department, '
+             'so budget reservations stay on the original department.'
     )
     request_plan = fields.Date(
     string="Planned Purchase Date"
@@ -279,6 +282,14 @@ class PurchaseRequisition(models.Model):
             employee = self.user_id.employee_id
             if employee:
                 self.employee_id = employee.id
+
+    @api.depends('employee_id')
+    def _compute_dept_id(self):
+        # Depend on employee_id only (NOT employee_id.department_id): when an
+        # employee is moved to another department, existing PRs keep the
+        # department their budget was reserved against.
+        for rec in self:
+            rec.dept_id = rec.employee_id.department_id
 
     @api.depends('dept_id')
     def _compute_user_is_purchase(self):
