@@ -29,6 +29,7 @@ class BOQMaterialRequisitionWizard(models.TransientModel):
         ('select', 'Select Materials'), ('configure', 'Configure Quantities'),
     ], default='configure', required=True)
     boq_line_selection_ids = fields.Many2many('boq.line', string='Select BOQ Lines')
+    search_text = fields.Char(string='Search Material')
     total_lines_count = fields.Integer(string='Selected Items', compute='_compute_statistics')
     selected_total_quantity = fields.Float(compute='_compute_statistics')
     selected_total_cost = fields.Monetary(
@@ -62,21 +63,72 @@ class BOQMaterialRequisitionWizard(models.TransientModel):
             if 'purpose' in fields_list:
                 values['purpose'] = _('Material requisition from BOQ: %s') % boq.name
             if 'line_ids' in fields_list:
-                values['line_ids'] = [fields.Command.create({
-                    'boq_line_id': line.id,
-                    'selected': line.id in selected_ids,
-                    'product_id': line.product_id.id,
-                    'description': line.description,
-                    'uom_id': line.uom_id.id,
-                    'estimated_cost': line.unit_cost,
-                    'category_id': line.category_id.id,
-                    'product_category_id': line.product_id.categ_id.id,
-                    'boq_quantity': line.adjusted_quantity,
-                    'requisitioned_quantity': line.total_requisitioned_qty,
-                    'remaining_quantity': line.remaining_qty,
-                    'requested_quantity': line.remaining_qty,
-                }) for line in available]
+                values['line_ids'] = [
+                    fields.Command.create(self._prepare_wizard_line_vals(line, index, selected_ids))
+                    for index, line in enumerate(available, start=1)]
         return values
+
+    @api.model
+    def _prepare_wizard_line_vals(self, line, index, selected_ids=()):
+        return {
+            'boq_line_id': line.id,
+            'selected': line.id in selected_ids,
+            'product_id': line.product_id.id,
+            'description': line.description,
+            'uom_id': line.uom_id.id,
+            'estimated_cost': line.unit_cost,
+            'category_id': line.category_id.id,
+            'product_category_id': line.product_id.categ_id.id,
+            'boq_quantity': line.adjusted_quantity,
+            'requisitioned_quantity': line.total_requisitioned_qty,
+            'remaining_quantity': line.remaining_qty,
+            'requested_quantity': line.remaining_qty,
+            'sequence': index * 10,
+        }
+
+    @api.model
+    def _search_match(self, boq_line, tokens):
+        """All tokens must match; a token matches as substring or, for long
+        tokens (Thai has no word breaks), as an ordered character subsequence."""
+        haystack = ' '.join(filter(None, [
+            boq_line.product_id.display_name,
+            boq_line.product_id.default_code,
+            boq_line.description,
+            boq_line.category_id.display_name,
+        ])).lower()
+        for token in tokens:
+            if token in haystack:
+                continue
+            if len(token) >= 4:
+                chars = iter(haystack)
+                if all(ch in chars for ch in token):
+                    continue
+            return False
+        return True
+
+    @api.onchange('search_text')
+    def _onchange_search_text(self):
+        """Really filter the lines. Selected lines are always kept so nothing
+        the user ticked or typed is lost; non-selected lines are re-created
+        from the BOQ when they match again."""
+        if not self.boq_id:
+            return
+        tokens = (self.search_text or '').lower().split()
+        available = self.boq_id.line_ids.filtered(lambda l: l.remaining_qty > 0)
+        existing = {line.boq_line_id.id: line for line in self.line_ids}
+        Line = self.env['boq.material.requisition.wizard.line']
+        keep = Line
+        for index, boq_line in enumerate(available, start=1):
+            current = existing.get(boq_line.id)
+            if current and current.selected:
+                keep |= current
+            elif self._search_match(boq_line, tokens):
+                if current:
+                    keep |= current
+                else:
+                    keep |= Line.new(self._prepare_wizard_line_vals(boq_line, index))
+        # Assign a recordset: Command.set() cannot hold virtual (NewId) lines.
+        self.line_ids = keep.sorted('sequence')
 
     def _reopen(self):
         self.ensure_one()
