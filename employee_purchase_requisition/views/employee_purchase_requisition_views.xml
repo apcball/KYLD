@@ -86,7 +86,7 @@
     
     <!-- Create PO Button -->
     <button name="action_create_purchase_order"
-            string="Create PO/Picking" 
+            string="Create RFQ" 
             type="object"
             class="oe_highlight"
             invisible="state != 'approved'"/>
@@ -159,23 +159,25 @@
                     </group>
                     <notebook>
                         <page string="Requisition Orders">
-                            <field name="requisition_order_ids"
-                                   readonly="state not in ['draft', 'waiting_purchase_approval']">
+                            <field name="requisition_order_ids">
                                 <tree editable="bottom">
-                                    <field name="product_id" domain="[('product_tmpl_id.can_be_expensed', '=', False)]"/>
-                                    <field name="description"/>
-                                    <field name="analytic_distribution"
+                                    <field name="select_for_rfq" string="RFQ" widget="boolean_toggle"
+                                           readonly="parent.state != 'approved' or rfq_remaining_qty &lt;= 0"/>
+                                    <field name="rfq_remaining_qty" column_invisible="True"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="product_id" domain="[('product_tmpl_id.can_be_expensed', '=', False)]"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="description"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="analytic_distribution"
                                            widget="analytic_distribution"
                                            groups="analytic.group_analytic_accounting"
                                            options="{'product_field': 'product_id'}"/>
-                                    <field name="unit_price" string="Unit Price"/>
-                                    <field name="quantity"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="unit_price" string="Unit Price"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="quantity"/>
                                     <field name="price_subtotal" string="Subtotal" readonly="1" widget="monetary"/>
                                     <field name="product_uom_category_id" column_invisible="1"/>
-                                    <field name="uom" domain="[('category_id', '=', product_uom_category_id)]"/>
-                                    <field name="partner_id"
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="uom" domain="[('category_id', '=', product_uom_category_id)]"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval', 'approved']" name="partner_id"
                                            groups="employee_purchase_requisition.employee_requisition_head,employee_purchase_requisition.employee_requisition_manager"/>
-                                    <field name="remark"/>
+                                    <field readonly="parent.state not in ['draft', 'waiting_purchase_approval']" name="remark"/>
                                 </tree>
                             </field>
                             <group class="oe_subtotal_footer oe_right">

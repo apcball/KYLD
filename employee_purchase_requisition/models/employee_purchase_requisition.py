@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
 
@@ -398,9 +398,8 @@ class PurchaseRequisition(models.Model):
 
     def action_purchase_approval(self):
         """Approval from purchase department"""
-        for rec in self.requisition_order_ids:
-            if not rec.partner_id:
-                raise ValidationError('Please select vendor for purchase items')
+        # Vendor no longer required here; it is checked per selected line
+        # when creating the RFQ (action_create_purchase_order).
         self.write({'state': 'approved'})
         self.manager_id = self.env.uid
         self.department_approval_date = fields.Date.today()
@@ -426,44 +425,60 @@ class PurchaseRequisition(models.Model):
         self.reject_date = fields.Date.today()
 
     def action_create_purchase_order(self):
-        """Create purchase order"""
-        purchase_orders = {}
+        """Create RFQs for the lines ticked in the RFQ column.
 
-        for rec in self.requisition_order_ids:
-            if not rec.partner_id:
-                raise ValidationError('Please select vendor for all purchase items')
+        Can be run in several rounds: each round only uses the quantity not
+        yet placed on a non-cancelled PO. State moves to 'purchase_order_created'
+        once every line is fully covered.
+        """
+        self.ensure_one()
+        selected = self.requisition_order_ids.filtered('select_for_rfq')
+        if not selected:
+            raise ValidationError(_(
+                'No lines selected for RFQ. Tick the "RFQ" toggle on the '
+                'lines you want to include.'))
 
-            vendor_id = rec.partner_id.id
-            if vendor_id not in purchase_orders:
-                purchase_orders[vendor_id] = []
+        missing_vendor = selected.filtered(lambda l: not l.partner_id)
+        if missing_vendor:
+            raise ValidationError(_(
+                'The following selected lines have no vendor assigned:\n%s'
+            ) % '\n'.join('- %s' % l.product_id.display_name for l in missing_vendor))
 
-            # Use description from PR, fall back to product name if not set
-            description_text = rec.description or rec.product_id.name
-            if rec.remark:
-                description_text = f"{description_text}\n{rec.remark}"
-            
-            line_vals = {
-                'name': description_text,
-                'product_id': rec.product_id.id,
-                'product_qty': rec.quantity,
-                'product_uom': rec.product_id.uom_po_id.id,
-                'date_planned': fields.Date.today(),
-                'price_unit': rec.unit_price or rec.product_id.standard_price,
-            }
-            
-            # Only add analytic distribution if it exists
-            if rec.analytic_distribution:
-                line_vals['analytic_distribution'] = rec.analytic_distribution
-            
-            purchase_orders[vendor_id].append(line_vals)
+        rfq_lines = selected.filtered(lambda l: l.rfq_remaining_qty > 0)
+        if not rfq_lines:
+            raise ValidationError(_(
+                'All selected lines are already fully covered by RFQs / Purchase Orders.'))
 
-        # สร้าง Purchase Orders - ไม่ส่ง picking_type_id เพื่อหลีกเลี่ยง warehouse access error
-        for vendor_id, lines in purchase_orders.items():
-            order_lines = [(0, 0, line) for line in lines]
-            
-            # Create PO without picking_type_id - ให้ระบบหาเองตาม company
+        lines_by_vendor = {}
+        for rec in rfq_lines:
+            lines_by_vendor.setdefault(rec.partner_id, self.env['requisition.order'])
+            lines_by_vendor[rec.partner_id] |= rec
+
+        created_ids = []
+        for vendor, recs in lines_by_vendor.items():
+            order_lines = []
+            for rec in recs:
+                # Use description from PR, fall back to product name if not set
+                description_text = rec.description or rec.product_id.name
+                if rec.remark:
+                    description_text = f"{description_text}\n{rec.remark}"
+                line_vals = {
+                    'name': description_text,
+                    'product_id': rec.product_id.id,
+                    'product_qty': rec.rfq_remaining_qty,
+                    'product_uom': rec.product_id.uom_po_id.id,
+                    'date_planned': fields.Date.today(),
+                    'price_unit': rec.unit_price or rec.product_id.standard_price,
+                    'requisition_order_line_id': rec.id,
+                }
+                # Only add analytic distribution if it exists
+                if rec.analytic_distribution:
+                    line_vals['analytic_distribution'] = rec.analytic_distribution
+                order_lines.append(fields.Command.create(line_vals))
+
+            # No picking_type_id: avoids warehouse access error, system picks by company
             po_vals = {
-                'partner_id': vendor_id,
+                'partner_id': vendor.id,
                 'requisition_order': self.name,
                 'employee_id': self.employee_id.id,
                 'dept_id': self.dept_id.id,
@@ -473,15 +488,26 @@ class PurchaseRequisition(models.Model):
                 'order_line': order_lines,
                 'company_id': self.company_id.id,
             }
-            
-            # ใช้ sudo() และ with_context เพื่อข้ามข้อจำกัดการเข้าถึง warehouse
-            self.env['purchase.order'].with_context(
+            # sudo + context to bypass warehouse access restrictions
+            po = self.env['purchase.order'].with_context(
                 force_company=self.company_id.id,
                 allowed_company_ids=[self.company_id.id]
             ).sudo().create(po_vals)
+            created_ids.append(po.id)
 
-        if purchase_orders:
+        rfq_lines.write({'select_for_rfq': False})
+        self.env.flush_all()
+        self.requisition_order_ids.invalidate_recordset(['rfq_qty', 'rfq_remaining_qty'])
+        if all(l.rfq_remaining_qty <= 0 for l in self.requisition_order_ids):
             self.write({'state': 'purchase_order_created'})
+
+        return {
+            'name': _('Request for Quotation'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'purchase.order',
+            'view_mode': 'tree,form',
+            'domain': [('id', 'in', created_ids)],
+        }
 
     def _compute_internal_transfer_count(self):
         """Function to compute the transfer count"""

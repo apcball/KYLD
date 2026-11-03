@@ -59,6 +59,31 @@ class RequisitionOrder(models.Model):
         help="Additional notes or remarks for this requisition line"
     )
 
+    select_for_rfq = fields.Boolean(string='Select for RFQ', default=False, copy=False)
+    rfq_qty = fields.Float(
+        string='RFQ Opened', compute='_compute_rfq_tracking',
+        help='Quantity already placed on non-cancelled Purchase Orders (RFQs).'
+    )
+    rfq_remaining_qty = fields.Float(
+        string='RFQ Remaining', compute='_compute_rfq_tracking',
+        help='Quantity not yet placed on any Purchase Order (RFQ).'
+    )
+
+    def _compute_rfq_tracking(self):
+        POLine = self.env['purchase.order.line'].sudo()
+        for line in self:
+            if not line.id:
+                line.rfq_qty = 0.0
+                line.rfq_remaining_qty = line.quantity
+                continue
+            po_lines = POLine.search([
+                ('requisition_order_line_id', '=', line.id),
+                ('order_id.state', '!=', 'cancel'),
+            ])
+            rfq_qty = sum(po_lines.mapped('product_qty'))
+            line.rfq_qty = rfq_qty
+            line.rfq_remaining_qty = max(line.quantity - rfq_qty, 0.0)
+
     @api.depends('quantity', 'unit_price')
     def _compute_price_subtotal(self):
         """Calculate subtotal for each line item"""

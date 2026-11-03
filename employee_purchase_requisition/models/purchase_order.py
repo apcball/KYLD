@@ -35,3 +35,14 @@ class PurchaseOrder(models.Model):
         string='Destination Location',
         help='Destination location from requisition',
     )
+
+class PurchaseOrderLine(models.Model):
+    _inherit = 'purchase.order.line'
+
+    requisition_order_line_id = fields.Many2one(
+        'requisition.order',
+        string='PR Line',
+        index=True,
+        copy=False,
+        ondelete='set null',
+    )
