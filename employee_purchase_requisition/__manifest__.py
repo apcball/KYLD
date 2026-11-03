@@ -1,6 +1,6 @@
 {
     'name': 'buz Employee Purchase Requisition',
-    'version': '17.0.1.0.6',
+    'version': '17.0.1.0.7',
     'category': 'Purchases',
     'summary': 'Manage material requisition of employees and user',
     'description': """Create the material requisition request and there are 
