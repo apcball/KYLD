@@ -940,9 +940,6 @@ class ApDashboard(models.AbstractModel):
         kpi_request = {state: {'amount': 0.0, 'count': 0} for state in REQ_STATES}
         requests = self.env['buz.budget.approval.request'].search(self._request_domain(f))
         request_shares = {}
-        # amount_reserved / amount_used are the allocation's running figures at request
-        # time, so several requests on one allocation must not be summed: keep the latest.
-        budget_snap = {}
         for req in requests:
             po = req.ref_po_id
             if (f['project_id'] or f['analytic_id'] or f['partner_id']) and not po:
@@ -959,14 +956,6 @@ class ApDashboard(models.AbstractModel):
                 fields.Date.to_date(req.create_date), currency)
             kpi_request[req.state]['amount'] += amount
             kpi_request[req.state]['count'] += 1
-            snap_key = req.budget_allocation_id.id or ('req', req.id)
-            if snap_key not in budget_snap or req.id > budget_snap[snap_key][0]:
-                budget_snap[snap_key] = (req.id, self._convert(
-                    req.amount_reserved, req.company_id.currency_id, req.company_id,
-                    fields.Date.to_date(req.create_date), currency) * req_share,
-                    self._convert(
-                    req.amount_used, req.company_id.currency_id, req.company_id,
-                    fields.Date.to_date(req.create_date), currency) * req_share)
             field = 'req_%s' % req.state
             buckets = {
                 'vendor': self._vendor_bucket(po.partner_id) if po else NO_VENDOR,
@@ -1073,8 +1062,6 @@ class ApDashboard(models.AbstractModel):
         for state in REQ_STATES:
             kpi_request[state]['amount'] = round(kpi_request[state]['amount'], 2)
         kpi_request['total'] = round(sum(kpi_request[s]['amount'] for s in REQ_STATES), 2)
-        kpi_request['reserved'] = round(sum(v[1] for v in budget_snap.values()), 2)
-        kpi_request['bill_used'] = round(sum(v[2] for v in budget_snap.values()), 2)
 
         actual_total = kpi_payment['paid_actual']
         for kind in ('loan', 'note', 'advance', 'cash'):
@@ -1293,8 +1280,8 @@ class ApDashboard(models.AbstractModel):
         budget = data['kpi_budget']
         row = self._xlsx_block(ws, row, '3. ยอดการใช้งบประมาณ', [
             ('งบประมาณที่ได้รับอนุมัติ', budget['approved'], None),
-            ('งบผูกพันจาก PO', budget['reserved'], None),
-            ('งบใช้จริง (รับสินค้า/บริการแล้ว)', budget['used'], None),
+            ('ยอดจอง (งบผูกพันจาก PO)', budget['reserved'], None),
+            ('ยอด Use (งบใช้จริง รับสินค้า/บริการแล้ว)', budget['used'], None),
             ('งบคงเหลือ', budget['remaining'], None),
             ('% ใช้แล้ว', None, budget['pct']),
         ], fmt)
@@ -1304,8 +1291,6 @@ class ApDashboard(models.AbstractModel):
             ('รออนุมัติ (%d รายการ)' % req['pending']['count'], req['pending']['amount'], None),
             ('อนุมัติแล้ว (%d รายการ)' % req['approved']['count'], req['approved']['amount'], None),
             ('ไม่อนุมัติ (%d รายการ)' % req['rejected']['count'], req['rejected']['amount'], None),
-            ('ยอดจอง', req['reserved'], None),
-            ('ยอด Bill Use', req['bill_used'], None),
         ], fmt)
         fc = data['kpi_forecast']
         row = self._xlsx_block(ws, row, '5. ประมาณการยอดจ่ายเดือนถัดไป (%s)' % filters['next_month_label'], [
