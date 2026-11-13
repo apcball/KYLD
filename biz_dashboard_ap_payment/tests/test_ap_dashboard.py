@@ -32,7 +32,14 @@ class TestApDashboard(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # buz_partner_required_fields blocks bare test partners / users
+        cls.env = cls.env(context=dict(
+            cls.env.context, skip_partner_required_fields=True))
         env = cls.env
+        if 'buz.accounting.date.company.policy' in env:
+            # test data sits ~3 years ahead; rolled back with the test transaction
+            env['buz.accounting.date.company.policy'].sudo().search(
+                [('company_id', '=', env.company.id)]).write({'max_future_days': 2000})
         cls.company = env.company
         cls.currency = cls.company.currency_id
         Users = env['res.users']
@@ -56,9 +63,13 @@ class TestApDashboard(TransactionCase):
         cls.baseline = cls.engine.get_dashboard_data(cls.F)
 
         # --- master data -------------------------------------------------
+        cls.analytic_plan = env['account.analytic.plan'].create({'name': 'APD Plan'})
+        cls.analytic = env['account.analytic.account'].create({
+            'name': 'APD Analytic', 'company_id': cls.company.id,
+            'plan_id': cls.analytic_plan.id})
         cls.department = env['hr.department'].create({'name': 'APD Test Dept'})
         cls.plans = env['monthly.budget.plan']
-        for month in ('02', '03', '04'):
+        for month in ('02', '03', '04', '05'):
             plan = env['monthly.budget.plan'].create({
                 'month': month, 'year': str(YEAR),
                 'total_budget': 100000000.0,
@@ -175,8 +186,9 @@ class TestApDashboard(TransactionCase):
             'project_id': project.id if project else False,
             'order_line': [(0, 0, {
                 'product_id': product.id, 'name': product.name, 'product_qty': 1,
-                'price_unit': price, 'date_planned': fields.Date.today(),
                 'department_id': cls.department.id,
+                'price_unit': price, 'date_planned': fields.Date.today(),
+                    'analytic_distribution': {str(cls.analytic.id): 100.0},
                 'taxes_id': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
             }) for product, price in (lines or [(cls.prod1, amount)])],
         })
@@ -225,6 +237,8 @@ class TestApDashboard(TransactionCase):
     def test_is_cash_term(self):
         is_cash = self.env['biz.ap.dashboard']._is_cash_term
         self.assertTrue(is_cash(False))
+        self.assertTrue(is_cash(False, date(2031, 3, 10), date(2031, 3, 10)))
+        self.assertFalse(is_cash(False, date(2031, 3, 10), date(2031, 4, 9)))
         self.assertTrue(is_cash(self.term_now))
         self.assertFalse(is_cash(self.term_30))
         self.assertFalse(is_cash(self.term_eom))
@@ -244,15 +258,16 @@ class TestApDashboard(TransactionCase):
         self._bill(self.v1, D(2, 18), 2000.0, term=self.term_30)       # due 2031-03-20, credit, week 3
         self._bill(self.v2, D(3, 31), 500.0, due=D(3, 31), refund=True)  # cash refund, week 4
         self._bill(self.v2, D(2, 10), 700.0, due=D(2, 28))         # previous month: excluded
+        self._bill(self.v2, D(3, 1), 300.0, due=D(3, 15))          # no term, due later: credit
         payload = self._data()
-        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'total'), 2500.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'total'), 2800.0, places=2)
         self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'cash'), 500.0, places=2)
-        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'credit'), 2000.0, places=2)
-        self.assertEqual(self._delta(payload, 'kpi_payment', 'count'), 3)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'credit'), 2300.0, places=2)
+        self.assertEqual(self._delta(payload, 'kpi_payment', 'count'), 4)
         weekly = payload['weekly']
         base = self.baseline['weekly']
         self.assertAlmostEqual(weekly[0]['cash'] - base[0]['cash'], 1000.0, places=2)
-        self.assertAlmostEqual(weekly[2]['credit'] - base[2]['credit'], 2000.0, places=2)
+        self.assertAlmostEqual(weekly[2]['credit'] - base[2]['credit'], 2300.0, places=2)
         self.assertAlmostEqual(weekly[3]['cash'] - base[3]['cash'], -500.0, places=2)
         self.assertEqual(len(weekly), 4)
         self.assertEqual(weekly[0]['range'], '1-7 มี.ค.')
@@ -279,6 +294,263 @@ class TestApDashboard(TransactionCase):
         key = 'p:%d' % self.v1.id
         self.assertAlmostEqual(self._delta_row(payload, 'vendor', key, 'month_paid'), 2000.0, places=2)
         self.assertAlmostEqual(self._delta_row(payload, 'vendor', key, 'month_residual'), 300.0, places=2)
+
+    def test_paid_actual_by_payment_date(self):
+        journal = self.env['account.journal'].search(
+            [('type', 'in', ('bank', 'cash')), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No bank/cash journal in the test company')
+        # due in February, paid in March: not in the March bill set, but cash out in March
+        bill = self._bill(self.v1, D(2, 5), 1500.0, term=self.term_now)
+        self.env['account.payment.register'].with_context(
+            active_model='account.move', active_ids=bill.ids).create({
+                'journal_id': journal.id, 'payment_date': D(3, 9),
+                'cheque_amount': 0.0,
+            }).action_create_payments()
+        payload = self._data()
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'paid_actual'), 1500.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'paid'), 0.0, places=2)
+
+    def test_paid_actual_loan_split(self):
+        """A bill closed by an entry crediting a configured loan account (TR) is
+        counted as paid-by-loan, not as cash; the loan KPI tracks the drawdown."""
+        Account = self.env['account.account']
+        loan = Account.create({
+            'code': 'APDLOAN', 'name': 'APD TR Loan', 'account_type': 'liability_current',
+            'company_id': self.company.id})
+        journal = self.env['account.journal'].search(
+            [('type', '=', 'general'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No general journal in the test company')
+        bill = self._bill(self.v1, D(3, 12), 2000.0, term=self.term_now)
+        payable = bill.line_ids.filtered(lambda l: l.account_id.account_type == 'liability_payable')
+        entry = self.env['account.move'].create({
+            'move_type': 'entry', 'journal_id': journal.id, 'date': D(3, 14),
+            'line_ids': [
+                (0, 0, {'account_id': payable.account_id.id, 'partner_id': self.v1.id,
+                        'debit': 2000.0, 'credit': 0.0}),
+                (0, 0, {'account_id': loan.id, 'debit': 0.0, 'credit': 2000.0}),
+            ]})
+        entry.action_post()
+        (payable | entry.line_ids.filtered(lambda l: l.account_id == payable.account_id)).reconcile()
+
+        base = self._data()
+        self.company.apd_loan_account_ids = loan
+        payload = self._data()
+        self.assertTrue(payload['kpi_loan']['configured'])
+        self.assertAlmostEqual(payload['kpi_payment']['paid_actual_loan'] - base['kpi_payment']['paid_actual_loan'], 2000.0, places=2)
+        self.assertAlmostEqual(payload['kpi_payment']['paid_actual_cash'] - base['kpi_payment']['paid_actual_cash'], -2000.0, places=2)
+        # loan-funded payments are not cash out yet: they leave paid_actual (transfers / cheques only)
+        self.assertAlmostEqual(payload['kpi_payment']['paid_actual'] - base['kpi_payment']['paid_actual'], -2000.0, places=2)
+        self.assertAlmostEqual(payload['kpi_loan']['drawn'], 2000.0, places=2)
+        self.assertAlmostEqual(payload['kpi_loan']['outstanding'], 2000.0, places=2)
+        # split per configured loan account
+        by_acc = {r['id']: r for r in payload['kpi_loan']['accounts']}
+        self.assertEqual(set(by_acc), set(loan.ids))
+        self.assertAlmostEqual(by_acc[loan.id]['drawn'], 2000.0, places=2)
+        self.assertAlmostEqual(by_acc[loan.id]['outstanding'], 2000.0, places=2)
+        # a manual entry of the month replaces the ledger figures of that account
+        self.env['biz.ap.dashboard.loan.manual'].create({
+            'company_id': self.company.id, 'year': payload['filters']['year'],
+            'month': str(payload['filters']['month']), 'account_id': loan.id,
+            'drawn': 0.0, 'repaid': 500.0, 'outstanding': 9000.0})
+        manual = self._data()
+        self.assertTrue(manual['kpi_loan']['has_manual'])
+        self.assertAlmostEqual(manual['kpi_loan']['drawn'], 0.0, places=2)
+        self.assertAlmostEqual(manual['kpi_loan']['repaid'], 500.0, places=2)
+        self.assertAlmostEqual(manual['kpi_loan']['outstanding'], 9000.0, places=2)
+        for tab, key in (('vendor', 'p:%d' % self.v1.id),):
+            self.assertAlmostEqual(self._delta_row(payload, tab, key, 'act_loan'), 2000.0, places=2)
+            self.assertAlmostEqual(self._delta_row(payload, tab, key, 'act_total'), 0.0, places=2)
+        # the same entry's journal flagged as payable-note journal: loan wins
+        self.company.apd_note_journal_ids = journal
+        again = self._data()
+        self.assertAlmostEqual(again['kpi_payment']['paid_actual_loan'], payload['kpi_payment']['paid_actual_loan'], places=2)
+        self.company.apd_loan_account_ids = False
+        as_note = self._data()
+        self.assertAlmostEqual(as_note['kpi_payment']['paid_actual_note'] - base['kpi_payment']['paid_actual_note'], 2000.0, places=2)
+        self.company.apd_note_journal_ids = False
+        self.company.apd_advance_journal_ids = journal
+        as_adv = self._data()
+        self.assertAlmostEqual(as_adv['kpi_payment']['paid_actual_advance'] - base['kpi_payment']['paid_actual_advance'], 2000.0, places=2)
+        # advance / note / loan are settled but not cash out: only transfers count
+        self.assertAlmostEqual(as_adv['kpi_payment']['paid_actual'] - base['kpi_payment']['paid_actual'], -2000.0, places=2)
+        self.assertAlmostEqual(as_note['kpi_payment']['paid_actual'] - base['kpi_payment']['paid_actual'], -2000.0, places=2)
+
+    def test_other_expense_from_journal_entries(self):
+        Account = self.env['account.account']
+        salary = Account.create({
+            'code': 'APDSAL', 'name': 'APD Salary', 'account_type': 'expense',
+            'company_id': self.company.id})
+        offset = Account.create({
+            'code': 'APDOFF', 'name': 'APD Offset', 'account_type': 'asset_current',
+            'company_id': self.company.id})
+        journal = self.env['account.journal'].search(
+            [('type', '=', 'general'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No general journal in the test company')
+
+        def entry(day, account, amount):
+            move = self.env['account.move'].create({
+                'move_type': 'entry', 'journal_id': journal.id, 'date': day,
+                'line_ids': [
+                    (0, 0, {'account_id': account.id, 'debit': amount, 'credit': 0.0}),
+                    (0, 0, {'account_id': offset.id, 'debit': 0.0, 'credit': amount}),
+                ]})
+            move.action_post()
+
+        entry(D(3, 25), salary, 4000.0)
+        entry(D(4, 2), salary, 999.0)           # next month: not counted
+        # accounts not configured yet: nothing counted
+        payload = self._data()
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'total'), 0.0, places=2)
+        self.company.apd_other_expense_account_ids = salary
+        payload = self._data()
+        for key in ('total', 'cash', 'paid', 'other'):
+            self.assertAlmostEqual(self._delta(payload, 'kpi_payment', key), 4000.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'residual'), 0.0, places=2)
+        other = payload['kpi_other']
+        self.assertAlmostEqual(other['total'], 4000.0, places=2)
+        self.assertEqual([i['name'] for i in other['items']], ['APDSAL APD Salary'])
+        self.assertAlmostEqual(other['items'][0]['pct'], 100.0, places=1)
+        self.assertAlmostEqual(
+            self._delta_row(payload, 'category', 'acc:%d' % salary.id, 'month_total'), 4000.0, places=2)
+
+    def test_other_expense_debit_only_accounts(self):
+        """Debit-only accounts count the debit side alone; net accounts debit - credit."""
+        Account = self.env['account.account']
+        loan = Account.create({'code': 'APDLN2', 'name': 'APD Loan', 'account_type': 'liability_current',
+                               'company_id': self.company.id})
+        accrual = Account.create({'code': 'APDACR', 'name': 'APD Accrual', 'account_type': 'liability_current',
+                                  'company_id': self.company.id})
+        bank = Account.create({'code': 'APDBNK', 'name': 'APD Bank', 'account_type': 'asset_current',
+                               'company_id': self.company.id})
+        journal = self.env['account.journal'].search(
+            [('type', '=', 'general'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No general journal in the test company')
+
+        def entry(day, lines):
+            self.env['account.move'].create({
+                'move_type': 'entry', 'journal_id': journal.id, 'date': day,
+                'line_ids': [(0, 0, {'account_id': a.id, 'debit': dr, 'credit': cr}) for a, dr, cr in lines],
+            }).action_post()
+
+        entry(D(3, 10), [(loan, 3000.0, 0.0), (bank, 0.0, 3000.0)])        # repayment
+        entry(D(3, 12), [(loan, 0.0, 500.0), (bank, 500.0, 0.0)])          # drawdown: ignored
+        entry(D(3, 15), [(accrual, 0.0, 800.0), (bank, 800.0, 0.0)])       # accrual raised
+        entry(D(3, 20), [(accrual, 1200.0, 0.0), (bank, 0.0, 1200.0)])     # accrual paid
+        self.company.apd_other_expense_debit_account_ids = loan
+        self.company.apd_other_expense_account_ids = accrual
+        payload = self._data()
+        # loan: debit only 3000; accrual: net 1200 - 800 = 400
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'other'), 3400.0, places=2)
+        items = {i['name']: i['amount'] for i in payload['kpi_other']['items']}
+        self.assertAlmostEqual(items['APDLN2 APD Loan'], 3000.0, places=2)
+        self.assertAlmostEqual(items['APDACR APD Accrual'], 400.0, places=2)
+
+    def test_analytic_account_filter(self):
+        """Analytic (budget) filter keeps only the share of each bill on that account."""
+        before = self._data(analytic_id=self.analytic.id)
+        other = self.env['account.analytic.account'].create({
+            'name': 'APD Other', 'plan_id': self.analytic_plan.id})
+        a = self._bill(self.v1, D(3, 10), 1000.0, term=self.term_now)
+        b = self._bill(self.v1, D(3, 11), 2000.0, term=self.term_now)
+        c = self._bill(self.v1, D(3, 12), 4000.0, term=self.term_now)
+        a.invoice_line_ids.analytic_distribution = {str(self.analytic.id): 100.0}
+        b.invoice_line_ids.analytic_distribution = {str(self.analytic.id): 25.0, str(other.id): 75.0}
+        c.invoice_line_ids.analytic_distribution = {str(other.id): 100.0}
+        payload = self.engine.get_dashboard_data(
+            dict(self.F, analytic_id=self.analytic.id), refresh=True)
+        self.assertEqual(payload['filters']['analytic_id'], self.analytic.id)
+        # 1000 (all) + 2000 * 25% ; bill c is not on this account
+        self.assertAlmostEqual(
+            payload['kpi_payment']['total'] - before['kpi_payment']['total'], 1500.0, places=2)
+        # category / vendor tables follow the same filtered base
+        self.assertAlmostEqual(
+            payload['tables']['category']['footer']['month_total']
+            - before['tables']['category']['footer']['month_total'], 1500.0, places=2)
+        # no filter: the three bills count in full
+        unfiltered = self.engine.get_dashboard_data(dict(self.F), refresh=True)
+        self.assertAlmostEqual(
+            unfiltered['kpi_payment']['total'] - self.baseline['kpi_payment']['total'], 7000.0, places=2)
+
+    def test_forecast_other_expense_three_month_average(self):
+        """Next month's off-bill forecast = average of the 3 months before the
+        selected one, real expense accounts only (no accruals, no loan principal)."""
+        Account = self.env['account.account']
+        mk = lambda code, t: Account.create({'code': code, 'name': code, 'account_type': t,
+                                             'company_id': self.company.id})
+        salary = mk('APDSAL', 'expense')
+        loan = mk('APDLN3', 'liability_current')
+        accrual = mk('APDACR3', 'liability_current')
+        bank = mk('APDBNK3', 'asset_current')
+        journal = self.env['account.journal'].search(
+            [('type', '=', 'general'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No general journal in the test company')
+
+        def entry(day, account, amount):
+            self.env['account.move'].create({
+                'move_type': 'entry', 'journal_id': journal.id, 'date': day,
+                'line_ids': [(0, 0, {'account_id': account.id, 'debit': amount, 'credit': 0.0}),
+                             (0, 0, {'account_id': bank.id, 'debit': 0.0, 'credit': amount})],
+            }).action_post()
+
+        entry('%04d-12-10' % (YEAR - 1), salary, 3000.0)
+        entry(D(1, 10), salary, 6000.0)
+        entry(D(2, 10), salary, 9000.0)
+        entry(D(2, 11), loan, 50000.0)      # loan principal: not forecast
+        entry(D(2, 12), accrual, 700.0)     # accrual account: not forecast
+        entry(D(3, 10), salary, 99999.0)    # the selected month itself: not in the average
+        self.company.apd_other_expense_debit_account_ids = salary | loan
+        self.company.apd_other_expense_account_ids = accrual
+        self.company.apd_loan_account_ids = loan
+        payload = self._data()
+        self.assertAlmostEqual(self._delta(payload, 'kpi_forecast', 'other'), 6000.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_forecast', 'total'), 6000.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_forecast', 'cash'), 6000.0, places=2)
+        # a project filter leaves no off-bill spend
+        if self.p1:
+            filtered = self._data(project_id=self.p1.id)
+            self.assertAlmostEqual(filtered['kpi_forecast']['other'], 0.0, places=2)
+
+    def test_other_expense_skips_reversal_and_reports_loan_repaid(self):
+        Account = self.env['account.account']
+        accrual = Account.create({'code': 'APDAC2', 'name': 'APD Accrual 2', 'account_type': 'liability_current',
+                                  'company_id': self.company.id})
+        loan = Account.create({'code': 'APDLN3', 'name': 'APD Loan 3', 'account_type': 'liability_current',
+                               'company_id': self.company.id})
+        bank = Account.create({'code': 'APDBK3', 'name': 'APD Bank 3', 'account_type': 'asset_current',
+                               'company_id': self.company.id})
+        journal = self.env['account.journal'].search(
+            [('type', '=', 'general'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            self.skipTest('No general journal in the test company')
+
+        def entry(day, ref, lines):
+            self.env['account.move'].create({
+                'move_type': 'entry', 'journal_id': journal.id, 'date': day, 'ref': ref,
+                'line_ids': [(0, 0, {'account_id': a.id, 'debit': dr, 'credit': cr}) for a, dr, cr in lines],
+            }).action_post()
+
+        entry(D(3, 5), 'rebate (Reversal)', [(accrual, 700.0, 0.0), (bank, 0.0, 700.0)])
+        entry(D(3, 6), 'paid accrual', [(accrual, 300.0, 0.0), (bank, 0.0, 300.0)])
+        entry(D(3, 7), 'tr repay', [(loan, 2000.0, 0.0), (bank, 0.0, 2000.0)])
+        self.company.apd_other_expense_account_ids = accrual
+        self.company.apd_other_expense_debit_account_ids = loan
+        self.company.apd_loan_account_ids = loan
+        self.company.apd_exclude_reversal = True
+        payload = self._data()
+        # loan principal repayment stays out of the month total; reversal skipped
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'other'), 300.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'total'), 300.0, places=2)
+        self.assertAlmostEqual(payload['kpi_other']['loan_repaid'] - self.baseline['kpi_other']['loan_repaid'], 2000.0, places=2)
+        # cash out = other 300 + loan repaid 2000 (no loan-funded bills / transfers here)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'cash_out'), 2300.0, places=2)
+        self.company.apd_exclude_reversal = False
+        payload = self._data()
+        self.assertAlmostEqual(self._delta(payload, 'kpi_payment', 'other'), 1000.0, places=2)
 
     def test_vendor_rows_and_donut(self):
         self._bill(self.v1, D(3, 3), 1500.0, term=self.term_now)
@@ -356,7 +628,7 @@ class TestApDashboard(TransactionCase):
         bill.write({'invoice_date': D(3, 10), 'department_id': self.department.id})
         self._fill_tax_invoice(bill, D(3, 10))
         bill.action_post()
-        self.assertAlmostEqual(po.remaining_to_bill, 0.0, places=2)
+        self.assertAlmostEqual(self.engine._po_unbilled(po), 0.0, places=2)
         payload = self._data()
         self.assertAlmostEqual(self._delta_row(payload, 'vendor', key, 'budget_used'), 10700.0, places=2)
         self.assertAlmostEqual(self._delta_row(payload, 'vendor', key, 'budget_remaining'), 0.0, places=2)
@@ -398,6 +670,17 @@ class TestApDashboard(TransactionCase):
         filtered = self._data(partner_id=self.v1.id)
         self.assertAlmostEqual(filtered['kpi_budget']['approved'], budget['approved'], places=2)
 
+    def test_budget_kpi_includes_closed_plan(self):
+        plan = self.plans[-1]  # month 5
+        f = dict(self.F, month=5)
+        confirmed = self.engine.get_dashboard_data(f)['kpi_budget']
+        self.assertGreaterEqual(confirmed['approved'], 100000000.0 - 0.01)
+        plan.action_close()
+        self.assertEqual(plan.state, 'closed')
+        closed = self.engine.get_dashboard_data(f, refresh=True)['kpi_budget']
+        self.assertAlmostEqual(closed['approved'], confirmed['approved'], places=2)
+        self.assertEqual(closed['plan_count'], confirmed['plan_count'])
+
     def test_approval_requests(self):
         today = fields.Date.today()
         f_now = {'month': today.month, 'year': today.year, 'company_id': self.company.id}
@@ -408,11 +691,11 @@ class TestApDashboard(TransactionCase):
         for overage in (100.0, 200.0, 300.0):
             reqs |= Request.create({
                 'document_type': 'po', 'ref_po_id': po.id,
-                'amount_requested': overage + 1000.0, 'amount_overage': overage,
+                'amount_requested': overage, 'amount_overage': overage + 1000.0,  # cumulative line overrun, not summed
                 'company_id': self.company.id,
             })
-        reqs[1].with_context(_budget_state_transition=True).write({'state': 'approved'})
-        reqs[2].with_context(_budget_state_transition=True).write({'state': 'rejected'})
+        reqs[1].write({'state': 'approved'})
+        reqs[2].write({'state': 'rejected'})
         after = self.engine.get_dashboard_data(f_now)
         req = after['kpi_request']
         base = before['kpi_request']
@@ -437,50 +720,43 @@ class TestApDashboard(TransactionCase):
         other = self.engine.get_dashboard_data(dict(f_now, partner_id=self.v2.id))
         self.assertAlmostEqual(other['kpi_request']['total'], 0.0, places=2)
 
-    def test_request_project_shares(self):
-        """PR requests get their project(s) from the lines' analytic accounts."""
-        from types import SimpleNamespace
-        Project = self.env['project.project']
-        projects = Project.search([('analytic_account_id', '!=', False)], limit=2)
-        if len(projects) < 2:
-            self.skipTest('need two projects with an analytic account')
-        a1, a2 = projects[0].analytic_account_id.id, projects[1].analytic_account_id.id
-
-        def pr_req(*lines):
-            return SimpleNamespace(
-                ref_po_id=None, ref_mr_id=None,
-                ref_pr_id=SimpleNamespace(requisition_order_ids=[
-                    SimpleNamespace(price_subtotal=sub, analytic_distribution=dist)
-                    for sub, dist in lines]))
-        engine, f = self.env['biz.ap.dashboard'], {}
-        # one project, plus a cost-centre account (0) that is ignored
-        shares = engine._request_project_shares(
-            pr_req((100.0, {str(a1): 100.0, '0': 100.0})), f)
-        self.assertEqual([(p.id, round(fr, 4)) for p, fr in shares], [(projects[0].id, 1.0)])
-        # two projects weighted by line subtotal, multi-account key "a1,a2"
-        shares = dict((p.id, fr) for p, fr in engine._request_project_shares(
-            pr_req((300.0, {str(a1): 100.0}), (100.0, {str(a2): 100.0})), f))
-        self.assertAlmostEqual(shares[projects[0].id], 0.75, places=4)
-        self.assertAlmostEqual(shares[projects[1].id], 0.25, places=4)
-        shares = engine._request_project_shares(
-            pr_req((100.0, {'%d,%d' % (a1, a2): 100.0})), f)
-        self.assertAlmostEqual(sum(fr for _p, fr in shares), 1.0, places=4)
-        # nothing maps to a project -> no project, full fraction
-        shares = engine._request_project_shares(pr_req((100.0, {'0': 100.0})), f)
-        self.assertEqual([(bool(p), fr) for p, fr in shares], [(False, 1.0)])
+    def test_approval_request_po_currency_converted(self):
+        # amount_requested of a PO request is in the PO currency, not company currency
+        usd = self.env.ref('base.USD')
+        foreign = usd if usd != self.currency else self.env.ref('base.EUR')
+        rate = self.env['res.currency.rate'].create({
+            'currency_id': foreign.id, 'company_id': self.company.id,
+            'name': fields.Date.today(), 'rate': 0.5,  # 1 company currency = 0.5 foreign
+        })
+        self.assertTrue(rate)
+        today = fields.Date.today()
+        f_now = {'month': today.month, 'year': today.year, 'company_id': self.company.id}
+        before = self.engine.get_dashboard_data(f_now)
+        po = self._po(self.v1, D(3, 15), 100.0, project=self.p1, confirm=False)
+        po.currency_id = foreign
+        self.env['buz.budget.approval.request'].create({
+            'document_type': 'po', 'ref_po_id': po.id,
+            'amount_requested': 100.0, 'company_id': self.company.id,
+        })
+        after = self.engine.get_dashboard_data(f_now)
+        # 100 foreign units at 0.5 foreign per company unit = 200 company currency
+        self.assertAlmostEqual(
+            after['kpi_request']['pending']['amount'] - before['kpi_request']['pending']['amount'],
+            200.0, places=2)
 
     def test_payload_shape_and_serializable(self):
         payload = self._data()
         json.dumps(payload)
         for key in ('filters', 'currency', 'as_of', 'updated_at', 'options', 'kpi_payment',
                     'kpi_budget', 'kpi_request', 'kpi_forecast', 'weekly', 'forecast_weekly',
-                    'vendor_share', 'tables', 'tabs'):
+                    'vendor_share', 'tables', 'tabs', 'actual_vendors', 'kpi_loan'):
             self.assertIn(key, payload)
         self.assertEqual(len(payload['weekly']), 4)
         self.assertEqual(len(payload['forecast_weekly']), 4)
         self.assertEqual([t['id'] for t in payload['tabs']], ['vendor', 'project', 'category'])
         expected = {'seq', 'id', 'key', 'name', 'budget_pct',
                     'month_total', 'month_cash', 'month_credit', 'month_paid', 'month_residual',
+                    'act_total', 'act_loan', 'act_note', 'act_advance', 'act_cash',
                     'budget_approved', 'budget_used', 'budget_remaining',
                     'req_pending', 'req_approved', 'req_rejected',
                     'next_total', 'next_cash', 'next_credit'}

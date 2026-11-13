@@ -5,7 +5,7 @@
         <field name="tag">biz_dashboard_ap_payment.dashboard</field>
     </record>
 
-    <!-- Purchase > Budget Control (next to the Smart Dashboard) -->
+    <!-- Monthly Budget root menu -->
     <menuitem id="menu_ap_payment_dashboard_budget"
               name="Budget &amp; Payment Control"
               parent="biz_weekly_budget.menu_budget_control_root"

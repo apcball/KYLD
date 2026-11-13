@@ -42,8 +42,9 @@ BILL_TYPES = ('in_invoice', 'in_refund')
 PO_STATES = ('purchase', 'done')
 REQ_STATES = ('pending', 'approved', 'rejected')
 TOP_VENDORS = 5
-# PO figures (billed / unbilled) are untaxed in biz_weekly_budget; bills are
-# compared on their tax-inclusive total, so PO amounts are grossed up by the
+ACTUAL_TOP_VENDORS = 8
+# PO unbilled amounts are computed untaxed from the PO lines; bills are
+# compared on their tax-inclusive total, so they are grossed up by the
 # PO's own tax ratio to keep every column on the same basis.
 GROSS_UP_PO = True
 
@@ -85,6 +86,7 @@ TABS = OrderedDict([
 ])
 ROW_AMOUNT_KEYS = (
     'month_total', 'month_cash', 'month_credit', 'month_paid', 'month_residual',
+    'act_total', 'act_loan', 'act_note', 'act_advance', 'act_cash',
     'budget_approved', 'budget_used', 'budget_remaining',
     'req_pending', 'req_approved', 'req_rejected',
     'next_total', 'next_cash', 'next_credit',
@@ -137,7 +139,7 @@ class ApDashboard(models.AbstractModel):
         f = self._normalize_filters(filters or {})
         ttl = self._cache_ttl()
         key = ('data',) + self._cache_scope(f) + (
-            f['month'], f['year'], f['company_id'], f['project_id'], f['partner_id'])
+            f['month'], f['year'], f['company_id'], f['project_id'], f['analytic_id'], f['partner_id'])
         if ttl and not refresh:
             cached = _cache_get(key, ttl)
             if cached is not None:
@@ -226,6 +228,8 @@ class ApDashboard(models.AbstractModel):
             'company_id': company_id,
             'cids': cids,
             'project_id': _to_int(filters.get('project_id')),
+            'analytic_id': _to_int(filters.get('analytic_id')),
+            '_scope': {},
             'partner_id': partner_id,
             'currency': company.currency_id,
             'date_from': date_from,
@@ -252,10 +256,13 @@ class ApDashboard(models.AbstractModel):
 
     @staticmethod
     def _is_cash_term(term, inv_date=None, due_date=None):
-        """เงินสด (ชำระทันที) = no payment term, or every term line is
-        "0 days after" (immediate), or the due date is not after the
-        invoice date. Everything else is credit."""
+        """เงินสด (ชำระทันที) = every term line is "0 days after" (immediate),
+        or the due date is not after the invoice date. Everything else is
+        credit. Without a payment term the dates decide (a hand-set later due
+        date is credit); with no dates to compare (POs) it counts as cash."""
         if not term:
+            if inv_date and due_date:
+                return due_date <= inv_date
             return True
         lines = term.line_ids
         if lines and all(
@@ -268,6 +275,8 @@ class ApDashboard(models.AbstractModel):
 
     def _is_cash(self, f, term, inv_date=None, due_date=None):
         """_is_cash_term with the per-term part memoised for one build."""
+        if not term:
+            return self._is_cash_term(term, inv_date, due_date)
         cache = f.setdefault('_term_cache', {})
         if term.id not in cache:
             cache[term.id] = self._is_cash_term(term)
@@ -344,6 +353,76 @@ class ApDashboard(models.AbstractModel):
             return NO_VENDOR
         return ('p:%d' % partner.id, partner.name or partner.display_name, partner.id)
 
+    def _analytic_scope(self, f):
+        """Analytic-account (budget) filter. Bills and POs carry their analytic
+        accounts per line in ``analytic_distribution`` (keys like "1,182,15" =
+        one account per plan, values = percent). Returns ``{'bills': {id: share},
+        'pos': {id: share}}``: the fraction of each document that belongs to the
+        chosen account (amount-weighted over its product lines); documents
+        without the account are absent. Computed once per call. ``None`` when
+        no analytic filter is set."""
+        aid = f.get('analytic_id')
+        if not aid:
+            return None
+        scope = f['_scope']
+        if not scope:
+            self.env.flush_all()  # raw SQL below must see pending ORM writes
+            cr = self.env.cr
+            pct = ("(SELECT sum(e.value::numeric) FROM jsonb_each_text(l.analytic_distribution) e "
+                   "WHERE %s = ANY(string_to_array(e.key, ',')))")
+            cr.execute("""
+                SELECT l.move_id, sum(abs(l.balance) * coalesce(""" + pct + """, 0)) / 100.0
+                       / nullif(sum(abs(l.balance)), 0)
+                  FROM account_move_line l JOIN account_move m ON m.id = l.move_id
+                 WHERE m.move_type IN %s AND m.state = 'posted' AND m.company_id = ANY(%s)
+                   AND l.display_type = 'product' AND l.analytic_distribution IS NOT NULL
+                 GROUP BY l.move_id
+                HAVING sum(abs(l.balance) * coalesce(""" + pct + """, 0)) > 0
+            """, (str(aid), BILL_TYPES, f['cids'], str(aid)))
+            scope['bills'] = {mid: min(1.0, share) for mid, share in cr.fetchall()}
+            cr.execute("""
+                SELECT l.order_id, sum(l.price_subtotal * coalesce(""" + pct + """, 0)) / 100.0
+                       / nullif(sum(l.price_subtotal), 0)
+                  FROM purchase_order_line l JOIN purchase_order o ON o.id = l.order_id
+                 WHERE o.state IN %s AND o.company_id = ANY(%s)
+                   AND l.display_type IS NULL AND l.analytic_distribution IS NOT NULL
+                 GROUP BY l.order_id
+                HAVING sum(l.price_subtotal * coalesce(""" + pct + """, 0)) > 0
+            """, (str(aid), PO_STATES, f['cids'], str(aid)))
+            scope['pos'] = {oid: min(1.0, share) for oid, share in cr.fetchall()}
+            scope['_loaded'] = True
+        return scope
+
+    def _share(self, f, kind, rec_id):
+        """Fraction of a bill (``kind='bills'``) / PO (``'pos'``) inside the analytic filter."""
+        scope = self._analytic_scope(f)
+        return 1.0 if scope is None else scope[kind].get(rec_id, 0.0)
+
+    @staticmethod
+    def _line_pct(line, aid):
+        """Fraction (0-1) of a line's analytic distribution on account ``aid``."""
+        if not aid:
+            return 1.0
+        dist = line.analytic_distribution or {}
+        return sum(v for k, v in dist.items() if str(aid) in k.split(',')) / 100.0
+
+    def _project_domain(self, f, model):
+        """Project filter on bills / POs. ``project_id`` on them comes from the
+        optional job_costing_management; without it no document carries a project,
+        so a project filter leaves only the budget lines."""
+        if not f['project_id']:
+            return []
+        if 'project_id' not in self.env[model]._fields:
+            return [('id', '=', 0)]
+        return [('project_id', '=', f['project_id'])]
+
+    @staticmethod
+    def _project_of(record):
+        """Project of a bill / PO, or an empty recordset when the field is absent."""
+        if 'project_id' in record._fields:
+            return record.project_id
+        return record.env['project.project']
+
     @staticmethod
     def _project_bucket(project):
         if not project:
@@ -372,8 +451,10 @@ class ApDashboard(models.AbstractModel):
             '&', '&', ('invoice_date_due', '=', False),
             ('invoice_date', '>=', date_from), ('invoice_date', '<=', date_to),
         ]
-        if f['project_id']:
-            domain.append(('project_id', '=', f['project_id']))
+        domain += self._project_domain(f, 'account.move')
+        scope = self._analytic_scope(f)
+        if scope is not None:
+            domain.append(('id', 'in', list(scope['bills'])))
         if f['partner_id']:
             domain.append(('commercial_partner_id', '=', f['partner_id']))
         if unpaid_only:
@@ -383,34 +464,275 @@ class ApDashboard(models.AbstractModel):
     def _search_bills(self, domain):
         """One query for the needed columns instead of loading every stored
         field of account.move, then warm the line / product caches in batch."""
-        bills = self.env['account.move'].search_fetch(domain, [
+        Move = self.env['account.move']
+        bills = Move.search_fetch(domain, [
             'move_type', 'company_id', 'invoice_date', 'invoice_date_due',
             'amount_total_signed', 'amount_residual_signed', 'invoice_payment_term_id',
-            'partner_id', 'commercial_partner_id', 'project_id',
-        ])
+            'partner_id', 'commercial_partner_id', 'payment_state',
+        ] + (['project_id'] if 'project_id' in Move._fields else []))
         lines = self.env['account.move.line'].search_fetch(
             [('move_id', 'in', bills.ids), ('display_type', '=', 'product')],
-            ['move_id', 'balance', 'product_id', 'account_id'])
+            ['move_id', 'balance', 'product_id', 'account_id', 'analytic_distribution'])
         by_move = {}
         for line in lines:
             by_move.setdefault(line.move_id.id, []).append(line)
         lines.product_id.categ_id.mapped('complete_name')
         return bills, by_move
 
-    def _po_domain(self, f, date_from, date_to, unbilled_only=False):
+    def _paid_actual(self, f):
+        """Totals of :meth:`_paid_actual_items` by settlement kind plus ``total``."""
+        result = {'total': 0.0, 'loan': 0.0, 'note': 0.0, 'advance': 0.0, 'cash': 0.0}
+        for _bill, kind, amount in self._paid_actual_items(f):
+            if kind == 'cash':  # loan / note / advance: no money has left the bank yet
+                result['total'] += amount
+            result[kind] += amount
+        return result
+
+    def _paid_actual_items(self, f):
+        """Cash actually paid out in the month: vendor-bill payable lines
+        reconciled with a payment / bank entry whose reconcile date falls in the
+        month, whatever the bill's due date (bills + refunds, refunds negative).
+        Bill-to-bill offsets and exchange-difference entries are not cash.
+
+        Returns ``[(bill, kind, amount)]`` - one per reconcile; ``kind`` is how the
+        bill was settled, none of the first three being money out of the bank yet:
+        ``loan`` = bank-loan drawdown (entry crediting one of the company's
+        ``apd_loan_account_ids``, e.g. Trust Receipt); ``note`` = payable-note
+        journals (``apd_note_journal_ids``, cash goes out at maturity);
+        ``advance`` = employee-advance journals (``apd_advance_journal_ids``,
+        the company still owes the employee); ``cash`` = everything else
+        (bank transfer / cheque / other)."""
+        items = []
+        companies = self.env['res.company'].browse(f['cids'])
+        loan_accounts = companies.apd_loan_account_ids
+        note_journals = set(companies.apd_note_journal_ids.ids)
+        advance_journals = set(companies.apd_advance_journal_ids.ids)
+        Partial = self.env['account.partial.reconcile']
+        partials = Partial.search([
+            ('max_date', '>=', f['date_from']),
+            ('max_date', '<=', f['date_to']),
+            ('company_id', 'in', f['cids']),
+        ])
+        if not partials:
+            return items
+        bill_domain = [
+            ('move_type', 'in', BILL_TYPES),
+            ('state', '=', 'posted'),
+            ('company_id', 'in', f['cids']),
+        ] + self._project_domain(f, 'account.move')
+        scope = self._analytic_scope(f)
+        if scope is not None:
+            bill_domain.append(('id', 'in', list(scope['bills'])))
+        if f['partner_id']:
+            bill_domain.append(('commercial_partner_id', '=', f['partner_id']))
+        bill_ids = set(self.env['account.move'].search(
+            bill_domain + [('line_ids.matched_debit_ids', 'in', partials.ids)]
+        ).ids) | set(self.env['account.move'].search(
+            bill_domain + [('line_ids.matched_credit_ids', 'in', partials.ids)]
+        ).ids)
+        loan_moves = set()
+        if loan_accounts:
+            loan_moves = set(self.env['account.move.line'].search([
+                ('account_id', 'in', loan_accounts.ids),
+                ('credit', '>', 0),
+                ('parent_state', '=', 'posted'),
+                ('move_id', 'in', (partials.debit_move_id.move_id | partials.credit_move_id.move_id).ids),
+            ]).move_id.ids)
+        for partial in partials:
+            credit, debit = partial.credit_move_id, partial.debit_move_id
+            # the bill side is the payable line of a bill; the other side pays it
+            if credit.move_id.id in bill_ids and credit.account_id.account_type == 'liability_payable':
+                bill_line, other, sign = credit, debit, 1.0
+            elif debit.move_id.id in bill_ids and debit.account_id.account_type == 'liability_payable':
+                bill_line, other, sign = debit, credit, -1.0
+            else:
+                continue
+            other_move = other.move_id
+            if other_move.move_type in BILL_TYPES:
+                continue
+            company = partial.company_id
+            if other_move.journal_id == company.currency_exchange_journal_id:
+                continue
+            amount = sign * self._convert(
+                partial.amount, company.currency_id, company, partial.max_date, f['currency'])
+            if other_move.id in loan_moves:
+                kind = 'loan'
+            elif other_move.journal_id.id in note_journals:
+                kind = 'note'
+            elif other_move.journal_id.id in advance_journals:
+                kind = 'advance'
+            else:
+                kind = 'cash'
+            items.append((bill_line.move_id, kind, amount * self._share(f, 'bills', bill_line.move_id.id)))
+        return items
+
+    def _loan_kpi(self, f):
+        """Bank-loan (TR / PN ...) position of the configured loan accounts:
+        drawn and repaid in the month, outstanding at month end (company
+        currency of each company, converted). Not filtered by vendor / project:
+        loan entries carry no bill link."""
+        companies = self.env['res.company'].browse(f['cids'])
+        accounts = companies.apd_loan_account_ids
+        kpi = {'configured': bool(accounts), 'drawn': 0.0, 'repaid': 0.0, 'outstanding': 0.0}
+        per_account = {acc.id: {'id': acc.id, 'code': acc.code, 'name': acc.name,
+                                'drawn': 0.0, 'repaid': 0.0, 'outstanding': 0.0}
+                       for acc in accounts.sorted('code')}
+        if not accounts:
+            kpi['accounts'] = []
+            kpi['has_manual'] = False
+            return kpi
+        Line = self.env['account.move.line']
+        domain = [('account_id', 'in', accounts.ids), ('parent_state', '=', 'posted'),
+                  ('company_id', 'in', f['cids']), ('date', '<=', f['date_to'])]
+        for line in Line.search_fetch(domain, ['company_id', 'account_id', 'date', 'debit', 'credit']):
+            company = line.company_id
+            conv = lambda amount: self._convert(
+                amount, company.currency_id, company, line.date, f['currency'])
+            acc = per_account[line.account_id.id]
+            outstanding = conv(line.credit - line.debit)
+            kpi['outstanding'] += outstanding
+            acc['outstanding'] += outstanding
+            if line.date >= f['date_from']:
+                kpi['drawn'] += conv(line.credit)
+                kpi['repaid'] += conv(line.debit)
+                acc['drawn'] += conv(line.credit)
+                acc['repaid'] += conv(line.debit)
+        # manual entries of the month override the ledger figures of that account
+        manual = self.env['biz.ap.dashboard.loan.manual'].sudo().search([
+            ('company_id', 'in', f['cids']), ('year', '=', f['year']),
+            ('month', '=', str(f['month'])), ('account_id', 'in', accounts.ids)])
+        for rec in manual:
+            conv = lambda amount: self._convert(
+                amount, rec.company_id.currency_id, rec.company_id, f['date_to'], f['currency'])
+            acc = per_account[rec.account_id.id]
+            if not acc.get('manual'):
+                # first manual row of this account: drop the ledger figures of the account
+                # (a second company's row for the same account id cannot exist: accounts are per company)
+                acc.update(drawn=0.0, repaid=0.0, outstanding=0.0, manual=True)
+            acc['drawn'] += conv(rec.drawn)
+            acc['repaid'] += conv(rec.repaid)
+            acc['outstanding'] += conv(rec.outstanding)
+            acc['note'] = rec.note or ''
+        kpi = {'configured': kpi['configured'],
+               'drawn': sum(a['drawn'] for a in per_account.values()),
+               'repaid': sum(a['repaid'] for a in per_account.values()),
+               'outstanding': sum(a['outstanding'] for a in per_account.values())}
+        result = {key: (round(val, 2) if key != 'configured' else val) for key, val in kpi.items()}
+        # per configured loan account (e.g. 212100 PN bank loan / 212200 TR)
+        result['accounts'] = [
+            {k: (round(v, 2) if isinstance(v, float) else v) for k, v in acc.items()}
+            for acc in per_account.values()]
+        result['has_manual'] = bool(manual)
+        return result
+
+    def _other_expense_vals(self, f, expense_only=False):
+        """Journal-entry spend that never goes through a vendor bill (salary,
+        interest ...): lines of the accounts configured on the company
+        (``apd_other_expense_account_ids``) in posted ``entry`` moves dated in
+        the month. Booked = paid, so they count as cash and paid. A project
+        filter leaves none of them (entries carry no project)."""
+        if f['project_id'] or f['analytic_id']:
+            return []  # journal entries carry no project / budget analytic split
+        companies = self.env['res.company'].browse(f['cids'])
+        net_accounts = companies.apd_other_expense_account_ids
+        debit_accounts = companies.apd_other_expense_debit_account_ids - net_accounts
+        accounts = net_accounts | debit_accounts
+        if expense_only:
+            # forecast base: real spend only (salary, interest ...). Net accrual
+            # accounts swing +/- and loan principal is lumpy: both left out.
+            accounts = debit_accounts - companies.apd_loan_account_ids
+        if not accounts:
+            return []
+        domain = [
+            ('move_id.move_type', '=', 'entry'),
+            ('parent_state', '=', 'posted'),
+            ('company_id', 'in', f['cids']),
+            ('account_id', 'in', accounts.ids),
+            ('date', '>=', f['date_from']),
+            ('date', '<=', f['date_to']),
+        ]
+        if f['partner_id']:
+            domain.append(('partner_id.commercial_partner_id', '=', f['partner_id']))
+        if all(companies.mapped('apd_exclude_reversal')):
+            # an accrual reversal is not money out (the real bill is already in
+            # the bill totals): skip Odoo reversals and hand-made "(Reversal)" entries
+            domain += [
+                ('move_id.reversed_entry_id', '=', False),
+                '|', ('move_id.ref', '=', False), ('move_id.ref', 'not ilike', 'reversal'),
+            ]
+        out = []
+        for line in self.env['account.move.line'].search(domain):
+            company = line.company_id
+            # net accounts (accruals): debit - credit; debit-only accounts (loan
+            # repayment, payables settled, expenses): the debit side alone
+            raw = line.debit - line.credit if line.account_id in net_accounts else line.debit
+            if not raw:
+                continue
+            total = self._convert(
+                raw, company.currency_id, company, line.date, f['currency'])
+            out.append({
+                'date': line.date,
+                'week': _week_index(line.date.day),
+                'is_cash': True,
+                'total': total,
+                'residual': 0.0,
+                'paid': total,
+                'vendor': self._vendor_bucket(line.partner_id),
+                'project': NO_PROJECT,
+                'category': self._category_bucket(False, line.account_id),
+            })
+        return out
+
+    FORECAST_OTHER_MONTHS = 3
+
+    def _forecast_other(self, f):
+        """Expected off-bill spend of the next month: the average of the
+        ``FORECAST_OTHER_MONTHS`` months before the selected one (real expense
+        accounts only, see ``_other_expense_vals(expense_only=True)``).
+        Returns ``{'buckets': {(vendor_bucket, category_bucket): amount},
+        'items': [{name, amount, pct}]}`` - amounts are monthly averages."""
+        n = self.FORECAST_OTHER_MONTHS
+        year, month = f['year'], f['month']
+        totals = {}
+        by_account = {}
+        for _i in range(n):
+            month -= 1
+            if month == 0:
+                year, month = year - 1, 12
+            date_from, date_to = _month_range(year, month)
+            for v in self._other_expense_vals(dict(f, date_from=date_from, date_to=date_to),
+                                              expense_only=True):
+                key = (v['vendor'], v['category'])
+                totals[key] = totals.get(key, 0.0) + v['total']
+                name = v['category'][1]
+                by_account[name] = by_account.get(name, 0.0) + v['total']
+        buckets = {k: amount / n for k, amount in totals.items() if abs(amount) > 0.005}
+        total = sum(by_account.values()) / n
+        items = [{'name': name, 'amount': round(amount / n, 2), 'pct': _pct(amount / n, total)}
+                 for name, amount in sorted(by_account.items(), key=lambda kv: -abs(kv[1]))]
+        return {'buckets': buckets, 'items': items}
+
+    def _po_domain(self, f, date_from, date_to):
         domain = [
             ('state', 'in', PO_STATES),
             ('company_id', 'in', f['cids']),
             ('payment_date', '>=', date_from),
             ('payment_date', '<=', date_to),
         ]
-        if f['project_id']:
-            domain.append(('project_id', '=', f['project_id']))
+        domain += self._project_domain(f, 'purchase.order')
+        scope = self._analytic_scope(f)
+        if scope is not None:
+            domain.append(('id', 'in', list(scope['pos'])))
         if f['partner_id']:
             domain.append(('partner_id.commercial_partner_id', '=', f['partner_id']))
-        if unbilled_only:
-            domain.append(('remaining_to_bill', '>', 0))
         return domain
+
+    @staticmethod
+    def _request_currency(req):
+        """Currency of ``amount_requested``: the PO currency (kept in the
+        document currency), company currency for PRs."""
+        doc = req.ref_po_id if req.document_type == 'po' else False
+        return (doc and doc.currency_id) or req.company_id.currency_id
 
     def _request_domain(self, f):
         start = datetime.combine(f['date_from'], datetime.min.time())
@@ -430,8 +752,9 @@ class ApDashboard(models.AbstractModel):
         day = bill.invoice_date_due or bill.invoice_date
         company_ccy = bill.company_id.currency_id
         conv = lambda amount: self._convert(amount, company_ccy, bill.company_id, day, f['currency'])
-        total = conv(-bill.amount_total_signed)
-        residual = conv(-bill.amount_residual_signed)
+        share = self._share(f, 'bills', bill.id)
+        total = conv(-bill.amount_total_signed) * share
+        residual = conv(-bill.amount_residual_signed) * share
         return {
             'date': day,
             'week': _week_index(day.day),
@@ -439,9 +762,10 @@ class ApDashboard(models.AbstractModel):
                 f, bill.invoice_payment_term_id, bill.invoice_date, bill.invoice_date_due),
             'total': total,
             'residual': residual,
-            'paid': total - residual,
+            # a reversed bill was cancelled by a credit note, nothing was paid
+            'paid': 0.0 if bill.payment_state == 'reversed' else total - residual,
             'vendor': self._vendor_bucket(bill.commercial_partner_id or bill.partner_id),
-            'project': self._project_bucket(bill.project_id),
+            'project': self._project_bucket(self._project_of(bill)),
         }
 
     def _bill_line_shares(self, bill, vals, f, lines=None):
@@ -457,6 +781,7 @@ class ApDashboard(models.AbstractModel):
             lines = [l for l in bill.invoice_line_ids if l.display_type == 'product']
         for line in lines:
             amount = self._convert(line.balance, company_ccy, bill.company_id, vals['date'], f['currency'])
+            amount *= self._line_pct(line, f['analytic_id'])
             if not amount:
                 continue
             allocated += amount
@@ -466,12 +791,27 @@ class ApDashboard(models.AbstractModel):
             shares.append((TAX_ROW, remainder / total))
         return shares
 
+    @staticmethod
+    def _line_unbilled(line):
+        """Untaxed amount of a PO line not yet covered by a non-cancelled bill line."""
+        if not line.product_qty:
+            return 0.0
+        billed = sum(line.invoice_lines.filtered(
+            lambda l: l.move_id.state != 'cancel').mapped('quantity'))
+        return line.price_subtotal * max(0.0, line.product_qty - billed) / line.product_qty
+
+    def _po_unbilled(self, po):
+        """Untaxed amount of the PO still to be billed."""
+        return sum(self._line_unbilled(l) for l in po.order_line
+                   if l.display_type in (False, 'product', ''))
+
     def _po_vals(self, po, f):
         factor = self._po_tax_factor(po)
         day = po.payment_date
         conv = lambda amount: self._convert(amount, po.currency_id, po.company_id, day, f['currency'])
-        remaining = po.remaining_to_bill * factor
-        approved = po.amount_total
+        share = self._share(f, 'pos', po.id)
+        remaining = self._po_unbilled(po) * factor * share
+        approved = po.amount_total * share
         return {
             'date': day,
             'week': _week_index(day.day),
@@ -481,68 +821,23 @@ class ApDashboard(models.AbstractModel):
             'used': conv(approved - remaining),
             'remaining': conv(remaining),
             'vendor': self._vendor_bucket(po.partner_id),
-            'project': self._project_bucket(po.project_id),
+            'project': self._project_bucket(self._project_of(po)),
         }
 
-    def _po_line_shares(self, po):
+    def _po_line_shares(self, po, aid=False):
         """[(bucket, approved_fraction, remaining_fraction)] per product line."""
         lines = [l for l in po.order_line if l.display_type in (False, 'product', '')]
-        untaxed = sum(l.price_subtotal for l in lines)
-        remaining_total = sum(po._get_unbilled_line_amount(l) for l in lines)
+        pct = {l.id: self._line_pct(l, aid) for l in lines}
+        untaxed = sum(l.price_subtotal * pct[l.id] for l in lines)
+        remaining_total = sum(self._line_unbilled(l) * pct[l.id] for l in lines)
         shares = []
         for line in lines:
             bucket = self._category_bucket(line.product_id)
-            approved_share = line.price_subtotal / untaxed if untaxed else 0.0
-            unbilled = po._get_unbilled_line_amount(line)
+            approved_share = line.price_subtotal * pct[line.id] / untaxed if untaxed else 0.0
+            unbilled = self._line_unbilled(line) * pct[line.id]
             remaining_share = unbilled / remaining_total if remaining_total else 0.0
             shares.append((bucket, approved_share, remaining_share))
         return shares
-
-    def _request_project_shares(self, req, f):
-        """[(project record or empty, fraction)] for an approval request, the
-        fractions add up to 1.
-
-        * PO request -> the PO's project; MR request -> the MR's project.
-        * PR request -> projects behind the analytic accounts of the PR lines,
-          weighted by line subtotal x analytic percentage. Analytic accounts
-          that are not a project's account (cost centres such as "คาเฟ่") are
-          ignored; nothing mapped -> no project.
-        """
-        Project = self.env['project.project']
-        if req.ref_po_id:
-            return [(req.ref_po_id.project_id, 1.0)]
-        if req.ref_mr_id:
-            return [(req.ref_mr_id.project_id, 1.0)]
-        pr = req.ref_pr_id
-        if not pr:
-            return [(Project, 1.0)]
-        cache = f.setdefault('_project_by_analytic', {})
-        weights = {}
-        parsed = []
-        for line in pr.requisition_order_ids:
-            weight = line.price_subtotal or 0.0
-            for key, pct in (line.analytic_distribution or {}).items():
-                for acc in str(key).split(','):
-                    if acc.strip().isdigit():
-                        parsed.append((int(acc), weight, (pct or 0.0) / 100.0))
-        missing = {a for a, _w, _p in parsed if a not in cache}
-        if missing:
-            found = Project.search_fetch(
-                [('analytic_account_id', 'in', list(missing))], ['name', 'analytic_account_id'])
-            for acc in missing:
-                cache[acc] = Project
-            for project in found:
-                cache[project.analytic_account_id.id] = project
-        # equal weight for every line when the PR has no priced line
-        unpriced = not any(w for _a, w, _p in parsed)
-        for acc, weight, pct in parsed:
-            project = cache.get(acc)
-            if project:
-                weights[project.id] = weights.get(project.id, 0.0) + (1.0 if unpriced else weight) * pct
-        total = sum(weights.values())
-        if not total:
-            return [(Project, 1.0)]
-        return [(Project.browse(pid), w / total) for pid, w in weights.items()]
 
     # ------------------------------------------------------------------
     # Build
@@ -556,7 +851,16 @@ class ApDashboard(models.AbstractModel):
             self._accumulate(rows['project'], buckets['project'], **amounts)
 
         # 1. ยอดจ่ายประจำเดือน --------------------------------------------------
-        kpi_payment = {'total': 0.0, 'cash': 0.0, 'credit': 0.0, 'paid': 0.0, 'residual': 0.0, 'count': 0}
+        actual_items = self._paid_actual_items(f)
+        actual = {'total': 0.0, 'loan': 0.0, 'note': 0.0, 'advance': 0.0, 'cash': 0.0}
+        for _bill, kind, amount in actual_items:
+            if kind == 'cash':  # loan / note / advance: no money has left the bank yet
+                actual['total'] += amount
+            actual[kind] += amount
+        kpi_payment = {'total': 0.0, 'cash': 0.0, 'credit': 0.0, 'paid': 0.0, 'residual': 0.0, 'count': 0,
+                       'paid_actual': actual['total'], 'paid_actual_loan': actual['loan'],
+                       'paid_actual_note': actual['note'], 'paid_actual_advance': actual['advance'],
+                       'paid_actual_cash': actual['cash']}
         weekly = self._week_labels(f['date_from'], f['date_to'])
         bills, bill_lines = self._search_bills(self._bill_domain(f, f['date_from'], f['date_to']))
         for bill in bills:
@@ -578,12 +882,55 @@ class ApDashboard(models.AbstractModel):
                 self._accumulate(rows['category'], bucket,
                                  **{k: val * share for k, val in amounts.items()})
 
+        # 1a. จ่ายออกจริงในเดือน (ตามวันที่ชำระ) แยกตามประเภทการจ่าย ต่อร้านค้า / โครงการ / หมวด
+        actual_bills = {bill.id: bill for bill, _kind, _amount in actual_items}
+        actual_lines = {}
+        if actual_bills:
+            actual_bills_rs, actual_lines = self._search_bills([('id', 'in', list(actual_bills))])
+            actual_bills = {b.id: b for b in actual_bills_rs}
+        for bill, kind, amount in actual_items:
+            bill = actual_bills.get(bill.id, bill)
+            v = {'vendor': self._vendor_bucket(bill.commercial_partner_id or bill.partner_id),
+                 'project': self._project_bucket(self._project_of(bill))}
+            amounts = {'act_total': amount if kind == 'cash' else 0.0, 'act_%s' % kind: amount}
+            add(v, **amounts)
+            shares = self._bill_line_shares(
+                bill, self._bill_vals(bill, f), f, actual_lines.get(bill.id, []))
+            for bucket, share in shares or [(NO_CATEGORY, 1.0)]:
+                self._accumulate(rows['category'], bucket, **{k: val * share for k, val in amounts.items()})
+
+        # 1b. รายจ่ายนอกบิล (สมุดรายวัน: เงินเดือน ดอกเบี้ย ...) -----------------
+        kpi_payment['other'] = 0.0
+        other_by_account = OrderedDict()
+        other_count = 0
+        other_loan_repaid = 0.0
+        loan_account_ids = set(self.env['res.company'].browse(f['cids']).apd_loan_account_ids.ids)
+        for v in self._other_expense_vals(f):
+            if v['category'][2] in loan_account_ids:
+                # loan principal repayment: the bills it funded are already in the
+                # bill totals, so it is kept out of the month total (shown apart,
+                # and counted as cash out in the actual-paid card)
+                other_loan_repaid += v['total']
+                continue
+            other_count += 1
+            name = v['category'][1]
+            other_by_account[name] = other_by_account.get(name, 0.0) + v['total']
+            amounts = dict(month_total=v['total'], month_cash=v['total'],
+                           month_credit=0.0, month_paid=v['paid'], month_residual=0.0)
+            kpi_payment['total'] += v['total']
+            kpi_payment['cash'] += v['total']
+            kpi_payment['paid'] += v['paid']
+            kpi_payment['other'] += v['total']
+            weekly[v['week']]['cash'] += v['total']
+            add(v, **amounts)
+            self._accumulate(rows['category'], v['category'], **amounts)
+
         # 2. งบประมาณจาก PO ต่อร้านค้า / โครงการ / หมวด ---------------------------
         pos = self.env['purchase.order'].search(self._po_domain(f, f['date_from'], f['date_to']))
         for po in pos:
             v = self._po_vals(po, f)
             add(v, budget_approved=v['approved'], budget_used=v['used'], budget_remaining=v['remaining'])
-            for bucket, approved_share, remaining_share in self._po_line_shares(po):
+            for bucket, approved_share, remaining_share in self._po_line_shares(po, f['analytic_id']):
                 remaining = v['remaining'] * remaining_share
                 approved = v['approved'] * approved_share
                 self._accumulate(rows['category'], bucket, budget_approved=approved,
@@ -593,35 +940,41 @@ class ApDashboard(models.AbstractModel):
         kpi_request = {state: {'amount': 0.0, 'count': 0} for state in REQ_STATES}
         requests = self.env['buz.budget.approval.request'].search(self._request_domain(f))
         request_shares = {}
+        # amount_reserved / amount_used are the allocation's running figures at request
+        # time, so several requests on one allocation must not be summed: keep the latest.
+        budget_snap = {}
         for req in requests:
             po = req.ref_po_id
-            if f['partner_id'] and (
-                    not po or po.partner_id.commercial_partner_id.id != f['partner_id']):
+            if (f['project_id'] or f['analytic_id'] or f['partner_id']) and not po:
                 continue
-            # (project record or empty, fraction) - PO / MR carry the project
-            # directly, PR is derived from its lines' analytic distribution
-            proj_shares = self._request_project_shares(req, f)
-            if f['project_id']:
-                proj_shares = [(p, fr) for p, fr in proj_shares if p and p.id == f['project_id']]
-                if not proj_shares:
-                    continue
-            scale = sum(fr for _p, fr in proj_shares)
-            amount_full = self._convert(
-                req.amount_overage, req.company_id.currency_id or currency, req.company_id,
+            req_share = self._share(f, 'pos', po.id) if f['analytic_id'] else 1.0
+            if not req_share:
+                continue
+            if f['project_id'] and self._project_of(po).id != f['project_id']:
+                continue
+            if f['partner_id'] and po.partner_id.commercial_partner_id.id != f['partner_id']:
+                continue
+            amount = req_share * self._convert(
+                req.amount_requested, self._request_currency(req), req.company_id,
                 fields.Date.to_date(req.create_date), currency)
-            amount = amount_full * (scale if f['project_id'] else 1.0)
             kpi_request[req.state]['amount'] += amount
             kpi_request[req.state]['count'] += 1
+            snap_key = req.budget_allocation_id.id or ('req', req.id)
+            if snap_key not in budget_snap or req.id > budget_snap[snap_key][0]:
+                budget_snap[snap_key] = (req.id, self._convert(
+                    req.amount_reserved, req.company_id.currency_id, req.company_id,
+                    fields.Date.to_date(req.create_date), currency) * req_share,
+                    self._convert(
+                    req.amount_used, req.company_id.currency_id, req.company_id,
+                    fields.Date.to_date(req.create_date), currency) * req_share)
             field = 'req_%s' % req.state
-            self._accumulate(rows['vendor'],
-                             self._vendor_bucket(po.partner_id) if po else NO_VENDOR,
-                             **{field: amount})
-            for project, fraction in proj_shares:
-                share = fraction / scale if f['project_id'] else fraction
-                self._accumulate(rows['project'], self._project_bucket(project),
-                                 **{field: amount_full * share})
+            buckets = {
+                'vendor': self._vendor_bucket(po.partner_id) if po else NO_VENDOR,
+                'project': self._project_bucket(self._project_of(po)) if po else NO_PROJECT,
+            }
+            add(buckets, **{field: amount})
             if po and po.id not in request_shares:
-                request_shares[po.id] = self._po_line_shares(po)
+                request_shares[po.id] = self._po_line_shares(po, f['analytic_id'])
             shares = request_shares[po.id] if po else []
             if not shares:
                 self._accumulate(rows['category'], NO_CATEGORY, **{field: amount})
@@ -653,12 +1006,25 @@ class ApDashboard(models.AbstractModel):
             add_forecast(v, v['residual'], self._bill_line_shares(bill, v, f, next_lines.get(bill.id, [])))
 
         next_pos = self.env['purchase.order'].search(
-            self._po_domain(f, f['next_from'], f['next_to'], unbilled_only=True))
+            self._po_domain(f, f['next_from'], f['next_to'])
+        ).filtered(lambda po: self._po_unbilled(po) > 0.005)
         for po in next_pos:
             v = self._po_vals(po, f)
             kpi_forecast['from_po'] += v['remaining']
             add_forecast(v, v['remaining'],
-                         [(b, remaining_share) for b, _a, remaining_share in self._po_line_shares(po)])
+                         [(b, remaining_share) for b, _a, remaining_share in self._po_line_shares(po, f['analytic_id'])])
+
+        # 4b. รายจ่ายนอกบิลที่คาดว่าจะเกิด (เงินเดือน ดอกเบี้ย ...) = เฉลี่ย 3 เดือนก่อนเดือนที่เลือก
+        kpi_forecast['other'] = 0.0
+        forecast_other_items = []
+        if not f['project_id'] and not f['analytic_id']:
+            forecast_other = self._forecast_other(f)
+            for (vendor, category), amount in forecast_other['buckets'].items():
+                kpi_forecast['other'] += amount
+                v = {'vendor': vendor, 'project': NO_PROJECT, 'is_cash': True,
+                     'week': len(forecast_weekly) - 1}  # payroll / interest fall at month end
+                add_forecast(v, amount, [(category, 1.0)])
+            forecast_other_items = forecast_other['items']
 
         # 5. ยอดการใช้งบประมาณ (monthly budget plan) ------------------------------
         kpi_budget = self._allocation_summary(f)
@@ -669,6 +1035,16 @@ class ApDashboard(models.AbstractModel):
             bucket['credit'] = round(bucket['credit'], 2)
             bucket['total'] = round(bucket['cash'] + bucket['credit'], 2)
 
+        other_total = kpi_payment['other']
+        kpi_other = {
+            'total': round(other_total, 2),
+            'loan_repaid': round(other_loan_repaid, 2),
+            'count': other_count,
+            'items': [
+                {'name': name, 'amount': round(amount, 2), 'pct': _pct(amount, other_total)}
+                for name, amount in sorted(other_by_account.items(), key=lambda kv: -abs(kv[1]))
+            ],
+        }
         total = kpi_payment['total']
         kpi_payment.update({
             'cash_pct': _pct(kpi_payment['cash'], total),
@@ -680,13 +1056,35 @@ class ApDashboard(models.AbstractModel):
             'cash_pct': _pct(kpi_forecast['cash'], kpi_forecast['total']),
             'credit_pct': _pct(kpi_forecast['credit'], kpi_forecast['total']),
         })
-        for key in ('total', 'cash', 'credit', 'paid', 'residual'):
+        kpi_loan = self._loan_kpi(f)
+        # cash really leaving the bank (estimate): transfers / cheques + off-bill
+        # spend + loan principal repaid. Loan-funded bills, payable notes and
+        # employee advances are not cash out yet.
+        kpi_payment['cash_out'] = (
+            kpi_payment['paid_actual_cash'] + kpi_payment['other']
+            + (kpi_loan['repaid'] if kpi_loan['configured'] else 0.0))
+        for key in ('total', 'cash', 'credit', 'paid', 'residual', 'paid_actual',
+                    'paid_actual_loan', 'paid_actual_note', 'paid_actual_advance',
+                    'paid_actual_cash', 'other', 'cash_out'):
             kpi_payment[key] = round(kpi_payment[key], 2)
-        for key in ('total', 'cash', 'credit', 'from_bills', 'from_po'):
+        for key in ('total', 'cash', 'credit', 'from_bills', 'from_po', 'other'):
             kpi_forecast[key] = round(kpi_forecast[key], 2)
+        kpi_forecast['other_items'] = forecast_other_items
         for state in REQ_STATES:
             kpi_request[state]['amount'] = round(kpi_request[state]['amount'], 2)
         kpi_request['total'] = round(sum(kpi_request[s]['amount'] for s in REQ_STATES), 2)
+        kpi_request['reserved'] = round(sum(v[1] for v in budget_snap.values()), 2)
+        kpi_request['bill_used'] = round(sum(v[2] for v in budget_snap.values()), 2)
+
+        actual_total = kpi_payment['paid_actual']
+        for kind in ('loan', 'note', 'advance', 'cash'):
+            kpi_payment['paid_actual_%s_pct' % kind] = _pct(kpi_payment['paid_actual_%s' % kind], actual_total)
+        cash_out_total = kpi_payment['cash_out']
+        kpi_payment['cash_out_bills_pct'] = _pct(kpi_payment['paid_actual'], cash_out_total)
+        kpi_payment['cash_out_other_pct'] = _pct(kpi_payment['other'], cash_out_total)
+        for acc in kpi_loan['accounts']:
+            acc['repaid_pct'] = _pct(acc['repaid'], cash_out_total)
+        kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid'] if kpi_loan['configured'] else 0.0, cash_out_total)
 
         tables = {}
         for tab, data in rows.items():
@@ -699,6 +1097,7 @@ class ApDashboard(models.AbstractModel):
                 'year': f['year'],
                 'company_id': f['company_id'],
                 'project_id': f['project_id'],
+                'analytic_id': f['analytic_id'],
                 'partner_id': f['partner_id'],
                 'month_label': '%s %d' % (MONTHS_TH[f['month'] - 1], f['year']),
                 'next_month_label': '%s %d' % (MONTHS_TH[f['next_from'].month - 1], f['next_from'].year),
@@ -715,6 +1114,15 @@ class ApDashboard(models.AbstractModel):
             'kpi_budget': kpi_budget,
             'kpi_request': kpi_request,
             'kpi_forecast': kpi_forecast,
+            'kpi_other': kpi_other,
+            'actual_vendors': [
+                {'id': r['id'], 'name': r['name'], 'total': r['act_total'], 'loan': r['act_loan'],
+                 'note': r['act_note'], 'advance': r['act_advance'], 'cash': r['act_cash'],
+                 'pct': _pct(r['act_total'], actual_total)}
+                for r in sorted(tables['vendor']['rows'], key=lambda r: -r['act_total'])[:ACTUAL_TOP_VENDORS]
+                if r['act_total'] > 0
+            ],
+            'kpi_loan': kpi_loan,
             'weekly': weekly,
             'forecast_weekly': forecast_weekly,
             'vendor_share': self._vendor_share(tables['vendor']['rows'], total),
@@ -745,7 +1153,7 @@ class ApDashboard(models.AbstractModel):
             'remaining': round(remaining, 2),
             'pct': _pct(reserved + used, approved),
             'plan_count': len(allocations.mapped('plan_id')),
-            'scope_note': 'งบประมาณตามแผนรายเดือน (ไม่กรองตามโครงการ / ร้านค้า)',
+            'scope_note': 'งบประมาณตามแผนรายเดือน (ไม่กรองตามโครงการ / ร้านค้า / Analytic)',
         }
 
     @staticmethod
@@ -775,7 +1183,11 @@ class ApDashboard(models.AbstractModel):
             vendors = self.env['res.partner'].search_fetch(
                 [('supplier_rank', '>', 0), ('parent_id', '=', False)],
                 ['name'], order='name', limit=1000)
+            analytics = self.env['account.analytic.account'].search_fetch(
+                ['|', ('company_id', 'in', f['cids']), ('company_id', '=', False)],
+                ['name'], order='name', limit=500)
             options = {
+                'analytics': [{'id': a.id, 'name': a.display_name} for a in analytics],
                 'companies': [{'id': c.id, 'name': c.name} for c in self.env.user.company_ids],
                 'projects': [{'id': p.id, 'name': p.name} for p in projects],
                 'vendors': [{'id': p.id, 'name': p.name} for p in vendors],
@@ -841,18 +1253,45 @@ class ApDashboard(models.AbstractModel):
         ws.write(4, 0, 'โครงการ'); ws.write(4, 1, option_name('projects', filters['project_id']))
         ws.write(5, 0, 'ร้านค้า / ผู้ขาย'); ws.write(5, 1, option_name('vendors', filters['partner_id']))
         ws.write(6, 0, 'สกุลเงิน'); ws.write(6, 1, data['currency']['name'])
+        ws.write(7, 0, 'Analytic Account (งบ)'); ws.write(7, 1, option_name('analytics', filters['analytic_id']))
 
-        row = 8
+        row = 9
         pay = data['kpi_payment']
         row = self._xlsx_block(ws, row, '1. ยอดจ่ายประจำเดือน (%s)' % filters['month_label'], [
             ('รวม', pay['total'], None),
             ('เงินสด (ชำระทันที)', pay['cash'], pay['cash_pct']),
             ('เครดิต (ครบกำหนดเดือนนี้)', pay['credit'], pay['credit_pct']),
-            ('ชำระแล้ว', pay['paid'], pay['paid_pct']),
+            ('ชำระแล้ว (ตามวันครบกำหนด)', pay['paid'], pay['paid_pct']),
             ('ค้างชำระ (ยังไม่ชำระ)', pay['residual'], pay['residual_pct']),
         ], fmt)
+        loan = data['kpi_loan']
+        other = data['kpi_other']
+        actual_lines = [
+            ('เงินสดออกจากธนาคารในเดือน (ตามวันที่ชำระ)', pay['cash_out'], None),
+            ('   - จ่ายบิลเจ้าหนี้ (โอน / เช็ค / อื่น ๆ)', pay['paid_actual'], pay['cash_out_bills_pct']),
+            ('   - รายจ่ายนอกบิล (สมุดรายวัน)', pay['other'], pay['cash_out_other_pct']),
+        ]
+        if loan['configured']:
+            actual_lines += [
+                ('   - ชำระคืนเงินกู้ (เงินต้น)', loan['repaid'], pay['cash_out_loan_pct']),
+                ('เบิกเงินกู้ในเดือน', loan['drawn'], None),
+                ('สินเชื่อคงค้าง ณ สิ้นเดือน', loan['outstanding'], None),
+            ]
+            for acc in loan['accounts']:
+                actual_lines += [
+                    ('   %s %s - ชำระคืนเงินต้น' % (acc['code'], acc['name']), acc['repaid'], None),
+                    ('   %s %s - เบิกในเดือน' % (acc['code'], acc['name']), acc['drawn'], None),
+                    ('   %s %s - คงค้างสิ้นเดือน' % (acc['code'], acc['name']), acc['outstanding'], None),
+                ]
+        actual_lines += [
+            ('บิลที่ชำระแล้วแต่ยังไม่ใช่เงินออก (ไม่รวมข้างต้น):', None, None),
+            ('   - ด้วยเงินกู้ TR', pay['paid_actual_loan'], None),
+            ('   - ด้วยตั๋วเงินจ่าย (เงินออกตอนครบกำหนด)', pay['paid_actual_note'], None),
+            ('   - ด้วยเงินทดรองจ่าย (ค้างคืนพนักงาน)', pay['paid_actual_advance'], None),
+        ]
+        row = self._xlsx_block(ws, row, '2. จ่ายจริงในเดือน (%s)' % filters['month_label'], actual_lines, fmt)
         budget = data['kpi_budget']
-        row = self._xlsx_block(ws, row, '2. ยอดการใช้งบประมาณ', [
+        row = self._xlsx_block(ws, row, '3. ยอดการใช้งบประมาณ', [
             ('งบประมาณที่ได้รับอนุมัติ', budget['approved'], None),
             ('งบผูกพันจาก PO', budget['reserved'], None),
             ('งบใช้จริง (รับสินค้า/บริการแล้ว)', budget['used'], None),
@@ -860,20 +1299,27 @@ class ApDashboard(models.AbstractModel):
             ('% ใช้แล้ว', None, budget['pct']),
         ], fmt)
         req = data['kpi_request']
-        row = self._xlsx_block(ws, row, '3. ยอดขออนุมัติงบประมาณเพิ่มเติม', [
+        row = self._xlsx_block(ws, row, '4. ยอดขออนุมัติงบประมาณเพิ่มเติม', [
             ('รวม', req['total'], None),
             ('รออนุมัติ (%d รายการ)' % req['pending']['count'], req['pending']['amount'], None),
             ('อนุมัติแล้ว (%d รายการ)' % req['approved']['count'], req['approved']['amount'], None),
             ('ไม่อนุมัติ (%d รายการ)' % req['rejected']['count'], req['rejected']['amount'], None),
+            ('ยอดจอง', req['reserved'], None),
+            ('ยอด Bill Use', req['bill_used'], None),
         ], fmt)
         fc = data['kpi_forecast']
-        row = self._xlsx_block(ws, row, '4. ประมาณการยอดจ่ายเดือนถัดไป (%s)' % filters['next_month_label'], [
+        row = self._xlsx_block(ws, row, '5. ประมาณการยอดจ่ายเดือนถัดไป (%s)' % filters['next_month_label'], [
             ('รวม', fc['total'], None),
             ('เงินสด (ชำระทันที)', fc['cash'], fc['cash_pct']),
             ('เครดิต (ครบกำหนดเดือนหน้า)', fc['credit'], fc['credit_pct']),
             ('จากใบแจ้งหนี้ค้างชำระ', fc['from_bills'], None),
             ('จาก PO ที่ยังไม่ตั้งบิล', fc['from_po'], None),
+            ('รายจ่ายนอกบิลคาดการณ์ (เฉลี่ย 3 เดือน)', fc['other'], None),
         ], fmt)
+        if other['items']:
+            row = self._xlsx_block(ws, row, '6. รายจ่ายนอกบิล (สมุดรายวัน)', [
+                ('รวม (%d รายการ)' % other['count'], other['total'], None),
+            ] + [(item['name'], item['amount'], item['pct']) for item in other['items']], fmt)
 
         for title, buckets in (
             ('ยอดจ่ายรายสัปดาห์ (%s)' % filters['month_label'], data['weekly']),
@@ -934,6 +1380,7 @@ class ApDashboard(models.AbstractModel):
         groups = [
             ('', 2, 'head'),
             ('ยอดจ่ายประจำเดือน (%s)' % filters['month_label'], 5, 'group_pay'),
+            ('จ่ายออกจริงในเดือน (ตามวันที่ชำระ)', 4, 'group_pay'),
             ('การใช้งบประมาณ (PO)', 4, 'group_budget'),
             ('ขออนุมัติเพิ่มเติม (เดือนนี้)', 3, 'group_req'),
             ('ประมาณการยอดจ่ายเดือนถัดไป (%s)' % filters['next_month_label'], 3, 'group_next'),
@@ -950,6 +1397,10 @@ class ApDashboard(models.AbstractModel):
             ('รวม', 'month_total', 'money'), ('เงินสด', 'month_cash', 'money'),
             ('เครดิต', 'month_credit', 'money'), ('ชำระแล้ว', 'month_paid', 'money'),
             ('ค้างชำระ', 'month_residual', 'money'),
+            ('จ่ายจริง (โอน / เช็ค / อื่น ๆ)', 'act_total', 'money'),
+            ('เงินกู้ TR (ไม่ใช่เงินออก)', 'act_loan', 'money'),
+            ('ตั๋วเงินจ่าย (ไม่ใช่เงินออก)', 'act_note', 'money'),
+            ('เงินทดรองจ่าย (ไม่ใช่เงินออก)', 'act_advance', 'money'),
             ('งบอนุมัติ', 'budget_approved', 'money'), ('ใช้แล้ว', 'budget_used', 'money'),
             ('% ใช้แล้ว', 'budget_pct', 'pct'), ('คงเหลือ', 'budget_remaining', 'money'),
             ('รออนุมัติ', 'req_pending', 'money'), ('อนุมัติแล้ว', 'req_approved', 'money'),

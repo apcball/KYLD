@@ -33,7 +33,7 @@
             </div>
 
             <!-- Filters -->
-            <div class="o_apd_filters d-flex flex-wrap align-items-center mb-3">
+            <div class="o_apd_filters mb-3">
                 <div class="o_apd_filter">
                     <label>เดือน</label>
                     <select class="form-select" t-on-change="(ev) => this.onDraftChange('month', ev)">
@@ -69,6 +69,15 @@
                     </select>
                 </div>
                 <div class="o_apd_filter o_apd_filter_lg">
+                    <label>Analytic Account (งบ)</label>
+                    <select class="form-select" t-on-change="(ev) => this.onDraftChange('analytic_id', ev)">
+                        <option value="all" t-att-selected="isSelected('analytic_id', 'all')">ทั้งหมด</option>
+                        <t t-foreach="options.analytics" t-as="a" t-key="a.id">
+                            <option t-att-value="a.id" t-esc="a.name" t-att-selected="isSelected('analytic_id', a.id)"/>
+                        </t>
+                    </select>
+                </div>
+                <div class="o_apd_filter o_apd_filter_lg">
                     <label>ร้านค้า / ผู้ขาย</label>
                     <select class="form-select" t-on-change="(ev) => this.onDraftChange('partner_id', ev)">
                         <option value="all" t-att-selected="isSelected('partner_id', 'all')">ทั้งหมด</option>
@@ -100,6 +109,7 @@
                             </div>
                         </div>
                         <div class="o_apd_card_value" t-esc="fmtBaht(data.kpi_payment.total)"/>
+                        <div class="o_apd_tile_note" t-if="data.kpi_payment.other or data.kpi_other.loan_repaid">รวมรายจ่ายนอกบิล (สมุดรายวัน) <t t-esc="fmtBaht(data.kpi_payment.other)"/><t t-if="data.kpi_other.loan_repaid"> · ไม่รวมชำระคืนเงินกู้ <t t-esc="fmtBaht(data.kpi_other.loan_repaid)"/></t></div>
                         <div class="o_apd_tiles">
                             <div class="o_apd_tile o_apd_tile--green">
                                 <div class="o_apd_tile_label">เงินสด (ชำระทันที)</div>
@@ -111,15 +121,35 @@
                                 <div class="o_apd_tile_value" t-esc="fmtBaht(data.kpi_payment.credit)"/>
                                 <div class="o_apd_tile_pct" t-esc="fmtPct(data.kpi_payment.credit_pct)"/>
                             </div>
-                            <div class="o_apd_tile o_apd_tile--purple">
-                                <div class="o_apd_tile_label">ชำระแล้ว</div>
-                                <div class="o_apd_tile_value" t-esc="fmtBaht(data.kpi_payment.paid)"/>
-                                <div class="o_apd_tile_pct" t-esc="fmtPct(data.kpi_payment.paid_pct)"/>
-                            </div>
                             <div class="o_apd_tile o_apd_tile--orange">
                                 <div class="o_apd_tile_label">ค้างชำระ (ยังไม่ชำระ)</div>
                                 <div class="o_apd_tile_value" t-esc="fmtBaht(data.kpi_payment.residual)"/>
                                 <div class="o_apd_tile_pct" t-esc="fmtPct(data.kpi_payment.residual_pct)"/>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 1b actual paid -->
+                    <div class="o_apd_card o_apd_card--red">
+                        <div class="o_apd_card_head">
+                            <span class="o_apd_card_icon"><i class="fa fa-credit-card"/></span>
+                            <div>
+                                <div class="o_apd_card_title">2. จ่ายจริงในเดือน (<t t-esc="data.filters.month_label"/>)</div>
+                                <div class="o_apd_card_sub">เงินสดออกจากธนาคารจริง นับตามวันที่ชำระ · ไม่รวมบิลที่จ่ายด้วยเงินกู้ / ตั๋วเงินจ่าย / เงินทดรองจ่าย</div>
+                            </div>
+                        </div>
+                        <div class="o_apd_card_value" t-esc="fmtBaht(data.kpi_payment.cash_out)"/>
+                        <div class="o_apd_rows o_apd_rows--box">
+                            <div class="o_apd_row">
+                                <span><i class="o_apd_dot o_apd_dot--green"/>จ่ายบิลเจ้าหนี้ (โอน / เช็ค / อื่น ๆ) <small class="text-muted"><t t-esc="fmtPct(data.kpi_payment.cash_out_bills_pct)"/></small></span>
+                                <b t-esc="fmtNum(data.kpi_payment.paid_actual)"/>
+                            </div>
+                            <div class="o_apd_row">
+                                <span><i class="o_apd_dot o_apd_dot--orange"/>รายจ่ายนอกบิล (สมุดรายวัน) <small class="text-muted"><t t-esc="fmtPct(data.kpi_payment.cash_out_other_pct)"/></small></span>
+                                <b t-esc="fmtNum(data.kpi_payment.other)"/>
+                            </div>
+                            <div class="o_apd_row" t-foreach="data.kpi_loan.accounts" t-as="acc" t-key="acc.id">
+                                <span><i class="o_apd_dot o_apd_dot--red"/>คืนเงินต้น <t t-esc="acc.name"/> <small class="text-muted"><t t-esc="fmtPct(acc.repaid_pct)"/></small></span>
+                                <b t-esc="fmtNum(acc.repaid)"/>
                             </div>
                         </div>
                     </div>
@@ -128,7 +158,7 @@
                         <div class="o_apd_card_head">
                             <span class="o_apd_card_icon"><i class="fa fa-bar-chart"/></span>
                             <div>
-                                <div class="o_apd_card_title">2. ยอดการใช้งบประมาณ</div>
+                                <div class="o_apd_card_title">3. ยอดการใช้งบประมาณ</div>
                                 <div class="o_apd_card_sub">สรุปยอดงบประมาณที่ใช้ไปแล้ว</div>
                             </div>
                         </div>
@@ -147,7 +177,7 @@
                         <div class="o_apd_card_head">
                             <span class="o_apd_card_icon"><i class="fa fa-file-text-o"/></span>
                             <div>
-                                <div class="o_apd_card_title">3. ยอดขออนุมัติงบประมาณเพิ่มเติม</div>
+                                <div class="o_apd_card_title">4. ยอดขออนุมัติงบประมาณเพิ่มเติม</div>
                                 <div class="o_apd_card_sub">สรุปยอดงบประมาณที่มีการขอเพิ่มเติมในเดือนปัจจุบัน</div>
                             </div>
                         </div>
@@ -165,6 +195,14 @@
                                 <span><i class="o_apd_dot o_apd_dot--red"/>ไม่อนุมัติ <small class="text-muted">(<t t-esc="data.kpi_request.rejected.count"/>)</small></span>
                                 <b t-esc="fmtNum(data.kpi_request.rejected.amount)"/>
                             </div>
+                            <div class="o_apd_row">
+                                <span><i class="o_apd_dot o_apd_dot--blue"/>ยอดจอง</span>
+                                <b t-esc="fmtNum(data.kpi_request.reserved)"/>
+                            </div>
+                            <div class="o_apd_row">
+                                <span><i class="o_apd_dot o_apd_dot--purple"/>ยอด Bill Use</span>
+                                <b t-esc="fmtNum(data.kpi_request.bill_used)"/>
+                            </div>
                         </div>
                     </div>
                     <!-- 4 -->
@@ -172,7 +210,7 @@
                         <div class="o_apd_card_head">
                             <span class="o_apd_card_icon"><i class="fa fa-calendar"/></span>
                             <div>
-                                <div class="o_apd_card_title">4. ประมาณการยอดจ่ายเดือนถัดไป (<t t-esc="data.filters.next_month_label"/>)</div>
+                                <div class="o_apd_card_title">5. ประมาณการยอดจ่ายเดือนถัดไป (<t t-esc="data.filters.next_month_label"/>)</div>
                                 <div class="o_apd_card_sub">ยอดเงินที่คาดว่าจะต้องชำระในเดือนถัดไป</div>
                             </div>
                         </div>
@@ -192,6 +230,29 @@
                         <div class="o_apd_note">
                             บิลค้างชำระ <t t-esc="fmtNum(data.kpi_forecast.from_bills)"/> · PO ยังไม่ตั้งบิล <t t-esc="fmtNum(data.kpi_forecast.from_po)"/>
                         </div>
+                        <div class="o_apd_note" t-if="data.kpi_forecast.other">
+                            รวมรายจ่ายนอกบิลคาดการณ์ (เงินเดือน / ดอกเบี้ย · เฉลี่ย 3 เดือนก่อนหน้า) <t t-esc="fmtNum(data.kpi_forecast.other)"/> · ไม่รวมเงินต้นเงินกู้
+                        </div>
+                    </div>
+                    <!-- 5 -->
+                    <div class="o_apd_card o_apd_card--blue" t-if="data.kpi_other.items.length">
+                        <div class="o_apd_card_head">
+                            <span class="o_apd_card_icon"><i class="fa fa-book"/></span>
+                            <div>
+                                <div class="o_apd_card_title">6. รายจ่ายนอกบิล (สมุดรายวัน)</div>
+                                <div class="o_apd_card_sub">เช่น เงินเดือน ดอกเบี้ย · นับเป็นเงินสด/ชำระแล้ว</div>
+                            </div>
+                        </div>
+                        <div class="o_apd_card_value" t-esc="fmtBaht(data.kpi_other.total)"/>
+                        <div class="o_apd_rows o_apd_rows--box">
+                            <t t-foreach="data.kpi_other.items" t-as="item" t-key="item.name">
+                                <div class="o_apd_row">
+                                    <span t-esc="item.name"/>
+                                    <b><t t-esc="fmtNum(item.amount)"/> <small class="text-muted">(<t t-esc="fmtPct(item.pct)"/>)</small></b>
+                                </div>
+                            </t>
+                        </div>
+                        <div class="o_apd_note">รวมอยู่ในยอดจ่ายประจำเดือนของ card 1 แล้ว · <t t-esc="data.kpi_other.count"/> รายการ</div>
                     </div>
                 </div>
 
@@ -248,7 +309,8 @@
                                     <th rowspan="2" class="o_apd_th_seq">ลำดับ</th>
                                     <th rowspan="2" class="o_apd_th_name" t-esc="tabMeta.column"/>
                                     <th colspan="5" class="o_apd_th--pay">ยอดจ่ายประจำเดือน (<t t-esc="data.filters.month_label"/>)</th>
-                                    <th colspan="4" class="o_apd_th--budget">การใช้งบประมาณ</th>
+                                    <th colspan="4" class="o_apd_th--act">จ่ายออกจริงในเดือน (ตามวันที่ชำระ)</th>
+                                    <th colspan="4" class="o_apd_th--budget"><t t-if="state.tab === 'vendor'">การใช้งบ (ตาม PO)</t><t t-else="">การใช้งบ (แผนงบรายเดือน)</t></th>
                                     <th colspan="3" class="o_apd_th--req">ขออนุมัติเพิ่มเติม (เดือนนี้)</th>
                                     <th colspan="3" class="o_apd_th--next">ประมาณการยอดจ่ายเดือนถัดไป (<t t-esc="data.filters.next_month_label"/>)</th>
                                 </tr>
@@ -258,6 +320,10 @@
                                     <th class="o_apd_th--pay text-primary">เครดิต</th>
                                     <th class="o_apd_th--pay">ชำระแล้ว</th>
                                     <th class="o_apd_th--pay text-danger">ค้างชำระ</th>
+                                    <th class="o_apd_th--act">จ่ายจริง <small>(โอน/เช็ค/อื่น ๆ)</small></th>
+                                    <th class="o_apd_th--act text-danger">เงินกู้ TR <small>(ไม่ใช่เงินออก)</small></th>
+                                    <th class="o_apd_th--act">ตั๋วเงินจ่าย <small>(ไม่ใช่เงินออก)</small></th>
+                                    <th class="o_apd_th--act">เงินทดรอง <small>(ไม่ใช่เงินออก)</small></th>
                                     <th class="o_apd_th--budget">งบอนุมัติ</th>
                                     <th class="o_apd_th--budget">ใช้แล้ว</th>
                                     <th class="o_apd_th--budget">% ใช้แล้ว</th>
@@ -280,6 +346,10 @@
                                         <td class="o_apd_num" t-esc="fmtNum(row.month_credit)"/>
                                         <td class="o_apd_num" t-esc="fmtNum(row.month_paid)"/>
                                         <td class="o_apd_num text-danger" t-esc="fmtNum(row.month_residual)"/>
+                                        <td class="o_apd_num fw-bold" t-esc="fmtNum(row.act_total)"/>
+                                        <td class="o_apd_num" t-esc="fmtNum(row.act_loan)"/>
+                                        <td class="o_apd_num" t-esc="fmtNum(row.act_note)"/>
+                                        <td class="o_apd_num" t-esc="fmtNum(row.act_advance)"/>
                                         <td class="o_apd_num" t-esc="fmtNum(row.budget_approved)"/>
                                         <td class="o_apd_num" t-esc="fmtNum(row.budget_used)"/>
                                         <td class="o_apd_num o_apd_pct_cell">
@@ -298,7 +368,7 @@
                                     </tr>
                                 </t>
                                 <tr t-if="!table.rows.length">
-                                    <td colspan="17" class="text-center text-muted py-4">ไม่มีข้อมูลในช่วงที่เลือก</td>
+                                    <td colspan="21" class="text-center text-muted py-4">ไม่มีข้อมูลในช่วงที่เลือก</td>
                                 </tr>
                             </tbody>
                             <tfoot t-if="table.footer">
@@ -310,6 +380,10 @@
                                     <td class="o_apd_num" t-esc="fmtNum(table.footer.month_credit)"/>
                                     <td class="o_apd_num" t-esc="fmtNum(table.footer.month_paid)"/>
                                     <td class="o_apd_num text-danger" t-esc="fmtNum(table.footer.month_residual)"/>
+                                    <td class="o_apd_num" t-esc="fmtNum(table.footer.act_total)"/>
+                                    <td class="o_apd_num" t-esc="fmtNum(table.footer.act_loan)"/>
+                                    <td class="o_apd_num" t-esc="fmtNum(table.footer.act_note)"/>
+                                    <td class="o_apd_num" t-esc="fmtNum(table.footer.act_advance)"/>
                                     <td class="o_apd_num" t-esc="fmtNum(table.footer.budget_approved)"/>
                                     <td class="o_apd_num" t-esc="fmtNum(table.footer.budget_used)"/>
                                     <td class="o_apd_num o_apd_pct_cell">
