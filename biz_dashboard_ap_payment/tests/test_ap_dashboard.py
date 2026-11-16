@@ -361,6 +361,11 @@ class TestApDashboard(TransactionCase):
         # card row: one row per account name, zero rows left out
         self.assertEqual([r['name'] for r in manual['kpi_loan']['repay_rows']], ['APD TR Loan'])
         self.assertAlmostEqual(manual['kpi_loan']['repay_rows'][0]['repaid'], 500.0, places=2)
+        # loan entries carry no vendor / project: a filter leaves the loan rows out
+        for extra in ({'partner_id': self.v1.id},) + (({'project_id': self.p1.id},) if self.p1 else ()):
+            filtered = self.engine.get_dashboard_data(dict(self.F, **extra), refresh=True)
+            self.assertFalse(filtered['kpi_loan']['configured'])
+            self.assertEqual(filtered['kpi_loan']['repay_rows'], [])
         self.assertAlmostEqual(manual['kpi_loan']['outstanding'], 9000.0, places=2)
         for tab, key in (('vendor', 'p:%d' % self.v1.id),):
             self.assertAlmostEqual(self._delta_row(payload, tab, key, 'act_loan'), 2000.0, places=2)

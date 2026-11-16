@@ -167,7 +167,7 @@
                         <div class="o_apd_rows">
                             <div class="o_apd_row"><span>งบประมาณที่ได้รับอนุมัติ</span><b t-esc="fmtNum(data.kpi_budget.approved)"/></div>
                             <div class="o_apd_row"><span>ยอดจอง (งบผูกพันจาก PO)</span><b t-esc="fmtNum(data.kpi_budget.reserved)"/></div>
-                            <div class="o_apd_row"><span>ยอด Use (งบใช้จริง รับสินค้า/บริการแล้ว)</span><b t-esc="fmtNum(data.kpi_budget.used)"/></div>
+                            <div class="o_apd_row"><span>ยอด Use (งบใช้จริง รวมบิลที่เป็น Draft)</span><b t-esc="fmtNum(data.kpi_budget.used)"/></div>
                             <div class="o_apd_row o_apd_row--hl"><span>งบคงเหลือ</span><b t-esc="fmtNum(data.kpi_budget.remaining)"/></div>
                         </div>
                         <div class="o_apd_note" t-esc="data.kpi_budget.scope_note"/>

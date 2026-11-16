@@ -569,8 +569,9 @@ class ApDashboard(models.AbstractModel):
     def _loan_kpi(self, f):
         """Director-loan (เงินยืมกรรมการ) position of the configured loan accounts:
         drawn and repaid in the month, outstanding at month end (company
-        currency of each company, converted). Not filtered by vendor / project:
-        loan entries carry no bill link.
+        currency of each company, converted). Loan entries carry no vendor /
+        project / analytic link, so with any of those filters set the loan
+        position is left out (``configured`` False) like the off-bill spend.
 
         ``repaid`` is the ledger total; ``repaid_in_bills`` is the part booked
         as a vendor-bill line on the loan account (a repayment paid through a
@@ -578,6 +579,9 @@ class ApDashboard(models.AbstractModel):
         actual-paid card, so ``repaid_cash`` (= repaid - repaid_in_bills) is what
         the cash-out card adds on top. A manual entry replaces the ledger
         figures and counts fully as cash."""
+        if f['project_id'] or f['analytic_id'] or f['partner_id']:
+            return {'configured': False, 'drawn': 0.0, 'repaid': 0.0, 'repaid_in_bills': 0.0,
+                    'repaid_cash': 0.0, 'outstanding': 0.0, 'accounts': [], 'has_manual': False}
         companies = self.env['res.company'].browse(f['cids'])
         accounts = companies.apd_loan_account_ids
         kpi = {'configured': bool(accounts), 'drawn': 0.0, 'repaid': 0.0,
@@ -1365,7 +1369,7 @@ class ApDashboard(models.AbstractModel):
         row = self._xlsx_block(ws, row, '3. ยอดการใช้งบประมาณ', [
             ('งบประมาณที่ได้รับอนุมัติ', budget['approved'], None),
             ('ยอดจอง (งบผูกพันจาก PO)', budget['reserved'], None),
-            ('ยอด Use (งบใช้จริง รับสินค้า/บริการแล้ว)', budget['used'], None),
+            ('ยอด Use (งบใช้จริง รวมบิลที่เป็น Draft)', budget['used'], None),
             ('งบคงเหลือ', budget['remaining'], None),
             ('% ใช้แล้ว', None, budget['pct']),
         ], fmt)
