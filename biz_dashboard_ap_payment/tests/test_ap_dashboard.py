@@ -358,6 +358,9 @@ class TestApDashboard(TransactionCase):
         self.assertTrue(manual['kpi_loan']['has_manual'])
         self.assertAlmostEqual(manual['kpi_loan']['drawn'], 0.0, places=2)
         self.assertAlmostEqual(manual['kpi_loan']['repaid'], 500.0, places=2)
+        # card row: one row per account name, zero rows left out
+        self.assertEqual([r['name'] for r in manual['kpi_loan']['repay_rows']], ['APD TR Loan'])
+        self.assertAlmostEqual(manual['kpi_loan']['repay_rows'][0]['repaid'], 500.0, places=2)
         self.assertAlmostEqual(manual['kpi_loan']['outstanding'], 9000.0, places=2)
         for tab, key in (('vendor', 'p:%d' % self.v1.id),):
             self.assertAlmostEqual(self._delta_row(payload, tab, key, 'act_loan'), 2000.0, places=2)
@@ -411,6 +414,7 @@ class TestApDashboard(TransactionCase):
         self.assertAlmostEqual(loan_kpi['repaid_in_bills'], 3000.0, places=2)
         self.assertAlmostEqual(loan_kpi['repaid_cash'], 0.0, places=2)
         self.assertAlmostEqual(loan_kpi['accounts'][0]['repaid_cash'], 0.0, places=2)
+        self.assertEqual(loan_kpi['repay_rows'], [])
         # the 3000 stays in the bill payments only: cash out unchanged by the setting
         self.assertAlmostEqual(
             payload['kpi_payment']['cash_out'] - base['kpi_payment']['cash_out'], 0.0, places=2)

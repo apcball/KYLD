@@ -147,9 +147,9 @@
                                 <span><i class="o_apd_dot o_apd_dot--orange"/>รายจ่ายนอกบิล (สมุดรายวัน) <small class="text-muted"><t t-esc="fmtPct(data.kpi_payment.cash_out_other_pct)"/></small></span>
                                 <b t-esc="fmtNum(data.kpi_payment.other)"/>
                             </div>
-                            <div class="o_apd_row" t-foreach="data.kpi_loan.accounts" t-as="acc" t-key="acc.id">
+                            <div class="o_apd_row" t-foreach="data.kpi_loan.repay_rows" t-as="acc" t-key="acc.name">
                                 <span><i class="o_apd_dot o_apd_dot--red"/>คืนเงินต้น <t t-esc="acc.name"/> <small class="text-muted"><t t-esc="fmtPct(acc.repaid_pct)"/></small></span>
-                                <b t-esc="fmtNum(acc.repaid_cash)"/>
+                                <b t-esc="fmtNum(acc.repaid)"/>
                             </div>
                         </div>
                     </div>

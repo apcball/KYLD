@@ -1147,6 +1147,14 @@ class ApDashboard(models.AbstractModel):
         kpi_payment['cash_out_other_pct'] = _pct(kpi_payment['other'], cash_out_total)
         for acc in kpi_loan['accounts']:
             acc['repaid_pct'] = _pct(acc['repaid_cash'], cash_out_total)
+        # actual-paid card: one row per loan account name (each company has its own
+        # account with the same name), zero rows left out
+        by_name = OrderedDict()
+        for acc in kpi_loan['accounts']:
+            by_name[acc['name']] = by_name.get(acc['name'], 0.0) + acc['repaid_cash']
+        kpi_loan['repay_rows'] = [
+            {'name': name, 'repaid': round(amount, 2), 'repaid_pct': _pct(amount, cash_out_total)}
+            for name, amount in by_name.items() if abs(amount) > 0.005]
         kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid_cash'] if kpi_loan['configured'] else 0.0, cash_out_total)
 
         tables = {}
