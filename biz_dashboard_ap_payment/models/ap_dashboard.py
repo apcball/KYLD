@@ -839,6 +839,52 @@ class ApDashboard(models.AbstractModel):
             shares.append((bucket, approved_share, remaining_share))
         return shares
 
+    def _request_project_shares(self, req, f):
+        """[(project record or empty, fraction)] for an approval request, the
+        fractions add up to 1.
+
+        * PO request -> the PO's project; MR request -> the MR's project.
+        * PR request -> projects behind the analytic accounts of the PR lines,
+          weighted by line subtotal x analytic percentage. Analytic accounts
+          that are not a project's account (cost centres such as "คาเฟ่") are
+          ignored; nothing mapped -> no project.
+        """
+        Project = self.env['project.project']
+        if req.ref_po_id:
+            return [(self._project_of(req.ref_po_id), 1.0)]
+        if req.ref_mr_id:
+            return [(req.ref_mr_id.project_id, 1.0)]
+        pr = req.ref_pr_id
+        if not pr:
+            return [(Project, 1.0)]
+        cache = f.setdefault('_project_by_analytic', {})
+        weights = {}
+        parsed = []
+        for line in pr.requisition_order_ids:
+            weight = line.price_subtotal or 0.0
+            for key, pct in (line.analytic_distribution or {}).items():
+                for acc in str(key).split(','):
+                    if acc.strip().isdigit():
+                        parsed.append((int(acc), weight, (pct or 0.0) / 100.0))
+        missing = {a for a, _w, _p in parsed if a not in cache}
+        if missing:
+            found = Project.search_fetch(
+                [('analytic_account_id', 'in', list(missing))], ['name', 'analytic_account_id'])
+            for acc in missing:
+                cache[acc] = Project
+            for project in found:
+                cache[project.analytic_account_id.id] = project
+        # equal weight for every line when the PR has no priced line
+        unpriced = not any(w for _a, w, _p in parsed)
+        for acc, weight, pct in parsed:
+            project = cache.get(acc)
+            if project:
+                weights[project.id] = weights.get(project.id, 0.0) + (1.0 if unpriced else weight) * pct
+        total = sum(weights.values())
+        if not total:
+            return [(Project, 1.0)]
+        return [(Project.browse(pid), w / total) for pid, w in weights.items()]
+
     # ------------------------------------------------------------------
     # Build
     # ------------------------------------------------------------------
@@ -942,26 +988,35 @@ class ApDashboard(models.AbstractModel):
         request_shares = {}
         for req in requests:
             po = req.ref_po_id
-            if (f['project_id'] or f['analytic_id'] or f['partner_id']) and not po:
+            if (f['analytic_id'] or f['partner_id']) and not po:
                 continue
             req_share = self._share(f, 'pos', po.id) if f['analytic_id'] else 1.0
             if not req_share:
                 continue
-            if f['project_id'] and self._project_of(po).id != f['project_id']:
-                continue
             if f['partner_id'] and po.partner_id.commercial_partner_id.id != f['partner_id']:
                 continue
-            amount = req_share * self._convert(
+            # (project record or empty, fraction): PO / MR carry the project
+            # directly, PR is derived from its lines' analytic distribution
+            proj_shares = self._request_project_shares(req, f)
+            if f['project_id']:
+                proj_shares = [(p, fr) for p, fr in proj_shares if p and p.id == f['project_id']]
+                if not proj_shares:
+                    continue
+            amount_full = req_share * self._convert(
                 req.amount_requested, self._request_currency(req), req.company_id,
                 fields.Date.to_date(req.create_date), currency)
+            # a project filter counts only that project's share of the request
+            scale = sum(fr for _p, fr in proj_shares) if f['project_id'] else 1.0
+            amount = amount_full * scale
             kpi_request[req.state]['amount'] += amount
             kpi_request[req.state]['count'] += 1
             field = 'req_%s' % req.state
-            buckets = {
-                'vendor': self._vendor_bucket(po.partner_id) if po else NO_VENDOR,
-                'project': self._project_bucket(self._project_of(po)) if po else NO_PROJECT,
-            }
-            add(buckets, **{field: amount})
+            self._accumulate(rows['vendor'],
+                             self._vendor_bucket(po.partner_id) if po else NO_VENDOR,
+                             **{field: amount})
+            for project, fraction in proj_shares:
+                self._accumulate(rows['project'], self._project_bucket(project),
+                                 **{field: amount_full * fraction})
             if po and po.id not in request_shares:
                 request_shares[po.id] = self._po_line_shares(po, f['analytic_id'])
             shares = request_shares[po.id] if po else []

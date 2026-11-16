@@ -744,6 +744,38 @@ class TestApDashboard(TransactionCase):
             after['kpi_request']['pending']['amount'] - before['kpi_request']['pending']['amount'],
             200.0, places=2)
 
+    def test_request_project_shares(self):
+        """PR requests get their project(s) from the lines' analytic accounts."""
+        from types import SimpleNamespace
+        Project = self.env['project.project']
+        projects = Project.search([('analytic_account_id', '!=', False)], limit=2)
+        if len(projects) < 2:
+            self.skipTest('need two projects with an analytic account')
+        a1, a2 = projects[0].analytic_account_id.id, projects[1].analytic_account_id.id
+
+        def pr_req(*lines):
+            return SimpleNamespace(
+                ref_po_id=None, ref_mr_id=None,
+                ref_pr_id=SimpleNamespace(requisition_order_ids=[
+                    SimpleNamespace(price_subtotal=sub, analytic_distribution=dist)
+                    for sub, dist in lines]))
+        engine, f = self.env['biz.ap.dashboard'], {}
+        # one project, plus a cost-centre account (0) that is ignored
+        shares = engine._request_project_shares(
+            pr_req((100.0, {str(a1): 100.0, '0': 100.0})), f)
+        self.assertEqual([(p.id, round(fr, 4)) for p, fr in shares], [(projects[0].id, 1.0)])
+        # two projects weighted by line subtotal, multi-account key "a1,a2"
+        shares = dict((p.id, fr) for p, fr in engine._request_project_shares(
+            pr_req((300.0, {str(a1): 100.0}), (100.0, {str(a2): 100.0})), f))
+        self.assertAlmostEqual(shares[projects[0].id], 0.75, places=4)
+        self.assertAlmostEqual(shares[projects[1].id], 0.25, places=4)
+        shares = engine._request_project_shares(
+            pr_req((100.0, {'%d,%d' % (a1, a2): 100.0})), f)
+        self.assertAlmostEqual(sum(fr for _p, fr in shares), 1.0, places=4)
+        # nothing maps to a project -> no project, full fraction
+        shares = engine._request_project_shares(pr_req((100.0, {'0': 100.0})), f)
+        self.assertEqual([(bool(p), fr) for p, fr in shares], [(False, 1.0)])
+
     def test_payload_shape_and_serializable(self):
         payload = self._data()
         json.dumps(payload)

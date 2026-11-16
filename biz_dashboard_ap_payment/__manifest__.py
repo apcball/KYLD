@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Budget & Payment Control Dashboard',
-    'version': '17.0.1.2.0',
+    'version': '17.0.1.2.1',
     'category': 'Accounting',
     'summary': 'Dashboard ควบคุมงบประมาณและยอดจ่าย (AP payment control)',
     'description': """
