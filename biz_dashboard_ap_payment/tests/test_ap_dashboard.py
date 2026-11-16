@@ -377,6 +377,44 @@ class TestApDashboard(TransactionCase):
         self.assertAlmostEqual(as_adv['kpi_payment']['paid_actual'] - base['kpi_payment']['paid_actual'], -2000.0, places=2)
         self.assertAlmostEqual(as_note['kpi_payment']['paid_actual'] - base['kpi_payment']['paid_actual'], -2000.0, places=2)
 
+    def test_loan_repaid_via_bill_not_double_counted(self):
+        """A repayment booked as a vendor bill line on the loan account is paid
+        through the bill payments: the loan KPI reports it as repaid_in_bills and
+        the cash-out card must not add it a second time."""
+        loan = self.env['account.account'].create({
+            'code': 'APDLOAN2', 'name': 'APD Director Loan', 'account_type': 'liability_current',
+            'company_id': self.company.id})
+        journal = self.env['account.journal'].search(
+            [('type', 'in', ('bank', 'cash')), ('company_id', '=', self.company.id)], limit=1)
+        purchase = self.env['account.journal'].search(
+            [('type', '=', 'purchase'), ('company_id', '=', self.company.id)], limit=1)
+        if not (journal and purchase):
+            self.skipTest('No bank / purchase journal in the test company')
+        bill = self.env['account.move'].create({
+            'move_type': 'in_invoice', 'partner_id': self.v1.id, 'journal_id': purchase.id,
+            'invoice_date': D(3, 12), 'invoice_date_due': D(3, 12),
+            'invoice_payment_term_id': self.term_now.id,
+            'invoice_line_ids': [(0, 0, {
+                'name': 'คืนเงินยืมกรรมการ', 'account_id': loan.id,
+                'quantity': 1, 'price_unit': 3000.0, 'tax_ids': [(6, 0, [])]})],
+        })
+        bill.action_post()
+        self.env['account.payment.register'].with_context(
+            active_model='account.move', active_ids=bill.ids).create({
+                'journal_id': journal.id, 'payment_date': D(3, 12),
+            }).action_create_payments()
+        base = self._data()
+        self.company.apd_loan_account_ids = loan
+        payload = self._data()
+        loan_kpi = payload['kpi_loan']
+        self.assertAlmostEqual(loan_kpi['repaid'], 3000.0, places=2)
+        self.assertAlmostEqual(loan_kpi['repaid_in_bills'], 3000.0, places=2)
+        self.assertAlmostEqual(loan_kpi['repaid_cash'], 0.0, places=2)
+        self.assertAlmostEqual(loan_kpi['accounts'][0]['repaid_cash'], 0.0, places=2)
+        # the 3000 stays in the bill payments only: cash out unchanged by the setting
+        self.assertAlmostEqual(
+            payload['kpi_payment']['cash_out'] - base['kpi_payment']['cash_out'], 0.0, places=2)
+
     def test_other_expense_from_journal_entries(self):
         Account = self.env['account.account']
         salary = Account.create({

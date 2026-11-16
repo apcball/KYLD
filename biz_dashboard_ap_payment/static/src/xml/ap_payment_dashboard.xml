@@ -149,7 +149,7 @@
                             </div>
                             <div class="o_apd_row" t-foreach="data.kpi_loan.accounts" t-as="acc" t-key="acc.id">
                                 <span><i class="o_apd_dot o_apd_dot--red"/>คืนเงินต้น <t t-esc="acc.name"/> <small class="text-muted"><t t-esc="fmtPct(acc.repaid_pct)"/></small></span>
-                                <b t-esc="fmtNum(acc.repaid)"/>
+                                <b t-esc="fmtNum(acc.repaid_cash)"/>
                             </div>
                         </div>
                     </div>

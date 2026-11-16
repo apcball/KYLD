@@ -570,21 +570,32 @@ class ApDashboard(models.AbstractModel):
         """Director-loan (เงินยืมกรรมการ) position of the configured loan accounts:
         drawn and repaid in the month, outstanding at month end (company
         currency of each company, converted). Not filtered by vendor / project:
-        loan entries carry no bill link."""
+        loan entries carry no bill link.
+
+        ``repaid`` is the ledger total; ``repaid_in_bills`` is the part booked
+        as a vendor-bill line on the loan account (a repayment paid through a
+        normal bill), whose payment already sits in the bill payments of the
+        actual-paid card, so ``repaid_cash`` (= repaid - repaid_in_bills) is what
+        the cash-out card adds on top. A manual entry replaces the ledger
+        figures and counts fully as cash."""
         companies = self.env['res.company'].browse(f['cids'])
         accounts = companies.apd_loan_account_ids
-        kpi = {'configured': bool(accounts), 'drawn': 0.0, 'repaid': 0.0, 'outstanding': 0.0}
+        kpi = {'configured': bool(accounts), 'drawn': 0.0, 'repaid': 0.0,
+               'repaid_in_bills': 0.0, 'outstanding': 0.0}
         per_account = {acc.id: {'id': acc.id, 'code': acc.code, 'name': acc.name,
-                                'drawn': 0.0, 'repaid': 0.0, 'outstanding': 0.0}
+                                'drawn': 0.0, 'repaid': 0.0, 'repaid_in_bills': 0.0,
+                                'outstanding': 0.0}
                        for acc in accounts.sorted('code')}
         if not accounts:
             kpi['accounts'] = []
+            kpi['repaid_cash'] = 0.0
             kpi['has_manual'] = False
             return kpi
         Line = self.env['account.move.line']
         domain = [('account_id', 'in', accounts.ids), ('parent_state', '=', 'posted'),
                   ('company_id', 'in', f['cids']), ('date', '<=', f['date_to'])]
-        for line in Line.search_fetch(domain, ['company_id', 'account_id', 'date', 'debit', 'credit']):
+        for line in Line.search_fetch(
+                domain, ['company_id', 'account_id', 'date', 'debit', 'credit', 'move_type']):
             company = line.company_id
             conv = lambda amount: self._convert(
                 amount, company.currency_id, company, line.date, f['currency'])
@@ -597,6 +608,11 @@ class ApDashboard(models.AbstractModel):
                 kpi['repaid'] += conv(line.debit)
                 acc['drawn'] += conv(line.credit)
                 acc['repaid'] += conv(line.debit)
+                if line.move_type in BILL_TYPES:
+                    # repayment booked through a vendor bill: its payment is already
+                    # counted by payment date in the bill payments
+                    kpi['repaid_in_bills'] += conv(line.debit)
+                    acc['repaid_in_bills'] += conv(line.debit)
         # manual entries of the month override the ledger figures of that account
         manual = self.env['biz.ap.dashboard.loan.manual'].sudo().search([
             ('company_id', 'in', f['cids']), ('year', '=', f['year']),
@@ -608,7 +624,7 @@ class ApDashboard(models.AbstractModel):
             if not acc.get('manual'):
                 # first manual row of this account: drop the ledger figures of the account
                 # (a second company's row for the same account id cannot exist: accounts are per company)
-                acc.update(drawn=0.0, repaid=0.0, outstanding=0.0, manual=True)
+                acc.update(drawn=0.0, repaid=0.0, repaid_in_bills=0.0, outstanding=0.0, manual=True)
             acc['drawn'] += conv(rec.drawn)
             acc['repaid'] += conv(rec.repaid)
             acc['outstanding'] += conv(rec.outstanding)
@@ -616,12 +632,16 @@ class ApDashboard(models.AbstractModel):
         kpi = {'configured': kpi['configured'],
                'drawn': sum(a['drawn'] for a in per_account.values()),
                'repaid': sum(a['repaid'] for a in per_account.values()),
+               'repaid_in_bills': sum(a['repaid_in_bills'] for a in per_account.values()),
                'outstanding': sum(a['outstanding'] for a in per_account.values())}
         result = {key: (round(val, 2) if key != 'configured' else val) for key, val in kpi.items()}
         # per configured loan account (e.g. 212100 PN bank loan / 212200 TR)
-        result['accounts'] = [
-            {k: (round(v, 2) if isinstance(v, float) else v) for k, v in acc.items()}
-            for acc in per_account.values()]
+        result['repaid_cash'] = round(result['repaid'] - result['repaid_in_bills'], 2)
+        result['accounts'] = []
+        for acc in per_account.values():
+            acc['repaid_cash'] = acc['repaid'] - acc['repaid_in_bills']
+            result['accounts'].append(
+                {k: (round(v, 2) if isinstance(v, float) else v) for k, v in acc.items()})
         result['has_manual'] = bool(manual)
         return result
 
@@ -1102,11 +1122,12 @@ class ApDashboard(models.AbstractModel):
         })
         kpi_loan = self._loan_kpi(f)
         # cash really leaving the bank (estimate): transfers / cheques + off-bill
-        # spend + loan principal repaid. Loan-funded bills, payable notes and
-        # employee advances are not cash out yet.
+        # spend + loan principal repaid outside vendor bills (repayments booked as
+        # a bill are already in the bill payments). Loan-funded bills, payable
+        # notes and employee advances are not cash out yet.
         kpi_payment['cash_out'] = (
             kpi_payment['paid_actual_cash'] + kpi_payment['other']
-            + (kpi_loan['repaid'] if kpi_loan['configured'] else 0.0))
+            + (kpi_loan['repaid_cash'] if kpi_loan['configured'] else 0.0))
         for key in ('total', 'cash', 'credit', 'paid', 'residual', 'paid_actual',
                     'paid_actual_loan', 'paid_actual_note', 'paid_actual_advance',
                     'paid_actual_cash', 'other', 'cash_out'):
@@ -1125,8 +1146,8 @@ class ApDashboard(models.AbstractModel):
         kpi_payment['cash_out_bills_pct'] = _pct(kpi_payment['paid_actual'], cash_out_total)
         kpi_payment['cash_out_other_pct'] = _pct(kpi_payment['other'], cash_out_total)
         for acc in kpi_loan['accounts']:
-            acc['repaid_pct'] = _pct(acc['repaid'], cash_out_total)
-        kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid'] if kpi_loan['configured'] else 0.0, cash_out_total)
+            acc['repaid_pct'] = _pct(acc['repaid_cash'], cash_out_total)
+        kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid_cash'] if kpi_loan['configured'] else 0.0, cash_out_total)
 
         tables = {}
         for tab, data in rows.items():
@@ -1315,13 +1336,13 @@ class ApDashboard(models.AbstractModel):
         ]
         if loan['configured']:
             actual_lines += [
-                ('   - ชำระคืนเงินยืมกรรมการ (เงินต้น)', loan['repaid'], pay['cash_out_loan_pct']),
+                ('   - ชำระคืนเงินยืมกรรมการ (เงินต้น · ไม่ผ่านบิล)', loan['repaid_cash'], pay['cash_out_loan_pct']),
                 ('ยืมเงินกรรมการในเดือน', loan['drawn'], None),
                 ('เงินยืมกรรมการคงค้าง ณ สิ้นเดือน', loan['outstanding'], None),
             ]
             for acc in loan['accounts']:
                 actual_lines += [
-                    ('   %s %s - ชำระคืนเงินต้น' % (acc['code'], acc['name']), acc['repaid'], None),
+                    ('   %s %s - ชำระคืนเงินต้น (ไม่ผ่านบิล)' % (acc['code'], acc['name']), acc['repaid_cash'], None),
                     ('   %s %s - เบิกในเดือน' % (acc['code'], acc['name']), acc['drawn'], None),
                     ('   %s %s - คงค้างสิ้นเดือน' % (acc['code'], acc['name']), acc['outstanding'], None),
                 ]
