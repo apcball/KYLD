@@ -567,7 +567,7 @@ class ApDashboard(models.AbstractModel):
         return items
 
     def _loan_kpi(self, f):
-        """Bank-loan (TR / PN ...) position of the configured loan accounts:
+        """Director-loan (เงินยืมกรรมการ) position of the configured loan accounts:
         drawn and repaid in the month, outstanding at month end (company
         currency of each company, converted). Not filtered by vendor / project:
         loan entries carry no bill link."""
@@ -1315,9 +1315,9 @@ class ApDashboard(models.AbstractModel):
         ]
         if loan['configured']:
             actual_lines += [
-                ('   - ชำระคืนเงินกู้ (เงินต้น)', loan['repaid'], pay['cash_out_loan_pct']),
-                ('เบิกเงินกู้ในเดือน', loan['drawn'], None),
-                ('สินเชื่อคงค้าง ณ สิ้นเดือน', loan['outstanding'], None),
+                ('   - ชำระคืนเงินยืมกรรมการ (เงินต้น)', loan['repaid'], pay['cash_out_loan_pct']),
+                ('ยืมเงินกรรมการในเดือน', loan['drawn'], None),
+                ('เงินยืมกรรมการคงค้าง ณ สิ้นเดือน', loan['outstanding'], None),
             ]
             for acc in loan['accounts']:
                 actual_lines += [
@@ -1327,7 +1327,7 @@ class ApDashboard(models.AbstractModel):
                 ]
         actual_lines += [
             ('บิลที่ชำระแล้วแต่ยังไม่ใช่เงินออก (ไม่รวมข้างต้น):', None, None),
-            ('   - ด้วยเงินกู้ TR', pay['paid_actual_loan'], None),
+            ('   - ด้วยเงินยืมกรรมการ', pay['paid_actual_loan'], None),
             ('   - ด้วยตั๋วเงินจ่าย (เงินออกตอนครบกำหนด)', pay['paid_actual_note'], None),
             ('   - ด้วยเงินทดรองจ่าย (ค้างคืนพนักงาน)', pay['paid_actual_advance'], None),
         ]
@@ -1438,7 +1438,7 @@ class ApDashboard(models.AbstractModel):
             ('เครดิต', 'month_credit', 'money'), ('ชำระแล้ว', 'month_paid', 'money'),
             ('ค้างชำระ', 'month_residual', 'money'),
             ('จ่ายจริง (โอน / เช็ค / อื่น ๆ)', 'act_total', 'money'),
-            ('เงินกู้ TR (ไม่ใช่เงินออก)', 'act_loan', 'money'),
+            ('เงินยืมกรรมการ (ไม่ใช่เงินออก)', 'act_loan', 'money'),
             ('ตั๋วเงินจ่าย (ไม่ใช่เงินออก)', 'act_note', 'money'),
             ('เงินทดรองจ่าย (ไม่ใช่เงินออก)', 'act_advance', 'money'),
             ('งบอนุมัติ', 'budget_approved', 'money'), ('ใช้แล้ว', 'budget_used', 'money'),

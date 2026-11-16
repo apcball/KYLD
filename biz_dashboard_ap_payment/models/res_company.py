@@ -32,10 +32,10 @@ class ResCompany(models.Model):
     apd_loan_account_ids = fields.Many2many(
         'account.account', 'apd_company_loan_account_rel',
         'company_id', 'account_id',
-        string='บัญชีเงินกู้ธนาคาร (Payment Dashboard)',
+        string='บัญชีเงินยืมกรรมการ (Payment Dashboard)',
         domain="[('company_id', '=', id)]",
-        help='บัญชีเงินกู้ยืมระยะสั้นที่ใช้จ่ายเจ้าหนี้ เช่น TR / PN — การจ่ายบิลที่ลงเครดิตบัญชีเหล่านี้ '
-             'จะแยกเป็น "ด้วยเงินกู้" ในยอดจ่ายจริง และแสดงยอดคงค้างสินเชื่อ')
+        help='บัญชีเงินยืมกรรมการที่ใช้จ่ายเจ้าหนี้ เช่น 214101 — การจ่ายบิลที่ลงเครดิตบัญชีเหล่านี้ '
+             'จะแยกเป็น "ด้วยเงินยืมกรรมการ" ในยอดจ่ายจริง และแสดงยอดคงค้าง')
 
     apd_note_journal_ids = fields.Many2many(
         'account.journal', 'apd_company_note_journal_rel',
