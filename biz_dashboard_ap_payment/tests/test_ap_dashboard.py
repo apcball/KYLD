@@ -253,6 +253,20 @@ class TestApDashboard(TransactionCase):
         self.assertEqual(engine._next_month(2031, 12), (2032, 1))
         self.assertEqual(engine._next_month(2031, 3), (2031, 4))
 
+    def test_plan_kpi_buckets(self):
+        self._bill(self.v1, D(1, 10), 1000.0, due=D(1, 20))   # overdue (due before last month)
+        self._bill(self.v1, D(2, 10), 2000.0, due=D(2, 20))   # due last month, unpaid
+        self._bill(self.v2, D(3, 5), 3000.0, due=D(3, 25))    # this month
+        payload = self._data()
+        self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'overdue'), 1000.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'prev_due'), 2000.0, places=2)
+        self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'month'), 3000.0, places=2)
+        plan = payload['kpi_plan']
+        self.assertAlmostEqual(
+            plan['total'], plan['overdue'] + plan['prev_due'] + plan['month'] + plan['other'], places=2)
+        self.assertAlmostEqual(plan['footer']['plan'], sum(r['plan'] for r in plan['rows']), places=2)
+        self.assertAlmostEqual(plan['footer']['diff'], plan['footer']['actual'] - plan['footer']['plan'], places=2)
+
     def test_month_bucketing_cash_credit(self):
         self._bill(self.v1, D(3, 5), 1000.0, term=self.term_now)      # cash, week 1
         self._bill(self.v1, D(2, 18), 2000.0, term=self.term_30)       # due 2031-03-20, credit, week 3

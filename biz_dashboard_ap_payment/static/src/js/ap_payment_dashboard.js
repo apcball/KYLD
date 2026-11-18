@@ -91,6 +91,7 @@ export class ApPaymentDashboard extends Component {
     setup() {
         this.rpc = useService("rpc");
         this.notification = useService("notification");
+        this.action = useService("action");
         const today = new Date();
         const initial = {
             month: today.getMonth() + 1,
@@ -109,11 +110,13 @@ export class ApPaymentDashboard extends Component {
             exporting: false,
             exportOpen: false,
             error: "",
+            detail: { open: false, loading: false, title: "", data: null, section: "bills" },
         });
         this.refs = {
             weekly: useRef("weeklyChart"),
             donut: useRef("donutChart"),
             forecast: useRef("forecastChart"),
+            plan: useRef("planChart"),
         };
         this.charts = {};
         this.months = MONTHS_TH.map((name, i) => ({ id: i + 1, name }));
@@ -235,6 +238,66 @@ export class ApPaymentDashboard extends Component {
     }
 
     // ------------------------------------------------------------------
+    // Row drill-down
+    // ------------------------------------------------------------------
+    async openDetail(row) {
+        const detail = this.state.detail;
+        Object.assign(detail, { open: true, loading: true, title: row.name, data: null, section: "bills" });
+        try {
+            const data = await this.rpc("/ap_dashboard/api/detail", {
+                ...this.state.applied,
+                tab: this.state.tab,
+                key: row.key,
+            });
+            // ignore a stale answer when another row was opened meanwhile
+            if (!detail.open || detail.title !== row.name) return;
+            detail.data = data;
+            const first = data.sections.find((s) => s.count);
+            detail.section = first ? first.id : "bills";
+        } catch (error) {
+            console.error("AP dashboard detail failed", error);
+            this.notification.add(
+                (error && error.data && error.data.message) || "โหลดรายละเอียดไม่สำเร็จ", { type: "danger" });
+            detail.open = false;
+        } finally {
+            detail.loading = false;
+        }
+    }
+
+    closeDetail() {
+        this.state.detail.open = false;
+    }
+
+    setDetailSection(id) {
+        this.state.detail.section = id;
+    }
+
+    get detailSection() {
+        const data = this.state.detail.data;
+        return data ? data.sections.find((s) => s.id === this.state.detail.section) || data.sections[0] : null;
+    }
+
+    openRecord(row) {
+        if (!row.id) return;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: row.model,
+            res_id: row.id,
+            views: [[false, "form"]],
+            target: "new",
+        });
+    }
+
+    kindLabel(kind) {
+        return {
+            cash: "โอน / เช็ค / อื่น ๆ",
+            loan: "เงินยืมกรรมการ (ไม่ใช่เงินออก)",
+            note: "ตั๋วเงินจ่าย (ไม่ใช่เงินออก)",
+            advance: "เงินทดรอง (ไม่ใช่เงินออก)",
+        }[kind] || kind;
+    }
+
+    // ------------------------------------------------------------------
     // Export
     // ------------------------------------------------------------------
     toggleExport() {
@@ -277,6 +340,7 @@ export class ApPaymentDashboard extends Component {
         this.renderStacked("weekly", this.data.weekly);
         this.renderDonut();
         this.renderStacked("forecast", this.data.forecast_weekly);
+        this.renderPlanDonut();
     }
 
     _draw(name, config) {
@@ -336,6 +400,38 @@ export class ApPaymentDashboard extends Component {
                 },
             },
             plugins: [stackTotalsPlugin],
+        });
+    }
+
+    renderPlanDonut() {
+        const plan = this.data.kpi_plan;
+        const parts = [
+            { name: "ยอดหนี้ยกมา (Overdue)", amount: plan.overdue, color: "#f0385a" },
+            { name: "ยอดหนี้ Due เดือนก่อน", amount: plan.prev_due, color: "#2f80ed" },
+            { name: "ยอดใช้จ่ายเดือนนี้", amount: plan.month, color: "#10b981" },
+            { name: "เงินเดือน + รายจ่ายอื่นๆ", amount: plan.other, color: "#7c4dff" },
+        ];
+        this._draw("plan", {
+            type: "doughnut",
+            data: {
+                labels: parts.map((p) => p.name),
+                datasets: [{
+                    data: parts.map((p) => Math.max(p.amount, 0)),
+                    backgroundColor: parts.map((p) => p.color),
+                    borderWidth: 2,
+                    borderColor: "#fff",
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: "68%",
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => " " + ctx.label + ": " + this.fmtBaht(ctx.parsed) } },
+                },
+            },
+            plugins: [centerTextPlugin(() => ({ title: "เจ้าหนี้รวม", value: formatNumber(plan.total) }))],
         });
     }
 

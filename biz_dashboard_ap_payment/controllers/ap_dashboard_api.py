@@ -29,6 +29,13 @@ class ApDashboardAPI(http.Controller):
             self._filters(month, year, company_id, project_id, partner_id, analytic_id),
             refresh=bool(refresh))
 
+    @http.route('/ap_dashboard/api/detail', type='json', auth='user')
+    def get_detail(self, tab=None, key=None, month=None, year=None, company_id=None,
+                   project_id=None, partner_id=None, analytic_id=None, **kwargs):
+        return request.env['biz.ap.dashboard'].get_row_detail(
+            self._filters(month, year, company_id, project_id, partner_id, analytic_id),
+            tab=tab, key=key)
+
     @http.route('/ap_dashboard/api/export', type='http', auth='user')
     def export(self, month=None, year=None, company_id=None, project_id=None,
                partner_id=None, analytic_id=None, sheet='all', **kwargs):

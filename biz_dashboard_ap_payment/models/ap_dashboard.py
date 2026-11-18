@@ -154,6 +154,122 @@ class ApDashboard(models.AbstractModel):
         return data
 
     @api.model
+    def get_row_detail(self, filters=None, tab='vendor', key=None):
+        """Documents behind one row of the summary table (``tab`` = vendor /
+        project / category, ``key`` = the row key). Same access gate, filters and
+        bucketing as :meth:`_build`, so every section adds up to the row's
+        figures. Category rows count a document by its category share."""
+        self._check_access()
+        if tab not in ('vendor', 'project', 'category') or not key:
+            raise ValueError('Unknown row')
+        f = self._normalize_filters(filters or {})
+        return self.sudo()._build_detail(f, tab, str(key))
+
+    def _build_detail(self, f, tab, key):
+        def fraction(vals, shares=()):
+            """Share of a document that belongs to the row (0 = not in it)."""
+            if tab == 'category':
+                return sum(s for bucket, s in shares if bucket[0] == key)
+            return 1.0 if vals[tab][0] == key else 0.0
+
+        def bill_row(bill, vals, frac, **extra):
+            row = {
+                'model': 'account.move', 'id': bill.id, 'name': bill.name or '/',
+                'partner': (bill.commercial_partner_id or bill.partner_id).name or '',
+                'date': fields.Date.to_string(bill.invoice_date) if bill.invoice_date else '',
+                'due': fields.Date.to_string(bill.invoice_date_due) if bill.invoice_date_due else '',
+            }
+            row.update(extra)
+            return row
+
+        sections = []
+
+        # 1. บิลเจ้าหนี้ที่ครบกำหนดในเดือน -------------------------------------
+        rows = []
+        bills, lines = self._search_bills(self._bill_domain(f, f['date_from'], f['date_to']))
+        for bill in bills:
+            v = self._bill_vals(bill, f)
+            frac = fraction(v, self._bill_line_shares(bill, v, f, lines.get(bill.id, []))
+                            if tab == 'category' else ())
+            if abs(frac) > 1e-9:
+                rows.append(bill_row(bill, v, frac, total=v['total'] * frac, paid=v['paid'] * frac,
+                                     residual=v['residual'] * frac, cash=v['is_cash']))
+        sections.append(('bills', 'บิลเจ้าหนี้ (ครบกำหนดเดือนนี้)', ['total', 'paid', 'residual'], rows))
+
+        # 2. จ่ายออกจริงในเดือน --------------------------------------------------
+        rows = []
+        items = self._paid_actual_items(f)
+        if items:
+            ids = list({bill.id for bill, _k, _a in items})
+            paid_bills, paid_lines = self._search_bills([('id', 'in', ids)])
+            by_id = {b.id: b for b in paid_bills}
+            for bill, kind, amount in items:
+                bill = by_id.get(bill.id, bill)
+                v = {'vendor': self._vendor_bucket(bill.commercial_partner_id or bill.partner_id),
+                     'project': self._project_bucket(self._project_of(bill))}
+                shares = ()
+                if tab == 'category':
+                    shares = self._bill_line_shares(
+                        bill, self._bill_vals(bill, f), f, paid_lines.get(bill.id, [])) or [(NO_CATEGORY, 1.0)]
+                frac = fraction(v, shares)
+                if abs(frac) > 1e-9:
+                    rows.append(bill_row(bill, v, frac, kind=kind, amount=amount * frac))
+        sections.append(('paid', 'จ่ายออกจริงในเดือน (ตามวันที่ชำระ)', ['amount'], rows))
+
+        # 3. รายจ่ายนอกบิล ---------------------------------------------------------
+        rows = []
+        loan_ids = set(self.env['res.company'].browse(f['cids']).apd_loan_account_ids.ids)
+        for v in self._other_expense_vals(f):
+            if v['category'][2] in loan_ids:
+                continue
+            frac = fraction(v, [(v['category'], 1.0)])
+            if abs(frac) > 1e-9:
+                rows.append({
+                    'model': 'account.move', 'id': v['move_id'], 'name': v['move_name'] or '/',
+                    'partner': v['vendor'][1], 'date': fields.Date.to_string(v['date']),
+                    'due': '', 'account': v['category'][1], 'amount': v['total'] * frac})
+        sections.append(('other', 'รายจ่ายนอกบิล (สมุดรายวัน)', ['amount'], rows))
+
+        # 4. ประมาณการเดือนถัดไป ---------------------------------------------------
+        rows = []
+        next_bills, next_lines = self._search_bills(
+            self._bill_domain(f, f['next_from'], f['next_to'], unpaid_only=True))
+        for bill in next_bills:
+            v = self._bill_vals(bill, f)
+            frac = fraction(v, self._bill_line_shares(bill, v, f, next_lines.get(bill.id, []))
+                            if tab == 'category' else ())
+            if abs(frac) > 1e-9:
+                rows.append(bill_row(bill, v, frac, amount=v['residual'] * frac, cash=v['is_cash']))
+        next_pos = self.env['purchase.order'].search(
+            self._po_domain(f, f['next_from'], f['next_to'])
+        ).filtered(lambda po: self._po_unbilled(po) > 0.005)
+        for po in next_pos:
+            v = self._po_vals(po, f)
+            shares = [(b, s) for b, _a, s in self._po_line_shares(po, f['analytic_id'])] \
+                if tab == 'category' else ()
+            frac = fraction(v, shares)
+            if abs(frac) > 1e-9:
+                rows.append({
+                    'model': 'purchase.order', 'id': po.id, 'name': po.name, 'partner': po.partner_id.name or '',
+                    'date': fields.Date.to_string(po.date_order.date()) if po.date_order else '',
+                    'due': fields.Date.to_string(po.payment_date) if po.payment_date else '',
+                    'amount': v['remaining'] * frac, 'cash': v['is_cash'], 'is_po': True})
+        sections.append(('next', 'ประมาณการเดือนถัดไป (บิลค้างชำระ + PO ยังไม่ตั้งบิล)', ['amount'], rows))
+
+        out = []
+        for sid, title, sum_keys, rows in sections:
+            for r in rows:
+                for k in sum_keys:
+                    r[k] = round(r.get(k, 0.0), 2)
+            out.append({
+                'id': sid, 'title': title, 'rows': rows, 'count': len(rows),
+                'totals': {k: round(sum(r.get(k, 0.0) for r in rows), 2) for k in sum_keys},
+            })
+        return {'tab': tab, 'key': key, 'month_label': '%s %d' % (MONTHS_TH[f['month'] - 1], f['year']),
+                'next_month_label': '%s %d' % (MONTHS_TH[f['next_from'].month - 1], f['next_from'].year),
+                'sections': out}
+
+    @api.model
     def build_export(self, filters=None, sheet='all'):
         if sheet not in SHEETS:
             raise ValueError('Unknown sheet: %s' % sheet)
@@ -222,6 +338,8 @@ class ApDashboard(models.AbstractModel):
         date_from, date_to = _month_range(year, month)
         next_year, next_month = _next_month(year, month)
         next_from, next_to = _month_range(next_year, next_month)
+        prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+        prev_from, prev_to = _month_range(prev_year, prev_month)
         return {
             'month': month,
             'year': year,
@@ -236,6 +354,8 @@ class ApDashboard(models.AbstractModel):
             'date_to': date_to,
             'next_from': next_from,
             'next_to': next_to,
+            'prev_from': prev_from,
+            'prev_to': prev_to,
             'today': today,
         }
 
@@ -459,6 +579,25 @@ class ApDashboard(models.AbstractModel):
             domain.append(('commercial_partner_id', '=', f['partner_id']))
         if unpaid_only:
             domain.append(('payment_state', 'in', ('not_paid', 'partial')))
+        return domain
+
+    def _overdue_domain(self, f):
+        """Unpaid posted bills whose due date is before the previous month
+        (หนี้ยกมา / Overdue); the previous month itself is its own bucket."""
+        domain = [
+            ('move_type', 'in', BILL_TYPES),
+            ('state', '=', 'posted'),
+            ('company_id', 'in', f['cids']),
+            ('payment_state', 'in', ('not_paid', 'partial')),
+            ('invoice_date_due', '!=', False),
+            ('invoice_date_due', '<', f['prev_from']),
+        ]
+        domain += self._project_domain(f, 'account.move')
+        scope = self._analytic_scope(f)
+        if scope is not None:
+            domain.append(('id', 'in', list(scope['bills'])))
+        if f['partner_id']:
+            domain.append(('commercial_partner_id', '=', f['partner_id']))
         return domain
 
     def _search_bills(self, domain):
@@ -704,6 +843,8 @@ class ApDashboard(models.AbstractModel):
                 'vendor': self._vendor_bucket(line.partner_id),
                 'project': NO_PROJECT,
                 'category': self._category_bucket(False, line.account_id),
+                'move_id': line.move_id.id,
+                'move_name': line.move_id.name or line.move_id.ref or '',
             })
         return out
 
@@ -958,8 +1099,19 @@ class ApDashboard(models.AbstractModel):
         if actual_bills:
             actual_bills_rs, actual_lines = self._search_bills([('id', 'in', list(actual_bills))])
             actual_bills = {b.id: b for b in actual_bills_rs}
+        paid_bucket = {'overdue': 0.0, 'prev_due': 0.0, 'month': 0.0, 'prepay': 0.0}
         for bill, kind, amount in actual_items:
             bill = actual_bills.get(bill.id, bill)
+            if kind == 'cash':
+                due = bill.invoice_date_due or bill.invoice_date
+                if not due or due > f['date_to']:
+                    paid_bucket['prepay'] += amount
+                elif due >= f['date_from']:
+                    paid_bucket['month'] += amount
+                elif due >= f['prev_from']:
+                    paid_bucket['prev_due'] += amount
+                else:
+                    paid_bucket['overdue'] += amount
             v = {'vendor': self._vendor_bucket(bill.commercial_partner_id or bill.partner_id),
                  'project': self._project_bucket(self._project_of(bill))}
             amounts = {'act_total': amount if kind == 'cash' else 0.0, 'act_%s' % kind: amount}
@@ -1161,6 +1313,11 @@ class ApDashboard(models.AbstractModel):
             for name, amount in by_name.items() if abs(amount) > 0.005]
         kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid_cash'] if kpi_loan['configured'] else 0.0, cash_out_total)
 
+        # card 3 extras: bills booked in the month (ตั้งหนี้) and cash really paid
+        kpi_budget['billed'] = round(kpi_payment['total'] - kpi_payment['other'], 2)
+        kpi_budget['paid'] = kpi_payment['cash_out']
+        kpi_plan = self._plan_kpi(f, kpi_payment, kpi_loan, paid_bucket)
+
         tables = {}
         for tab, data in rows.items():
             finalized = self._finalize_rows(data)
@@ -1190,6 +1347,7 @@ class ApDashboard(models.AbstractModel):
             'kpi_request': kpi_request,
             'kpi_forecast': kpi_forecast,
             'kpi_other': kpi_other,
+            'kpi_plan': kpi_plan,
             'actual_vendors': [
                 {'id': r['id'], 'name': r['name'], 'total': r['act_total'], 'loan': r['act_loan'],
                  'note': r['act_note'], 'advance': r['act_advance'], 'cash': r['act_cash'],
@@ -1203,6 +1361,57 @@ class ApDashboard(models.AbstractModel):
             'vendor_share': self._vendor_share(tables['vendor']['rows'], total),
             'tables': tables,
             'tabs': [dict(meta, id=key) for key, meta in TABS.items()],
+        }
+
+    def _plan_kpi(self, f, kpi_payment, kpi_loan, paid_bucket):
+        """Card 1 (แผนการใช้เงิน) and card 2 (จ่ายจริง vs แผน). Plan rows:
+        overdue (unpaid, due before last month), last month's unpaid due, this
+        month's bills, off-bill spend. Actual = cash paid in the month, split
+        by the due bucket of the settled bill (due after month end = prepay)."""
+        vendors = set()
+
+        def residual(domain):
+            bills, _lines = self._search_bills(domain)
+            total = 0.0
+            for bill in bills:
+                v = self._bill_vals(bill, f)
+                total += v['residual']
+                vendors.add(bill.commercial_partner_id.id or bill.partner_id.id)
+            return total, len(bills)
+
+        overdue, overdue_n = residual(self._overdue_domain(f))
+        prev_due, prev_n = residual(self._bill_domain(f, f['prev_from'], f['prev_to'], unpaid_only=True))
+        month_spend = kpi_payment['total'] - kpi_payment['other']
+        salary_other = kpi_payment['other']
+        plan_rows = [
+            ('overdue', 'ยอดหนี้ยกมา (Overdue)', overdue, paid_bucket['overdue']),
+            ('prev_due', 'ยอดหนี้ Due เดือนก่อน', prev_due, paid_bucket['prev_due']),
+            ('month', 'ยอดใช้จ่ายเดือนนี้', month_spend, paid_bucket['month']),
+            ('other', 'ประมาณการเงินเดือน + รายจ่ายอื่นๆ', salary_other, salary_other),
+            ('prepay', 'จ่ายชำระล่วงหน้า', 0.0, paid_bucket['prepay']),
+        ]
+        for i, repay in enumerate(kpi_loan.get('repay_rows', [])):
+            plan_rows.append(('loan%d' % i, 'คืนเงินต้น %s' % repay['name'], 0.0, repay['repaid']))
+        rows = [{
+            'key': key, 'name': name, 'plan': round(plan, 2), 'actual': round(actual, 2),
+            'diff': round(actual - plan, 2), 'pct': _pct(actual, plan) if plan else None,
+        } for key, name, plan, actual in plan_rows]
+        total_plan = sum(r['plan'] for r in rows)
+        total_actual = sum(r['actual'] for r in rows)
+        return {
+            'overdue': round(overdue, 2),
+            'prev_due': round(prev_due, 2),
+            'month': round(month_spend, 2),
+            'other': round(salary_other, 2),
+            'total': round(overdue + prev_due + month_spend + salary_other, 2),
+            'creditor_count': len(vendors) + (1 if salary_other else 0),
+            'bill_count': overdue_n + prev_n + kpi_payment['count'],
+            'rows': rows,
+            'footer': {
+                'plan': round(total_plan, 2), 'actual': round(total_actual, 2),
+                'diff': round(total_actual - total_plan, 2),
+                'pct': _pct(total_actual, total_plan) if total_plan else None,
+            },
         }
 
     def _allocation_summary(self, f):
