@@ -1314,9 +1314,7 @@ class ApDashboard(models.AbstractModel):
         kpi_payment['cash_out_loan_pct'] = _pct(kpi_loan['repaid_cash'] if kpi_loan['configured'] else 0.0, cash_out_total)
 
         # card 3 extras: bills booked in the month (ตั้งหนี้) and cash really paid
-        kpi_budget['billed'] = round(kpi_payment['total'] - kpi_payment['other'], 2)
-        kpi_budget['paid'] = kpi_payment['cash_out']
-        kpi_plan = self._plan_kpi(f, kpi_payment, kpi_loan, paid_bucket)
+        kpi_plan = self._plan_kpi(f, kpi_payment, kpi_loan, paid_bucket, kpi_forecast['other'])
 
         tables = {}
         for tab, data in rows.items():
@@ -1363,7 +1361,7 @@ class ApDashboard(models.AbstractModel):
             'tabs': [dict(meta, id=key) for key, meta in TABS.items()],
         }
 
-    def _plan_kpi(self, f, kpi_payment, kpi_loan, paid_bucket):
+    def _plan_kpi(self, f, kpi_payment, kpi_loan, paid_bucket, forecast_other):
         """Card 1 (แผนการใช้เงิน) and card 2 (จ่ายจริง vs แผน). Plan rows:
         overdue (unpaid, due before last month), last month's unpaid due, this
         month's bills, off-bill spend. Actual = cash paid in the month, split
@@ -1388,12 +1386,12 @@ class ApDashboard(models.AbstractModel):
             ['commercial_partner_id', 'partner_id'])
         vendors.update((m.commercial_partner_id or m.partner_id).id for m in unpaid_month)
         month_spend = kpi_payment['total'] - kpi_payment['other']
-        salary_other = kpi_payment['other']
+        salary_other = kpi_payment['other']                # actual off-bill spend this month
+        salary_plan = forecast_other                       # = card 5 forecast (3-month avg)
         plan_rows = [
             ('overdue', 'ยอดหนี้ยกมา (Overdue)', overdue, paid_bucket['overdue']),
-            ('prev_due', 'ยอดหนี้ Due เดือนก่อน', prev_due, paid_bucket['prev_due']),
-            ('month', 'ยอดใช้จ่ายเดือนนี้', month_spend, paid_bucket['month']),
-            ('other', 'ประมาณการเงินเดือน + รายจ่ายอื่นๆ', salary_other, salary_other),
+            ('month', 'ยอดการใช้งบประมาณ', month_spend, paid_bucket['month']),
+            ('other', 'ประมาณการเงินเดือน + รายจ่ายอื่นๆ', salary_plan, salary_other),
             ('prepay', 'จ่ายชำระล่วงหน้า', 0.0, paid_bucket['prepay']),
         ]
         for i, repay in enumerate(kpi_loan.get('repay_rows', [])):
@@ -1408,8 +1406,8 @@ class ApDashboard(models.AbstractModel):
             'overdue': round(overdue, 2),
             'prev_due': round(prev_due, 2),
             'month': round(month_spend, 2),
-            'other': round(salary_other, 2),
-            'total': round(overdue + prev_due + month_spend + salary_other, 2),
+            'other': round(salary_plan, 2),
+            'total': round(overdue + month_spend + salary_plan, 2),
             'creditor_count': len(vendors),
             'bill_count': overdue_n + prev_n + len(unpaid_month),
             'rows': rows,
@@ -1427,24 +1425,83 @@ class ApDashboard(models.AbstractModel):
             ('date_from', '<=', f['date_to']),
             '|', ('company_id', 'in', f['cids']), ('all_companies', '=', True),
         ])
-        approved = reserved = used = 0.0
+        approved = 0.0
+        alloc_by_id = {}
         for alloc in allocations:
             conv = lambda amount: self._convert(
                 amount, alloc.currency_id, alloc.company_id or self.env.company,
                 f['date_from'], f['currency'])
             approved += conv(alloc.amount)
-            reserved += conv(alloc.amount_reserved)
-            used += conv(alloc.amount_used)
-        remaining = approved - reserved - used
+            alloc_by_id[alloc.id] = conv
+        # budget moves of those allocations (documents issued in the month only), by source state:
+        #   PR / MR reserved + PO draft / sent / to approve -> เปิด PO (reserved)
+        #   PO purchase / done            -> รับของ    (reserved, unbilled remainder)
+        #   vendor bill draft / posted    -> ตั้งหนี้   (used)
+        po_draft = po_received = billed = 0.0
+        moves = self.env['budget.move'].sudo().search([
+            ('allocation_id', 'in', allocations.ids),
+            ('source_model', 'in', ('purchase.order', 'account.move',
+                                    'employee.purchase.requisition', 'material.requisition')),
+            ('move_type', 'in', ('reserved', 'used')),
+        ])
+        # only documents issued in the selected month count (PO date_order, bill
+        # invoice date, PR / MR creation date); documents of other months that the
+        # budget ledger charged to this month's allocation are left out
+        d_from, d_to = f['date_from'], f['date_to']
+        in_month = lambda d: bool(d) and d_from <= fields.Date.to_date(d) <= d_to
+        ids_of = lambda model: {m.source_id for m in moves if m.source_model == model}
+        po_ok = {po.id: po for po in self.env['purchase.order'].sudo().browse(ids_of('purchase.order')).exists()
+                 if in_month(po.date_order)}
+        po_state = {pid: po.state for pid, po in po_ok.items()}
+        pr_ok = {r.id for r in self.env['employee.purchase.requisition'].sudo().browse(
+            ids_of('employee.purchase.requisition')).exists() if in_month(r.create_date)}
+        mr_ok = {r.id for r in self.env['material.requisition'].sudo().browse(
+            ids_of('material.requisition')).exists() if in_month(r.create_date)}
+        bills = self.env['account.move'].sudo().browse(ids_of('account.move')).exists().filtered(
+            lambda b: in_month(b.invoice_date or b.date))
+        bill_state = {b.id: b.state for b in bills}
+        for move in moves:
+            amount = alloc_by_id[move.allocation_id.id](move.amount)
+            if move.source_model in ('employee.purchase.requisition', 'material.requisition'):
+                ok = pr_ok if move.source_model == 'employee.purchase.requisition' else mr_ok
+                if move.move_type == 'reserved' and move.source_id in ok:
+                    po_draft += amount
+            elif move.source_model == 'purchase.order' and move.move_type == 'reserved':
+                state = po_state.get(move.source_id)
+                if state in ('draft', 'sent', 'to approve'):
+                    po_draft += amount
+                elif state in ('purchase', 'done'):
+                    po_received += amount
+            elif move.source_model == 'account.move' and move.move_type == 'used':
+                if bill_state.get(move.source_id) in ('draft', 'posted'):
+                    billed += amount
+        # extra budget = approved requests of card 4
+        extra = self._extra_budget_amount(f)
+        total_budget = approved + extra
+        spent = po_draft + po_received + billed
         return {
             'approved': round(approved, 2),
-            'reserved': round(reserved, 2),
-            'used': round(used, 2),
-            'remaining': round(remaining, 2),
-            'pct': _pct(reserved + used, approved),
+            'extra': round(extra, 2),
+            'total_budget': round(total_budget, 2),
+            'po_draft': round(po_draft, 2),
+            'po_received': round(po_received, 2),
+            'billed': round(billed, 2),
+            'remaining': round(total_budget - spent, 2),
+            'over': round(max(0.0, spent - total_budget), 2),
+            'pct': _pct(spent, total_budget),
             'plan_count': len(allocations.mapped('plan_id')),
             'scope_note': 'งบประมาณตามแผนรายเดือน (ไม่กรองตามโครงการ / ร้านค้า / Analytic)',
         }
+
+    def _extra_budget_amount(self, f):
+        """Sum of approved additional-budget requests (card 4) of the month."""
+        domain = [d for d in self._request_domain(f) if d[0] != 'state'] + [('state', '=', 'approved')]
+        total = 0.0
+        for req in self.env['buz.budget.approval.request'].search(domain):
+            total += self._convert(
+                req.amount_requested, self._request_currency(req), req.company_id,
+                fields.Date.to_date(req.create_date), f['currency'])
+        return total
 
     @staticmethod
     def _vendor_share(vendor_rows, total):
@@ -1582,10 +1639,14 @@ class ApDashboard(models.AbstractModel):
         row = self._xlsx_block(ws, row, '2. จ่ายจริงในเดือน (%s)' % filters['month_label'], actual_lines, fmt)
         budget = data['kpi_budget']
         row = self._xlsx_block(ws, row, '3. ยอดการใช้งบประมาณ', [
-            ('งบประมาณที่ได้รับอนุมัติ', budget['approved'], None),
-            ('ยอดจอง (งบผูกพันจาก PO)', budget['reserved'], None),
-            ('ยอด Use (งบใช้จริง รวมบิลที่เป็น Draft)', budget['used'], None),
-            ('งบคงเหลือ', budget['remaining'], None),
+            ('งบประมาณที่ตั้งไว้', budget['approved'], None),
+            ('งบประมาณเพิ่มเติม (อนุมัติแล้ว)', budget['extra'], None),
+            ('เปิด PO (PR / MR / PO Draft)', budget['po_draft'], None),
+            ('รับของ (PO Purchase Order)', budget['po_received'], None),
+            ('ตั้งหนี้ - Use (บิล Draft / Posted)', budget['billed'], None),
+            ('งบคงเหลือ', max(budget['remaining'], 0.0), None),
+            ('ใช้เกินงบประมาณ', budget['over'], None),
+            ('รวมงบประมาณ', budget['total_budget'], None),
             ('% ใช้แล้ว', None, budget['pct']),
         ], fmt)
         req = data['kpi_request']
@@ -1626,7 +1687,7 @@ class ApDashboard(models.AbstractModel):
                 row += 1
             row += 1
 
-        ws.write(row, 0, 'สัดส่วนยอดจ่ายประจำเดือนตามร้านค้า', fmt['h2'])
+        ws.write(row, 0, 'สัดส่วนการใช้เงินประจำเดือน', fmt['h2'])
         row += 1
         for col, label in enumerate(('ร้านค้า', 'ยอด', '%')):
             ws.write(row, col, label, fmt['head'])

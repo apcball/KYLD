@@ -407,8 +407,7 @@ export class ApPaymentDashboard extends Component {
         const plan = this.data.kpi_plan;
         const parts = [
             { name: "ยอดหนี้ยกมา (Overdue)", amount: plan.overdue, color: "#f0385a" },
-            { name: "ยอดหนี้ Due เดือนก่อน", amount: plan.prev_due, color: "#2f80ed" },
-            { name: "ยอดใช้จ่ายเดือนนี้", amount: plan.month, color: "#10b981" },
+            { name: "ยอดการใช้งบประมาณ", amount: plan.month, color: "#10b981" },
             { name: "เงินเดือน + รายจ่ายอื่นๆ", amount: plan.other, color: "#7c4dff" },
         ];
         this._draw("plan", {

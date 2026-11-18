@@ -265,7 +265,7 @@ class TestApDashboard(TransactionCase):
         self.assertEqual(self._delta(payload, 'kpi_plan', 'creditor_count'), 2)
         plan = payload['kpi_plan']
         self.assertAlmostEqual(
-            plan['total'], plan['overdue'] + plan['prev_due'] + plan['month'] + plan['other'], places=2)
+            plan['total'], plan['overdue'] + plan['month'] + plan['other'], places=2)
         self.assertAlmostEqual(plan['footer']['plan'], sum(r['plan'] for r in plan['rows']), places=2)
         self.assertAlmostEqual(plan['footer']['diff'], plan['footer']['actual'] - plan['footer']['plan'], places=2)
 
@@ -726,8 +726,10 @@ class TestApDashboard(TransactionCase):
         budget = payload['kpi_budget']
         # the two confirmed plans created in setUpClass (100M, March) are visible
         self.assertGreaterEqual(budget['approved'] - self.baseline['kpi_budget']['approved'], 100000000.0 - 0.01)
+        self.assertAlmostEqual(budget['total_budget'], budget['approved'] + budget['extra'], places=2)
         self.assertAlmostEqual(
-            budget['remaining'], budget['approved'] - budget['reserved'] - budget['used'], places=2)
+            budget['remaining'],
+            budget['total_budget'] - budget['po_draft'] - budget['po_received'] - budget['billed'], places=2)
         self.assertTrue(budget['scope_note'])
         # project / vendor filters do not change the plan-level KPI
         filtered = self._data(partner_id=self.v1.id)

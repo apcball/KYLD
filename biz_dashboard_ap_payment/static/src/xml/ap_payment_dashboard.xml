@@ -116,11 +116,8 @@
                                 <div class="o_apd_pill o_apd_pill--red">
                                     <i class="fa fa-exclamation-circle"/><span>ยอดหนี้ยกมา (Overdue)</span><b t-esc="fmtBaht(data.kpi_plan.overdue)"/>
                                 </div>
-                                <div class="o_apd_pill o_apd_pill--blue">
-                                    <i class="fa fa-calendar"/><span>ยอดหนี้ Due เดือนก่อน</span><b t-esc="fmtBaht(data.kpi_plan.prev_due)"/>
-                                </div>
                                 <div class="o_apd_pill o_apd_pill--green">
-                                    <i class="fa fa-database"/><span>ยอดใช้จ่ายเดือนนี้</span><b t-esc="fmtBaht(data.kpi_plan.month)"/>
+                                    <i class="fa fa-database"/><span>ยอดการใช้งบประมาณ</span><b t-esc="fmtBaht(data.kpi_plan.month)"/>
                                 </div>
                                 <div class="o_apd_pill o_apd_pill--purple">
                                     <i class="fa fa-users"/><span>ประมาณการเงินเดือน + รายจ่ายอื่นๆ</span><b t-esc="fmtBaht(data.kpi_plan.other)"/>
@@ -176,11 +173,14 @@
                         <div t-attf-class="o_apd_card_value #{data.kpi_budget.pct > 100 ? 'o_apd_card_value--over' : ''}" t-esc="fmtPct(data.kpi_budget.pct)"/>
                         <div class="o_apd_bar"><div class="o_apd_bar_fill" t-attf-style="width: #{barPct(data.kpi_budget.pct)}%"/></div>
                         <div class="o_apd_rows">
-                            <div class="o_apd_row o_apd_row--hl"><span>งบประมาณที่ได้รับอนุมัติ</span><b t-esc="fmtBaht(data.kpi_budget.approved)"/></div>
-                            <div class="o_apd_row"><span><i class="fa fa-shopping-cart me-1"/>เปิด PO</span><b t-esc="fmtNum(data.kpi_budget.reserved)"/></div>
-                            <div class="o_apd_row"><span><i class="fa fa-cubes me-1"/>รับของ</span><b t-esc="fmtNum(data.kpi_budget.used)"/></div>
-                            <div class="o_apd_row"><span><i class="fa fa-file-text-o me-1"/>ตั้งหนี้</span><b t-esc="fmtNum(data.kpi_budget.billed)"/></div>
-                            <div class="o_apd_row"><span><i class="fa fa-check-circle me-1"/>ชำระแล้ว</span><b t-esc="fmtNum(data.kpi_budget.paid)"/></div>
+                            <div class="o_apd_row"><span>งบประมาณที่ตั้งไว้</span><b t-esc="fmtNum(data.kpi_budget.approved)"/></div>
+                            <div class="o_apd_row"><span><i class="fa fa-plus-circle me-1"/>งบประมาณเพิ่มเติม</span><b t-esc="fmtNum(data.kpi_budget.extra)"/></div>
+                            <div class="o_apd_row"><span><i class="fa fa-shopping-cart me-1"/>เปิด PO <small class="text-muted">(MR / PR / PO Draft · Reserve)</small></span><b t-esc="fmtNum(data.kpi_budget.po_draft)"/></div>
+                            <div class="o_apd_row"><span><i class="fa fa-cubes me-1"/>รับของ <small class="text-muted">(PO Purchase Order)</small></span><b t-esc="fmtNum(data.kpi_budget.po_received)"/></div>
+                            <div class="o_apd_row"><span><i class="fa fa-file-text-o me-1"/>ตั้งหนี้ <small class="text-muted">(Use · บิล Draft / Post)</small></span><b t-esc="fmtNum(data.kpi_budget.billed)"/></div>
+                            <div t-if="data.kpi_budget.over > 0" class="o_apd_row text-danger"><span><i class="fa fa-exclamation-triangle me-1"/>ใช้เกินงบประมาณ</span><b t-esc="fmtNum(data.kpi_budget.over)"/></div>
+                            <div t-else="" class="o_apd_row"><span>งบคงเหลือ</span><b t-esc="fmtNum(data.kpi_budget.remaining)"/></div>
+                            <div class="o_apd_row o_apd_row--hl"><span>รวมงบประมาณ</span><b t-esc="fmtBaht(data.kpi_budget.total_budget)"/></div>
                         </div>
                         <div class="o_apd_note" t-esc="data.kpi_budget.scope_note"/>
                     </div>
@@ -268,7 +268,7 @@
                         <div class="o_apd_chart"><canvas t-ref="weeklyChart"/></div>
                     </div>
                     <div class="o_apd_panel">
-                        <div class="o_apd_panel_title">สัดส่วนยอดจ่ายประจำเดือนตามร้านค้า</div>
+                        <div class="o_apd_panel_title">สัดส่วนการใช้เงินประจำเดือน</div>
                         <div class="o_apd_donut_wrap">
                             <div class="o_apd_chart o_apd_chart--donut"><canvas t-ref="donutChart"/></div>
                             <div class="o_apd_legend">
