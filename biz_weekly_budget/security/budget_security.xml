@@ -22,6 +22,13 @@
             <field name="implied_ids" eval="[(4, ref('group_budget_user'))]"/>
         </record>
 
+        <!-- Bill Budget Bypass Group: may create/post vendor bills without a budget plan -->
+        <record id="group_budget_bill_bypass" model="res.groups">
+            <field name="name">Budget: Bypass Bill Check</field>
+            <field name="category_id" ref="module_category_weekly_budget"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
         <!-- Monthly Budget Plan Rules -->
         <record id="rule_monthly_budget_plan_user" model="ir.rule">
             <field name="name">Monthly Budget Plan: User Read</field>

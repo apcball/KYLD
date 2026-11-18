@@ -120,6 +120,16 @@ class AccountMove(models.Model):
             budget_date,
         )
 
+    def _budget_bypass_note(self, line, reason):
+        """Log + chatter note when a bypass-group user skips the budget check."""
+        self.ensure_one()
+        _logger.warning(
+            "Budget check bypassed for bill %s line %s by %s: %s",
+            self.name, line.id, self.env.user.login, reason)
+        self.sudo().message_post(body=_(
+            "Budget check bypassed by %(user)s for line '%(line)s': %(reason)s.",
+            user=self.env.user.name, line=line.name or line.id, reason=reason))
+
     def _update_budget_moves(self):
         """Generate budget.move entries for Vendor Bills (draft or posted).
 
@@ -135,6 +145,7 @@ class AccountMove(models.Model):
 
         BudgetMove = self.env['budget.move'].sudo()
         BudgetAllocation = self.env['monthly.budget.allocation'].sudo()
+        bypass = self.env.user.has_group('biz_weekly_budget.group_budget_bill_bypass')
 
         self._clear_budget_moves()  # Clear existing to rebuild
 
@@ -174,6 +185,10 @@ class AccountMove(models.Model):
                     # Last-resort fallback: use the bill header's department
                     if not dept_id and bill.department_id:
                         dept_id = bill.department_id.id
+
+                    if not dept_id and bypass:
+                        bill._budget_bypass_note(line, _("no department found"))
+                        continue
 
                     if not dept_id:
                         message = _(
@@ -220,6 +235,10 @@ class AccountMove(models.Model):
                                 dept_id,
                                 budget_date,
                             )
+                            continue
+                        if bypass:
+                            bill._budget_bypass_note(
+                                line, _("no confirmed budget allocation for %s") % budget_date)
                             continue
                         raise UserError(_(
                             "No confirmed budget allocation found for vendor bill %(bill)s, "
