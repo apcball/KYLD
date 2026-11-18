@@ -315,9 +315,13 @@ export class ApPaymentDashboard extends Component {
         if (this.state.exporting) return;
         this.state.exporting = true;
         try {
+            // "paid_detail": document-level detail of card 2 (actual payments) for finance
+            const isPaidDetail = sheet === "paid_detail";
             await download({
-                url: "/ap_dashboard/api/export",
-                data: { ...this.state.applied, sheet: sheet || this.state.tab },
+                url: isPaidDetail ? "/ap_dashboard/api/export_paid" : "/ap_dashboard/api/export",
+                data: isPaidDetail
+                    ? { ...this.state.applied }
+                    : { ...this.state.applied, sheet: sheet || this.state.tab },
             });
         } catch (error) {
             console.error("AP dashboard export failed", error);

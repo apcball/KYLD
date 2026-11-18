@@ -53,3 +53,19 @@ class ApDashboardAPI(http.Controller):
             ('Content-Type', XLSX_MIME),
             ('Content-Disposition', content_disposition(filename)),
         ])
+
+    @http.route('/ap_dashboard/api/export_paid', type='http', auth='user')
+    def export_paid(self, month=None, year=None, company_id=None, project_id=None,
+                    partner_id=None, analytic_id=None, **kwargs):
+        filters = self._filters(month, year, company_id, project_id, partner_id, analytic_id)
+        engine = request.env['biz.ap.dashboard']
+        try:
+            content = engine.build_paid_detail_export(filters)
+            f = engine._normalize_filters(filters)
+        except AccessError:
+            return request.make_response('Access denied', status=403)
+        filename = 'ap_paid_detail_%04d-%02d.xlsx' % (f['year'], f['month'])
+        return request.make_response(content, headers=[
+            ('Content-Type', XLSX_MIME),
+            ('Content-Disposition', content_disposition(filename)),
+        ])
