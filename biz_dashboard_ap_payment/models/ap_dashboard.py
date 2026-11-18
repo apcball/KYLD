@@ -1376,11 +1376,17 @@ class ApDashboard(models.AbstractModel):
             for bill in bills:
                 v = self._bill_vals(bill, f)
                 total += v['residual']
-                vendors.add(bill.commercial_partner_id.id or bill.partner_id.id)
+                if abs(v['residual']) > 0.005:
+                    vendors.add(bill.commercial_partner_id.id or bill.partner_id.id)
             return total, len(bills)
 
         overdue, overdue_n = residual(self._overdue_domain(f))
         prev_due, prev_n = residual(self._bill_domain(f, f['prev_from'], f['prev_to'], unpaid_only=True))
+        # this month's bills still unpaid also count as creditors (paid ones do not)
+        unpaid_month = self.env['account.move'].search_fetch(
+            self._bill_domain(f, f['date_from'], f['date_to'], unpaid_only=True),
+            ['commercial_partner_id', 'partner_id'])
+        vendors.update((m.commercial_partner_id or m.partner_id).id for m in unpaid_month)
         month_spend = kpi_payment['total'] - kpi_payment['other']
         salary_other = kpi_payment['other']
         plan_rows = [
@@ -1404,8 +1410,8 @@ class ApDashboard(models.AbstractModel):
             'month': round(month_spend, 2),
             'other': round(salary_other, 2),
             'total': round(overdue + prev_due + month_spend + salary_other, 2),
-            'creditor_count': len(vendors) + (1 if salary_other else 0),
-            'bill_count': overdue_n + prev_n + kpi_payment['count'],
+            'creditor_count': len(vendors),
+            'bill_count': overdue_n + prev_n + len(unpaid_month),
             'rows': rows,
             'footer': {
                 'plan': round(total_plan, 2), 'actual': round(total_actual, 2),

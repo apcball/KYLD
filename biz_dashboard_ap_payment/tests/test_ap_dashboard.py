@@ -261,6 +261,8 @@ class TestApDashboard(TransactionCase):
         self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'overdue'), 1000.0, places=2)
         self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'prev_due'), 2000.0, places=2)
         self.assertAlmostEqual(self._delta(payload, 'kpi_plan', 'month'), 3000.0, places=2)
+        # v1 (overdue + last month) and v2 (this month, unpaid) are two new creditors
+        self.assertEqual(self._delta(payload, 'kpi_plan', 'creditor_count'), 2)
         plan = payload['kpi_plan']
         self.assertAlmostEqual(
             plan['total'], plan['overdue'] + plan['prev_due'] + plan['month'] + plan['other'], places=2)

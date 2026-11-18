@@ -109,7 +109,7 @@
                             </div>
                         </div>
                         <div class="o_apd_card_value o_apd_card_value--lg" t-esc="fmtBaht(data.kpi_plan.total)"/>
-                        <div class="o_apd_card_sub">รวมเจ้าหนี้ (คงค้าง) <t t-esc="data.kpi_plan.creditor_count"/> รายการ</div>
+                        <div class="o_apd_card_sub">รวมเจ้าหนี้ที่ยังมียอดค้าง <t t-esc="data.kpi_plan.creditor_count"/> ราย</div>
                         <div class="o_apd_plan">
                             <div class="o_apd_chart o_apd_chart--plan"><canvas t-ref="planChart"/></div>
                             <div class="o_apd_pills">
