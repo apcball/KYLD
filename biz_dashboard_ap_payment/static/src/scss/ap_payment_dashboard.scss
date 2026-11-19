@@ -346,6 +346,27 @@ $apd-ink: #1b2a49;
         &--purple { background: $apd-purple; }
         &--blue { background: #3b82f6; }
     }
+    .o_apd_hl {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        background: var(--bg);
+        border-radius: 10px;
+        padding: 8px 10px;
+        .o_apd_hl_label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--c);
+            small { font-weight: 600; }
+        }
+        .o_apd_hl_value {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--c);
+            white-space: nowrap;
+        }
+    }
     .o_apd_note {
         font-size: 0.66rem;
         color: #8a94a6;

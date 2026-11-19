@@ -217,8 +217,8 @@
                         <div class="o_apd_card_head">
                             <span class="o_apd_card_icon"><i class="fa fa-calendar"/></span>
                             <div>
-                                <div class="o_apd_card_title">5. ประมาณการจ่ายชำระเดือนถัดไป (<t t-esc="data.filters.next_month_label"/>)</div>
-                                <div class="o_apd_card_sub">ยอดเจ้าหนี้ที่คาดว่าจะต้องชำระในเดือนถัดไป</div>
+                                <div class="o_apd_card_title">5. ประมาณการยอดจ่ายเดือนถัดไป (<t t-esc="data.filters.next_month_label"/>)</div>
+                                <div class="o_apd_card_sub">ยอดเงินที่คาดว่าจะต้องชำระในเดือนถัดไป</div>
                             </div>
                         </div>
                         <div class="o_apd_card_value" t-esc="fmtBaht(data.kpi_forecast.total)"/>
@@ -234,11 +234,16 @@
                                 <div class="o_apd_tile_pct" t-esc="fmtPct(data.kpi_forecast.credit_pct)"/>
                             </div>
                         </div>
-                        <div class="o_apd_note">
-                            บิลค้างชำระ <t t-esc="fmtNum(data.kpi_forecast.from_bills)"/> · PO ยังไม่ตั้งบิล <t t-esc="fmtNum(data.kpi_forecast.from_po)"/>
+                        <div class="o_apd_rows">
+                            <div class="o_apd_row"><span><i class="fa fa-file-text-o me-1"/>บิลค้างชำระ</span><b><t t-esc="fmtNum(data.kpi_forecast.from_bills)"/> บาท</b></div>
+                            <div class="o_apd_row"><span><i class="fa fa-shopping-cart me-1"/>PO ยังไม่ตั้งบิล</span><b><t t-esc="fmtNum(data.kpi_forecast.from_po)"/> บาท</b></div>
+                        </div>
+                        <div class="o_apd_hl" t-if="data.kpi_forecast.other">
+                            <span class="o_apd_hl_label"><i class="fa fa-users me-1"/>รายจ่ายนอกบิลคาดการณ์ <small>(เงินเดือน / ดอกเบี้ย)</small></span>
+                            <b class="o_apd_hl_value"><t t-esc="fmtNum(data.kpi_forecast.other)"/> บาท</b>
                         </div>
                         <div class="o_apd_note" t-if="data.kpi_forecast.other">
-                            รวมรายจ่ายนอกบิลคาดการณ์ (เงินเดือน / ดอกเบี้ย · เฉลี่ย 3 เดือนก่อนหน้า) <t t-esc="fmtNum(data.kpi_forecast.other)"/> · ไม่รวมเงินต้นเงินยืมกรรมการ
+                            เฉลี่ย 3 เดือนก่อนหน้า · ไม่รวมเงินต้นเงินกู้ · รวมอยู่ในยอดเงินสดด้านบนแล้ว
                         </div>
                     </div>
                     <!-- 6 -->
